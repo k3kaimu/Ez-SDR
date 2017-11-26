@@ -76,7 +76,7 @@ string generate_out_filename(string base_fn, size_t n_names, size_t this_name)
  * A function to be used as a boost::thread_group thread for transmitting
  **********************************************************************/
 void transmit_worker(
-    ref shared(RWQueue!(immutable(Complex!float)[][2])) txSignalQueue,
+    ref shared(RWQueue!(const(shared(Complex!float))[][2])) txSignalQueue,
     ref TxStreamer tx_streamer,
     ref TxMetaData metadata
 ){
@@ -92,8 +92,8 @@ void transmit_worker(
     VUHDException error;
 
     tx_streamer.send(cast(Complex!float[][])[null,null], metadata, 0.1);
-    const(Complex!float)[][2] txbufs;
-    const(Complex!float)[][2] lastTxSignal = initialBuffers;
+    const(shared(Complex!float))[][2] txbufs;
+    const(shared(Complex!float))[][2] lastTxSignal = cast(shared)initialBuffers;
     () @nogc {
         //send data until the signal handler gets called
         while(!stop_signal_called){
@@ -108,7 +108,7 @@ void transmit_worker(
 
             //send the entire contents of the buffer
             size_t txsize;
-            if(auto err = tx_streamer.send(txbufs, afterFirstMD, 0.1, txsize)){
+            if(auto err = tx_streamer.send(cast(Complex!float[][])txbufs[], afterFirstMD, 0.1, txsize)){
                 error = err;
                 return;
             }
@@ -120,7 +120,7 @@ void transmit_worker(
 
     //send a mini EOB packet
     foreach(ref e; txbufs) e.length = 0;
-    tx_streamer.send(txbufs, endMD, 0.1);
+    tx_streamer.send(cast(Complex!float[][])txbufs[], endMD, 0.1);
 
     if(error)
         throw error.makeException();
@@ -174,7 +174,7 @@ void recv_to_file(
     shared(Complex!float)[] nowTargetBuffer;
     shared(Complex!float)[] targetBuffer;
     VUHDException error;
-    () {
+    () @nogc {
         while(! stop_signal_called) {
             size_t num_rx_samps;
             if(auto err = rx_stream.recv(garbageBuffer, md, timeout, num_rx_samps)){
@@ -231,7 +231,7 @@ void recv_to_file(
                 }
             }
 
-            // fwrite(cast(Complex!float*)targetBuffer.ptr, (Complex!float).sizeof, num_rx_samps, outfile);
+            // fwrite(cast(Complex!float*)garbageBuffer.ptr, (Complex!float).sizeof, received_samples, outfile);
             double sigpower = garbageBuffer[0 .. min(received_samples, 4096)].map!`cast(real)(a.re^^2 + a.im^^2)`.sum();
             if(! powerQueue.full) powerQueue.push(sigpower);
         }
@@ -249,7 +249,7 @@ void recv_to_file(
  * Main function
  **********************************************************************/
 void main(string[] args){
-    uhd_set_thread_priority(uhd_default_thread_priority, true);
+    // uhd_set_thread_priority(uhd_default_thread_priority, true);
 
     //transmit variables to be set by po
     string[] txfiles;
@@ -324,6 +324,7 @@ void main(string[] args){
     //Lock mboard clocks
     tx_usrp.clockSource = ref_;
     rx_usrp.clockSource = ref_;
+    // rx_usrp.clockSource = "internal";
 
     //always select the subdevice first, the channel mapping affects the other settings
     if(! tx_subdev.empty) tx_usrp.txSubdevSpec = tx_subdev;
@@ -465,32 +466,35 @@ void main(string[] args){
 
     //reset usrp time to prepare for transmit/receive
     Thread.sleep(1.seconds);
-    tx_usrp.timeSource = ref_;
-    rx_usrp.timeSource = ref_;
-    writeln("Setting device timestamp to 0...");
-    tx_usrp.setTimeUnknownPPS(0.seconds);
+    tx_usrp.setTimeSource("mimo", 1);
+    // writeln("Setting device timestamp to 0...");
+    // tx_usrp.setTimeUnknownPPS(0.seconds);
 
     Thread.sleep(1.seconds);
     scope(exit)
         stop_signal_called = true;
     writeln("START");
 
+
+    auto fftw = makeFFTWObject!Complex(SYMBOL_SIZE);
+
     //start transmit worker thread
     // boost::thread_group transmit_thread;
     // transmit_thread.create_thread(boost::bind(&transmit_worker, buff, wave_table, tx_stream, md, step, index, num_channels));
     enforce(txfiles.length == tx_channel_nums.length);
-    immutable(Complex!float[])[] waveTable;
+    shared(Complex!float[])[] waveTable;
     foreach(i, filename; txfiles){
         import std.file : read;
         auto signal = cast(Complex!float[])read(filename);
         foreach(ref e; signal) e *= ampl;
-        waveTable ~= cast(immutable)signal;
+        waveTable ~= cast(shared)signal;
         enforce(signal.length == SYMBOL_SIZE);
     }
 
-    immutable(Complex!float[]) zeros = cast(immutable)iota(SYMBOL_SIZE).map!(a => Complex!float(0)).array();
-    Complex!float[] supplyContinuedBuffer = new Complex!float[SYMBOL_SIZE * (NUM_TRAINING_SYMBOL + 100)];
-    immutable(Complex!float[])[2] trainingSignals = (){
+    Complex!float[] subTxWaveTable = new Complex!float[SYMBOL_SIZE];
+    shared(Complex!float[]) zeros = cast(shared)iota(SYMBOL_SIZE).map!(a => Complex!float(0)).array();
+    Complex!float[] supplyContinuedBuffer = new Complex!float[SYMBOL_SIZE * 128];
+    shared(Complex!float[])[2] trainingSignals = (){
         Complex!float[][2] signals;
         foreach(phase; [0, 1]){
             foreach(i; 0 .. NUM_TRAINING_SYMBOL){
@@ -499,12 +503,22 @@ void main(string[] args){
             }
         }
 
-        return cast(immutable(Complex!float[])[2])signals;
+        return cast(shared(Complex!float[])[2])signals;
     }();
 
-    shared RWQueue!(immutable(Complex!float)[][2]) txqueue;
+    // immutable real inputDeltaTheta = 10.0L / SYMBOL_SIZE * 2*PI;
+    // immutable(Complex!float)[] sineWave = (){
+    //     Complex!float[] buf;
+    //     foreach(i; 0 .. SYMBOL_SIZE)
+    //         buf ~= cast(Complex!float)std.complex.expi(inputDeltaTheta * i) * ampl;
+    //     return cast(immutable)buf;
+    // }();
+
+    shared RWQueue!(const(shared(Complex!float))[][2]) txqueue;
     txqueue.push([waveTable[0], zeros]);
     auto transmit_thread = new Thread(delegate(){
+        scope(exit) stop_signal_called = true;
+
         try
             transmit_worker(txqueue, tx_stream, md);
         catch(Exception ex){
@@ -518,6 +532,8 @@ void main(string[] args){
     shared RWQueue!(Complex!float[]) reportedSignal;
     shared RWQueue!(double) powerQueue;
     auto receive_thread = new Thread(delegate(){
+        scope(exit) stop_signal_called = true;
+
         try
             recv_to_file(rx_usrp, "fc32", otw, file, settling, supplyBufferQueue, reportedSignal, powerQueue);
         catch(Exception ex){
@@ -527,7 +543,9 @@ void main(string[] args){
     receive_thread.start();
 
     // ESTIMATION
-    auto printPowerThread = new Thread(delegate(){
+    auto printPowerThread = new Thread(delegate() @nogc {
+        scope(exit) stop_signal_called = true;
+
         while(! stop_signal_called) {
             while(powerQueue.empty && ! stop_signal_called)
                 Thread.sleep(1.msecs);
@@ -541,13 +559,17 @@ void main(string[] args){
     });
     printPowerThread.start();
 
-    //GC.disable();
+    GC.disable();
     Thread.sleep(5.seconds);
-    estimateAndSetSignal(txqueue, supplyBufferQueue, reportedSignal, trainingSignals, waveTable[1], waveTable[0], zeros, supplyContinuedBuffer);
-    Thread.sleep(2.seconds);
-    estimateAndSetSignal(txqueue, supplyBufferQueue, reportedSignal, trainingSignals, waveTable[1], waveTable[0], zeros, supplyContinuedBuffer);
+    // immutable deltaThetaOfFreqOffset = estimateFrequencyOffset(txqueue, supplyBufferQueue, reportedSignal, inputDeltaTheta, sineWave, zeros, supplyContinuedBuffer);
+    // writeln("DELTA THETA: ", deltaThetaOfFreqOffset);
+    // Thread.sleep(2.seconds);
+    estimateAndSetSignal(fftw, txqueue, supplyBufferQueue, reportedSignal,
+        cast(Complex!float[][2])trainingSignals,
+        cast(Complex!float[])waveTable[1],
+        cast(Complex!float[])waveTable[0],
+        cast(Complex!float[])zeros, supplyContinuedBuffer, 0);
     Thread.sleep(10.seconds);
-
 
     //clean up transmit worker
     stop_signal_called = true;
@@ -562,40 +584,53 @@ void main(string[] args){
 
 
 void estimateAndSetSignal(
-    ref shared RWQueue!(immutable(Complex!float)[][2]) txqueue,
+    ref FFTWObject!Complex fftw,
+    ref shared RWQueue!(const(shared(Complex!float))[][2]) txqueue,
     ref shared RWQueue!(Complex!float[]) rxsupplier,
     ref shared RWQueue!(Complex!float[]) rxreporter,
-    immutable(Complex!float[])[2] trainingSignals,
-    immutable(Complex!float)[] trainingSymbol,
-    immutable(Complex!float)[] transmitSymbol,
-    immutable(Complex!float)[] zeros,
+    const(Complex!float[])[2] trainingSignals,
+    const(Complex!float)[] trainingSymbol,
+    const(Complex!float)[] transmitSymbol,
+    const(Complex!float)[] zeros,
     Complex!float[] rxbuffer,
+    real deltaThetaOfFreqOffset,
 )
 {
-    auto fftw = FFTWObject!Complex(SYMBOL_SIZE);
-
     //Thread.sleep(5.seconds);
-    enforce(rxreporter.empty);
+    if(!rxreporter.empty){
+        printf("ERROR on line:%d",  cast(int)__LINE__);
+        return;
+    }
 
     rxsupplier.push(cast(shared)rxbuffer);
 
-    writeln("SEND TRAINING SIGNAL");
-    txqueue.push(trainingSignals);
-    txqueue.push([zeros, zeros]);
+    puts("SEND TRAINING SIGNAL\n");
+    txqueue.push(cast(shared)trainingSignals);
+    txqueue.push(cast(shared)[zeros, zeros]);
 
     // 信号が受信されるまで待つ
     while(rxreporter.empty && ! stop_signal_called) {
         Thread.sleep(100.msecs);
     }
     if(stop_signal_called) return;
-    enforce(txqueue.empty);
+    if(! txqueue.empty){
+        printf("ERROR on line:%d",  cast(int)__LINE__);
+        return;
+    }
     rxreporter.pop();   // 信号を取り出しておく
 
-    writeln("START ESTIMATE");
+    puts("START ESTIMATE\n");
+
+    // 周波数を補正する
+    foreach(i, ref e; rxbuffer)
+        e *= std.complex.expi(i * deltaThetaOfFreqOffset * -1);
 
     // SNR=30dBを達成するピークを探す
     auto peakResult = peakSearch(trainingSymbol, rxbuffer, 30);
-    enforce(! peakResult.index.isNull);
+    if(peakResult.index.isNull){
+        printf("ERROR on line:%d",  cast(int)__LINE__);
+        return;
+    }
 
     // ピークの位置から探す
     rxbuffer = rxbuffer[peakResult.index.get() .. $];
@@ -634,3 +669,54 @@ void estimateAndSetSignal(
     writeln("RESEND");
     txqueue.push(cast(immutable(Complex!float[])[2])[transmitSymbol, fftw.outputs!float.dup]);
 }
+
+
+
+// real estimateFrequencyOffset(
+//     ref shared RWQueue!(immutable(Complex!float)[][2]) txqueue,
+//     ref shared RWQueue!(Complex!float[]) rxsupplier,
+//     ref shared RWQueue!(Complex!float[]) rxreporter,
+//     real inputDeltaTheta,
+//     immutable(Complex!float)[] sineWave,
+//     immutable(Complex!float)[] zeros,
+//     Complex!float[] rxbuffer,
+// )
+// {
+//     writeln("START FREQUENCY OFFSET ESTIMATING");
+//     writeln("TRANSMIT SINE WAVE");
+//     txqueue.push([sineWave, zeros]);
+//     Thread.sleep(1.seconds);
+
+//     rxsupplier.push(cast(shared)rxbuffer);
+//     // 信号が受信されるまで待つ
+//     while(rxreporter.empty && ! stop_signal_called) {
+//         Thread.sleep(100.msecs);
+//     }
+//     if(stop_signal_called) return real.nan;
+//     enforce(txqueue.empty);
+//     rxreporter.pop();   // 信号を取り出しておく
+
+//     writeln("RECEIVING END");
+//     writeln("START OFFSET ESTIMATING");
+
+//     auto fftw = makeFFTWObject!Complex(rxbuffer.length);
+//     fftw.inputs!float[] = rxbuffer[];
+//     fftw.fft!float();
+//     rxbuffer[] = fftw.outputs!float[];
+
+//     real maxValue = -real.infinity;
+//     size_t maxPos;
+//     foreach(i, e; rxbuffer){
+//         auto p = e.sqAbs;
+//         if(maxValue < p){
+//             maxValue = p;
+//             maxPos = i;
+//         }
+//     }
+
+//     if(maxPos < rxbuffer.length / 2){
+//         return (maxPos*1.0L / rxbuffer.length)*2*PI - inputDeltaTheta;
+//     }else{
+//         return (maxPos*1.0L / rxbuffer.length)*2*PI - 2*PI - inputDeltaTheta;
+//     }
+// }
