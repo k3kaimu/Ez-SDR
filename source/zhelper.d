@@ -36,7 +36,7 @@ void s_send(void* socket, void[] data, ref bool error)
     scope(exit) zmq_msg_close(&message);
 
     memcpy(zmq_msg_data(&message), data.ptr, data.length);
-    if(zmq_msg_send(&message, socket, 0) < 0)
+    if(zmq_msg_send(&message, socket, ZMQ_DONTWAIT) < 0)
         error = true;
     else
         error = false;

@@ -8,7 +8,7 @@
 	"license": "NYSL",
 	"dependencies": {
 		"dffdd": { "path": "../dffdd" },
-		"uhd": { "path": "../../uhd4d" },
+		"uhd": { "path": "../uhd4d" },
 		"lock-free": "~>0.1.2",
 		"zeromq": "~>4.2.2"
 	}

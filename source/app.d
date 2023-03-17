@@ -35,6 +35,8 @@ import core.thread;
 import core.atomic;
 import core.memory;
 
+import core.stdc.stdlib;
+
 import deimos.zmq.zmq;
 import zhelper;
 import correlator;
@@ -45,6 +47,7 @@ import lock_free.rwqueue;
 
 enum size_t SYMBOL_SIZE = 4096;
 enum size_t NUM_TRAINING_SYMBOL = 32;
+enum size_t REPORT_FFT_SIZE = 128;
 
 
 /***********************************************************************
@@ -94,7 +97,7 @@ void transmit_worker(
     tx_streamer.send(cast(Complex!float[][])[null,null], metadata, 0.1);
     const(shared(Complex!float))[][2] txbufs;
     const(shared(Complex!float))[][2] lastTxSignal = cast(shared)initialBuffers;
-    () @nogc {
+    () {
         //send data until the signal handler gets called
         while(!stop_signal_called){
             if(txbufs[0].length == 0){
@@ -110,7 +113,10 @@ void transmit_worker(
             size_t txsize;
             if(auto err = tx_streamer.send(cast(Complex!float[][])txbufs[], afterFirstMD, 0.1, txsize)){
                 error = err;
-                return;
+                writeln(err);
+                Thread.sleep(2.seconds);
+                transmit_worker(txSignalQueue, tx_streamer, metadata);
+                //return;
             }
 
             foreach(ch; 0 .. 2)
@@ -139,7 +145,12 @@ void recv_to_file(
     ref shared RWQueue!(Complex!float[]) supplyBufferQueue,
     ref shared RWQueue!(Complex!float[]) reportBufferQueue,
     ref shared RWQueue!(double) powerQueue,
-){
+    shared(real)[] spectrum,
+)
+in{
+    assert(spectrum.length == REPORT_FFT_SIZE);
+}
+body{
     int num_total_samps = 0;
     //create a receive streamer
     writeln("CPU_FORMAT: ", cpu_format);
@@ -149,7 +160,7 @@ void recv_to_file(
 
     // Prepare buffers for received samples and metadata
     RxMetaData md = makeRxMetaData();
-    Complex!float[] garbageBuffer = new Complex!float[4096];
+    Complex!float[] garbageBuffer = new Complex!float[SYMBOL_SIZE];
 
     // Create one ofstream object per channel
     import core.stdc.stdio : FILE, fwrite, fopen, fclose;
@@ -170,11 +181,15 @@ void recv_to_file(
     stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
     rx_stream.issue(stream_cmd);
 
+    auto fftw = makeFFTWObject!Complex(REPORT_FFT_SIZE);
+    foreach(i; 0 .. REPORT_FFT_SIZE)
+        spectrum[i] = 0;
 
     shared(Complex!float)[] nowTargetBuffer;
     shared(Complex!float)[] targetBuffer;
     VUHDException error;
-    () @nogc {
+    Thread.sleep(1.seconds);
+    () {
         while(! stop_signal_called) {
             size_t num_rx_samps;
             if(auto err = rx_stream.recv(garbageBuffer, md, timeout, num_rx_samps)){
@@ -187,7 +202,8 @@ void recv_to_file(
             md.ErrorCode errorCode;
             if(auto uhderr = md.getErrorCode(errorCode)){
                 error = uhderr;
-                return;
+                Thread.sleep(2.seconds);
+                recv_to_file(usrp, cpu_format, wire_format, file, settling_time, supplyBufferQueue, reportBufferQueue, powerQueue, spectrum);
             }
             if (errorCode == md.ErrorCode.TIMEOUT) {
                 import core.stdc.stdio : puts;
@@ -232,8 +248,18 @@ void recv_to_file(
             }
 
             // fwrite(cast(Complex!float*)garbageBuffer.ptr, (Complex!float).sizeof, received_samples, outfile);
-            double sigpower = garbageBuffer[0 .. min(received_samples, 4096)].map!`cast(real)(a.re^^2 + a.im^^2)`.sum();
+            double sigpower = garbageBuffer[0 .. min(received_samples, SYMBOL_SIZE)].map!`cast(real)(a.re^^2 + a.im^^2)`.sum();
             if(! powerQueue.full) powerQueue.push(sigpower);
+
+            if(received_samples >= REPORT_FFT_SIZE){
+                import std.random;
+                auto index = uniform(0, received_samples - REPORT_FFT_SIZE);
+                fftw.inputs!float[] = garbageBuffer[index .. index + REPORT_FFT_SIZE];
+                fftw.fft!float();
+                auto outputs = fftw.outputs!float[];
+                foreach(i; 0 .. REPORT_FFT_SIZE)
+                    spectrum[i] = spectrum[i] * 0.98 + 0.02 * outputs[i].sqAbs;
+            }
         }
     }();
 
@@ -491,7 +517,7 @@ void main(string[] args){
         enforce(signal.length == SYMBOL_SIZE);
     }
 
-    Complex!float[] subTxWaveTable = new Complex!float[SYMBOL_SIZE];
+    Complex!float[] waveTableForAUX = new Complex!float[SYMBOL_SIZE];
     shared(Complex!float[]) zeros = cast(shared)iota(SYMBOL_SIZE).map!(a => Complex!float(0)).array();
     Complex!float[] supplyContinuedBuffer = new Complex!float[SYMBOL_SIZE * 128];
     shared(Complex!float[])[2] trainingSignals = (){
@@ -531,11 +557,12 @@ void main(string[] args){
     shared RWQueue!(Complex!float[]) supplyBufferQueue;
     shared RWQueue!(Complex!float[]) reportedSignal;
     shared RWQueue!(double) powerQueue;
+    shared(real)[] receivedSpectrum = new shared(real)[REPORT_FFT_SIZE];
     auto receive_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
 
         try
-            recv_to_file(rx_usrp, "fc32", otw, file, settling, supplyBufferQueue, reportedSignal, powerQueue);
+            recv_to_file(rx_usrp, "fc32", otw, file, settling, supplyBufferQueue, reportedSignal, powerQueue, receivedSpectrum);
         catch(Exception ex){
             writeln(ex);
         }
@@ -543,39 +570,121 @@ void main(string[] args){
     receive_thread.start();
 
     // ESTIMATION
-    auto printPowerThread = new Thread(delegate() @nogc {
-        scope(exit) stop_signal_called = true;
+    auto zmqReportThread = new Thread(delegate() {
+        try{
+            scope(exit) stop_signal_called = true;
 
-        while(! stop_signal_called) {
-            while(powerQueue.empty && ! stop_signal_called)
-                Thread.sleep(1.msecs);
+            void* context = zmq_ctx_new();
+            void* canc_pusher = zmq_socket(context, ZMQ_PUSH);
+            zmq_bind(canc_pusher, "ipc:///tmp/mwe2017_app_cancellation");
 
-            double value = powerQueue.pop();
-            double db = 10*log10(value);
-            printf("%f\n", db);
-            Thread.sleep(200.msecs);
-            while(! powerQueue.empty) powerQueue.pop();
+            void* spec_pusher = zmq_socket(context, ZMQ_PUSH);
+            zmq_bind(spec_pusher, "ipc:///tmp/mwe2017_app_spectrum");
+
+            while(! stop_signal_called) {
+                while(powerQueue.empty && ! stop_signal_called)
+                    Thread.sleep(1.msecs);
+
+                //printf("%f\n", db);
+                bool err;
+                char[32 * REPORT_FFT_SIZE] buf;
+
+                if(! powerQueue.empty){
+                    double value = powerQueue.pop();
+                    double db = 10*log10(value);
+                    if(! isFinite(db)) db = 0;
+                    immutable len = snprintf(buf.ptr, buf.length - 1, `{"CANCELLATION": %f}`, db);
+                    if(len > 0){
+                        s_send(canc_pusher, buf[0 .. len], err);
+                        //printf("%s\n", buf.ptr);
+                    }
+                }
+                {
+                    auto offset = snprintf(buf.ptr, buf.length - 1, `{"SPECTRUM": [`);
+                    if(offset <= 0){
+                        printf("ERROR: %d", __LINE__);
+                        goto Lnext;
+                    }
+                    foreach(i; 0 .. REPORT_FFT_SIZE){
+                        double db = 10*log10(receivedSpectrum[i]);
+                        if(! isFinite(db)) db = 0;
+                        int writeN;
+                        if(i == REPORT_FFT_SIZE - 1)
+                            writeN = snprintf(buf.ptr + offset, buf.length - 1 - offset, "%f]}", db);
+                        else
+                            writeN = snprintf(buf.ptr + offset, buf.length - 1 - offset, "%f,", db);
+
+                        if(writeN <= 0){
+                            printf("ERROR: %d", __LINE__);
+                            goto Lnext;
+                        }
+
+                        offset += writeN;
+                    }
+
+                    //writeln(buf[0 .. offset]);
+                    s_send(spec_pusher, buf[0 .. offset], err);
+                }
+
+              Lnext:
+                Thread.sleep(100.msecs);
+                while(! powerQueue.empty) powerQueue.pop();
+            }
+        }catch(Throwable ex){
+            writeln(ex);
         }
     });
-    printPowerThread.start();
+    zmqReportThread.start();
+
+    void* context = zmq_ctx_new();
+    void* command_puller = zmq_socket(context, ZMQ_PULL);
+    zmq_connect(command_puller, "ipc:///tmp/mwe2017_app_command");
 
     GC.disable();
-    Thread.sleep(5.seconds);
-    // immutable deltaThetaOfFreqOffset = estimateFrequencyOffset(txqueue, supplyBufferQueue, reportedSignal, inputDeltaTheta, sineWave, zeros, supplyContinuedBuffer);
-    // writeln("DELTA THETA: ", deltaThetaOfFreqOffset);
-    // Thread.sleep(2.seconds);
-    estimateAndSetSignal(fftw, txqueue, supplyBufferQueue, reportedSignal,
-        cast(Complex!float[][2])trainingSignals,
-        cast(Complex!float[])waveTable[1],
-        cast(Complex!float[])waveTable[0],
-        cast(Complex!float[])zeros, supplyContinuedBuffer, 0);
-    Thread.sleep(10.seconds);
+    const(shared(Complex!float))[][2] nowTransmitSignals = [waveTable[0], zeros];
+    while(! stop_signal_called){
+        bool error;
+        if(auto data = s_recv_noblock(command_puller, error)){
+            scope(exit) free(data.ptr);
+
+            const(char)[] str = cast(const(char)[])data;
+            if(str.startsWith("EST")){
+                estimateAndSetSignal(fftw, txqueue, supplyBufferQueue, reportedSignal,
+                    cast(Complex!float[][2])trainingSignals,
+                    cast(Complex!float[])waveTable[1],
+                    cast(Complex!float[])waveTable[0],
+                    cast(Complex!float[])zeros,
+                    cast(shared)waveTableForAUX,
+                    supplyContinuedBuffer, 0);
+
+                nowTransmitSignals = [waveTable[0], cast(shared)waveTableForAUX];
+            }else if(str.startsWith("CH0-OFF")) {
+                nowTransmitSignals = [zeros, nowTransmitSignals[1]];
+                txqueue.push(nowTransmitSignals);
+            }else if(str.startsWith("CH1-OFF")) {
+                nowTransmitSignals = [nowTransmitSignals[0], zeros];
+                txqueue.push(nowTransmitSignals);
+            }else if(str.startsWith("CH0-ON")){
+                nowTransmitSignals = [waveTable[0], nowTransmitSignals[1]];
+                txqueue.push(nowTransmitSignals);
+            }else if(str.startsWith("CH1-ON")){
+                nowTransmitSignals = [nowTransmitSignals[0], cast(shared)waveTableForAUX];
+                txqueue.push(nowTransmitSignals);
+            }else if(str.startsWith("INIT")){
+                waveTableForAUX[] = zeros[];
+                nowTransmitSignals = [waveTable[0], cast(shared)waveTableForAUX];
+            }
+        }
+
+        enforce(!error);
+        Thread.sleep(100.msecs);
+    }
 
     //clean up transmit worker
     stop_signal_called = true;
     transmit_thread.join();
     receive_thread.join();
-    printPowerThread.join();
+    zmqReportThread.join();
     //GC.enable();
 
     //finished
@@ -592,6 +701,7 @@ void estimateAndSetSignal(
     const(Complex!float)[] trainingSymbol,
     const(Complex!float)[] transmitSymbol,
     const(Complex!float)[] zeros,
+    shared(Complex!float)[] waveTableForAUX,
     Complex!float[] rxbuffer,
     real deltaThetaOfFreqOffset,
 )
@@ -662,12 +772,18 @@ void estimateAndSetSignal(
 
     fftw.inputs!float[] = transmitSymbol[];
     fftw.fft!float();
-    foreach(i; 0 .. SYMBOL_SIZE)
-        fftw.inputs!float[i] = fftw.outputs!float[i] * recv0Spec[i] / recv1Spec[i] * -1;
+    foreach(i; 0 .. SYMBOL_SIZE){
+        if((recv0Spec[i] / recv1Spec[i]).sqAbs < 100)
+            fftw.inputs!float[i] = fftw.outputs!float[i] * recv0Spec[i] / recv1Spec[i] * -1;
+        else
+            fftw.inputs!float[i] = Complex!float(0, 0);
+    }
     fftw.ifft!float();
 
+    waveTableForAUX[] = fftw.outputs!float[];
+
     writeln("RESEND");
-    txqueue.push(cast(immutable(Complex!float[])[2])[transmitSymbol, fftw.outputs!float.dup]);
+    txqueue.push(cast(shared(Complex!float[])[2])[cast(shared)transmitSymbol, waveTableForAUX]);
 }
 
 
