@@ -1,10 +1,10 @@
 {
-	"name": "acanc_usrp",
+	"name": "multiusrp",
 	"authors": [
 		"Kazuki Komatsu"
 	],
-	"description": "A minimal D application.",
-	"copyright": "Copyright © 2017, Kazuki Komatsu",
+	"description": "Management System for Multiple USRPs",
+	"copyright": "Copyright © 2023, Kazuki Komatsu",
 	"license": "NYSL",
 	"dependencies": {
 		"dffdd": { "path": "../dffdd" },
