@@ -1,0 +1,13 @@
+version: '3'
+services:
+  dev:
+    image: ubuntu:20.04
+    platform: linux/amd64
+    tty: true
+    command: bash -c "/bin/bash entrypoint.sh >> /work/installlog.txt && /bin/bash"
+    # command: bash -c "echo "foooo" >> /dwork/installlog.txt && /bin/bash"
+    working_dir: /work
+    volumes:
+      - ./:/work
+      - ~/.ssh:/root/.ssh
+      - ../uhd4d:/uhd4d
