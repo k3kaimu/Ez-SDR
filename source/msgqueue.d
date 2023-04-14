@@ -39,7 +39,7 @@ struct MsgQueue(Req, Res)
 
     bool emptyResponse() shared
     {
-        return _reqList.empty;
+        return _resList.empty;
     }
 
 
