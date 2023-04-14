@@ -50,4 +50,3 @@ def writeSignalToSock(sock, signal, withHeader = True):
     while txbytes != len(response):
         txbytes += sock.send(response[txbytes:])
 
-    print("{} bytes transmitted...".format(txbytes))

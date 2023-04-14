@@ -32,10 +32,8 @@ with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as sock:
             # サーバー側に信号データ長とデータ本体を送る
             for i in range(nTXUSRP):
                 if i == 0:
-                    print("WITH HEADER")
                     sigdatafmt.writeSignalToSock(sock, data, withHeader=True)
                 else:
-                    print("WITHOUT HEADER")
                     sigdatafmt.writeSignalToSock(sock, data, withHeader=False)
 
             # # サーバー側から受信データを取得
