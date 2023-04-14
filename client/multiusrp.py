@@ -131,3 +131,6 @@ class SimpleClient:
             return np.array(ret)
         else:
             return self.mockserver.onIncomingReceiveCommand()
+
+    def shutdown():
+        sock.sendall(b'Q');

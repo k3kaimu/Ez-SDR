@@ -36,7 +36,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
             print(signals)
 
         elif cmd.startswith("q"):
-            sock.sendall(b'Q');
+            usrp.shutdown()
             break;
 
         else:
