@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-// gdb --args ./multiusrp --tx-args="addr0=192.168.10.15,addr1=192.168.10.17" --rx-args="addr0=192.168.10.18,addr1=192.168.10.19" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=5.015e9 --rx-freq=5.015e9 --ampl=0.3 --tx-gain=10 --rx-gain=30 --ref=internal --tx-channels="0,1" --rx-channels="0,1" --port=8888
+// gdb --args ./multiusrp --tx-args="addr0=192.168.10.15,addr1=192.168.10.17" --rx-args="addr0=192.168.10.18,addr1=192.168.10.19" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --ampl=0.3 --tx-gain=10 --rx-gain=30 --ref=external --tx-channels="0,1" --rx-channels="0,1" --port=8888
 
 import std.complex;
 import std.math;
