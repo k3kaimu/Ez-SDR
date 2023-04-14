@@ -68,7 +68,7 @@ void eventIOLoop(C, Alloc)(
     }
 
 
-    while(!stop_signal_called) {
+    Lconnect: while(!stop_signal_called) {
         try {
             writeln("PLEASE COMMAND");
             // auto cid = stdin.readCommandID();
@@ -78,8 +78,6 @@ void eventIOLoop(C, Alloc)(
             while(!stop_signal_called && client.isAlive) {
                 // binaryDump(client, stop_signal_called);
                 auto cid = client.readCommandID();
-
-                writeln(cid);
                 if(!cid.isNull) {
                     writeln(cid.get);
                     final switch(cid.get) {
@@ -139,6 +137,8 @@ void eventIOLoop(C, Alloc)(
                             txMsgQueue.pushRequest(cast(shared)req);
                             break;
                     }
+                } else {
+                    break Lconnect;
                 }
 
 
