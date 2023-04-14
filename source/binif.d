@@ -10,6 +10,7 @@ module binif;
 // import core.stdc.string;
 import core.thread;
 
+import std.algorithm;
 import std.socket;
 import std.traits;
 import std.experimental.allocator;
@@ -19,6 +20,7 @@ import std.complex;
 import std.exception;
 import std.sumtype;
 
+import utils;
 import msgqueue;
 import transmitter : TxRequest, TxResponse, TxRequestTypes, TxResponseTypes;
 import receiver : RxRequest, RxResponse, RxRequestTypes, RxResponseTypes;
@@ -45,16 +47,18 @@ void eventIOLoop(C, Alloc)(
     ref shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue,
 )
 {
+    alias dbg = debugMsg!"eventIOLoop";
+
     auto socket = new TcpSocket(AddressFamily.INET);
     scope(exit) {
         // socket.shutdown();
         socket.close();
-        writeln("END eventIOLoop");
+        dbg.writefln("END eventIOLoop");
     }
 
     socket.bind(new InternetAddress("127.0.0.1", port));
     socket.listen(10);
-    writeln("START EVENT LOOP");
+    dbg.writefln("START EVENT LOOP");
 
     alias C = Complex!float;
 
@@ -72,6 +76,7 @@ void eventIOLoop(C, Alloc)(
             writeln("CONNECTED");
 
             while(!stop_signal_called && client.isAlive) {
+                // binaryDump(client, stop_signal_called);
                 auto cid = client.readCommandID();
 
                 writeln(cid);
@@ -84,12 +89,17 @@ void eventIOLoop(C, Alloc)(
 
                         case CommandID.receive:
                             immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
+                            dbg.writefln("RX: numSamples = %s", numSamples);
+
                             C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
                             RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Receive(buffer));
+
+                            dbg.writefln("RX: Push Request");
                             rxMsgQueue.pushRequest(cast(shared)req);
 
                             bool doneRecv = false;
                             while(!doneRecv) {
+                                dbg.writefln("RX: Wait...");
                                 while(rxMsgQueue.emptyResponse) {
                                     Thread.sleep(10.msecs);
                                 }
@@ -98,6 +108,8 @@ void eventIOLoop(C, Alloc)(
                                 scope(exit) disposeReqRes(reqres);
                                 (cast()*reqres[1]).match!(
                                     (RxResponseTypes!C.Receive r) {
+                                        dbg.writefln("RX: Coming!");
+
                                         foreach(i; 0 .. nRXUSRP)
                                             enforce(client.rawWriteArray(r.buffer[i]));
 
@@ -110,23 +122,17 @@ void eventIOLoop(C, Alloc)(
 
                         case CommandID.transmit:
                             immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
-                            writefln!"TX: %s samples"(numSamples);
-
-                            // {
-                            //     size_t cnt;
-                            //     while(!stop_signal_called) {
-                            //         writefln!"%s: %x"(cnt, rawReadValue!ubyte(client));
-                            //         ++cnt;
-                            //     }
-                            // }
+                            dbg.writefln!"TX: %s samples"(numSamples);
 
                             C[][] buffer = alloc.makeMultidimensionalArray!C(nTXUSRP, numSamples);
                             foreach(i; 0 .. nTXUSRP) {
                                 enforce(client.rawReadArray(buffer[i]));
-                                writefln!"TX: Read Done %s, len = %s"(i, buffer[i].length);
+                                dbg.writefln!"TX: Read Done %s, len = %s"(i, buffer[i].length);
+                                dbg.writefln!"\tFirst 5 elements: %s"(buffer[i][0 .. min(5, $)]);
+                                dbg.writefln!"\tLast 5 elements: %s"(buffer[i][$ < 5 ? 0 : $-5 .. $]);
                             }
 
-                            writefln!"TX: Push MsgQueue"();
+                            dbg.writefln("TX: Push MsgQueue");
 
                             // C[][] buffer = client.rawReadArray().enforceNotNull;
                             TxRequest!C* req = alloc.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
@@ -148,8 +154,6 @@ void eventIOLoop(C, Alloc)(
                         )();
                     }
                 }
-
-                enforce(rxMsgQueue.emptyResponse);
             }
         } catch(Exception ex) {
             writeln(ex);
@@ -320,6 +324,18 @@ Nullable!CommandID readCommandID(Socket sock)
     }
 }
 
+
+private
+void binaryDump(Socket sock, ref shared bool stop_signal_called)
+{
+    while(!stop_signal_called) {
+        auto v = rawReadValue!ubyte(sock);
+        if(!v.isNull)
+            writef("%X", v.get);
+
+        stdout.flush();
+    }
+}
 
 
 /+

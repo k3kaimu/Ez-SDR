@@ -13,7 +13,7 @@ nRXUSPR = 2
 with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as sock:
     sock.connect((IPADDR, PORT));
     while True:
-        cmd = input("Transmit or Receive (t or r): ");
+        cmd = input("Transmit, Receive, or Quit (t/r/q): ");
 
         if cmd.startswith("t"):
             size = int(input("signal size: "));
@@ -49,13 +49,18 @@ with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as sock:
             # サーバー側に受信データのリクエストを送る
             sock.sendall(b'R');
 
-            # サーバー側からの応答を読む
-            data = sigdatafmt.readSignalFromSock(sock);
-            print("[Response]");
-            print("\tFirst 10 elements: {}".format(data[:10]));
-            print("\tLast 10 elements: {}".format(data[-10:]));
+            size = int(input("signal size: "))
+            # 要求するサンプル数を送る
+            sigdatafmt.writeInt32ToSock(sock, size)
 
-        elif cmd.startswith("e") or cmd.startswith("q"):
+            # サーバー側からの応答を読む
+            for i in range(nRXUSPR):
+                data = sigdatafmt.readSignalFromSock(sock, size)
+                print("[Response {}]".format(i));
+                print("\tFirst 10 elements: {}".format(data[:10]));
+                print("\tLast 10 elements: {}".format(data[-10:]));
+
+        elif cmd.startswith("q"):
             sock.sendall(b'Q');
             break;
 

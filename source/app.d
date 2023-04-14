@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
+// ./multiusrp --tx-args="addr0=192.168.10.15,addr1=192.168.10.17" --rx-args="addr0=192.168.10.18,addr1=192.168.10.19" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --ampl=0.3 --tx-gain=10 --rx-gain=30 --ref=internal --tx-channels="0,1" --rx-channels="0,1" --port=8888
+
 import std.complex;
 import std.math;
 import std.stdio;
@@ -37,7 +39,6 @@ import core.memory;
 
 import core.stdc.stdlib;
 
-import correlator;
 import binif;
 import transmitter;
 import receiver;
@@ -351,6 +352,30 @@ void main(string[] args){
         }();
     }
 
+    GC.disable();
+
+    shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue;
+    shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue;
+
+    auto event_thread = new Thread(delegate(){
+        scope(exit) {
+            writeln("[eventIOLoop] END");
+            stop_signal_called = true;
+        }
+
+        try
+            // イベントループを始める
+            eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
+        catch(Exception ex){
+            writeln(ex);
+        }
+    });
+    event_thread.start();
+    // 
+
+
+    
+
     // immutable real inputDeltaTheta = 10.0L / SYMBOL_SIZE * 2*PI;
     // immutable(Complex!float)[] sineWave = (){
     //     Complex!float[] buf;
@@ -360,38 +385,55 @@ void main(string[] args){
     // }();
 
     // shared RWQueue!(const(shared(Complex!float))[][2]) txqueue;
-    shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue;
+    
     // txqueue.push([waveTable[0], zeros]);
+
     auto transmit_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
 
         try
             transmit_worker!C(stop_signal_called, theAllocator, tx_channel_nums.length, txMsgQueue, tx_stream, md);
-        catch(Exception ex){
+        catch(Throwable ex){
             writeln(ex);
         }
     });
     transmit_thread.start();
+
+    // {
+    //     immutable nTXUSRP = tx_channel_nums.length;
+    //     C[][] buffer = theAllocator.makeMultidimensionalArray!C(nTXUSRP, 1000);
+    //     foreach(i; 0 .. nTXUSRP) {
+    //         buffer[i][] = C(0);
+    //     }
+    //     TxRequest!C* req = theAllocator.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
+    //     txMsgQueue.pushRequest(cast(shared)req);
+    // }
+
+    // transmit_worker!C(stop_signal_called, theAllocator, tx_channel_nums.length, txMsgQueue, tx_stream, md);
+    // transmit_thread.start();
 
     //recv to file
     // shared RWQueue!(Complex!float[]) supplyBufferQueue;
     // shared RWQueue!(Complex!float[]) reportedSignal;
     // shared RWQueue!(double) powerQueue;
     // shared(real)[] receivedSpectrum = new shared(real)[REPORT_FFT_SIZE];
-    shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue;
     auto receive_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
 
         try
-            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, settling, rxMsgQueue);
-        catch(Exception ex){
+            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, rx_channel_nums, settling, rxMsgQueue);
+        catch(Throwable ex){
             writeln(ex);
         }
     });
+    // receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, rx_channel_nums, settling, rxMsgQueue);
     receive_thread.start();
+    /+
+    
+    +/
 
     // イベントループを始める
-    eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
+    // eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
 
     /+
     // ESTIMATION
@@ -465,7 +507,6 @@ void main(string[] args){
     void* command_puller = zmq_socket(context, ZMQ_PULL);
     zmq_connect(command_puller, "ipc:///tmp/mwe2017_app_command");
 
-    GC.disable();
     const(shared(Complex!float))[][2] nowTransmitSignals = [waveTable[0], zeros];
     while(! stop_signal_called){
         bool error;
@@ -519,10 +560,14 @@ void main(string[] args){
     }
     +/
 
+
+    // eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
+
     //clean up transmit worker
-    stop_signal_called = true;
     transmit_thread.join();
     receive_thread.join();
+    event_thread.join();
+    stop_signal_called = true;
     // zmqReportThread.join();
     //GC.enable();
 

@@ -11,6 +11,7 @@ import std.math;
 import std.experimental.allocator;
 import std.typecons;
 
+import utils;
 import msgqueue;
 
 import lock_free.rwqueue;
@@ -62,19 +63,22 @@ void receive_worker(C, Alloc)(
     size_t nRXUSRP,
     string cpu_format,
     string wire_format,
+    immutable(size_t)[] rx_channel_nums,
     float settling_time,
     ref shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue,
 )
 {
+    alias dbg = debugMsg!"receive_worker";
+
     scope(exit) {
-        writeln("END receive_worker");
+        dbg.writeln("END receive_worker");
     }
 
     int num_total_samps = 0;
     //create a receive streamer
-    writeln("CPU_FORMAT: ", cpu_format);
-    writeln("WIRE_FORMAT: ", wire_format);
-    StreamArgs stream_args = StreamArgs(cpu_format, wire_format, "", [0]);
+    dbg.writeln("CPU_FORMAT: ", cpu_format);
+    dbg.writeln("WIRE_FORMAT: ", wire_format);
+    StreamArgs stream_args = StreamArgs(cpu_format, wire_format, "", rx_channel_nums);
     RxStreamer rx_stream = usrp.makeRxStreamer(stream_args);
 
     // Prepare buffers for received samples and metadata
@@ -88,8 +92,9 @@ void receive_worker(C, Alloc)(
     float timeout = settling_time + 0.1f; //expected settling time + padding for first recv
 
     //setup streaming
+    usrp.setTimeNow(0.seconds);
     StreamCommand stream_cmd = StreamCommand.startContinuous;
-    stream_cmd.streamNow = true;
+    stream_cmd.streamNow = rx_channel_nums.length == 1 ? true : false;
     stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
     rx_stream.issue(stream_cmd);
 
@@ -135,8 +140,10 @@ void receive_worker(C, Alloc)(
             // リクエストの処理をする
             while(! rxMsgQueue.emptyRequest) {
                 auto req = rxMsgQueue.popRequest();
+                dbg.writeln("POP Request!");
                 (cast()*req).match!(
                     (RxRequestTypes!C.Receive r) {
+                        dbg.writeln("POP Receive Request!");
                         nowTargetRequest = req;
                         nowTargetReceiveRequest = cast(shared)r;
                         foreach(i; 0 .. nRXUSRP)
@@ -160,7 +167,7 @@ void receive_worker(C, Alloc)(
             if(auto uhderr = md.getErrorCode(errorCode)){
                 error = uhderr;
                 Thread.sleep(2.seconds);
-                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, settling_time, rxMsgQueue);
+                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, rx_channel_nums, settling_time, rxMsgQueue);
             }
             if (errorCode == md.ErrorCode.TIMEOUT) {
                 import core.stdc.stdio : puts;
@@ -175,7 +182,7 @@ void receive_worker(C, Alloc)(
                 }
                 continue;
             }
-            if (errorCode != md.ErrorCode.NONE){
+            if (errorCode != md.ErrorCode.NONE) {
                 import core.stdc.stdio : fprintf, stderr;
                 md.printError();
                 fprintf(stderr, "Unknown error.");
@@ -192,8 +199,9 @@ void receive_worker(C, Alloc)(
             }
 
             // レスポンスを返す
-            if(nowTargetRequest !is null && nowTargetBuffers[0].length != 0) {
+            if(nowTargetRequest !is null && nowTargetBuffers[0].length == 0) {
                 rxMsgQueue.pushResponse(nowTargetRequest, cast(shared)alloc.make!(RxResponse!C)(RxResponseTypes!C.Receive(cast(C[][]) nowTargetReceiveRequest.buffer)));
+                dbg.writeln("Push Response!");
                 nowTargetRequest = null;
                 nowTargetReceiveRequest = typeof(nowTargetReceiveRequest).init;
                 foreach(i; 0 .. nRXUSRP)

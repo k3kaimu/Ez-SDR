@@ -50,7 +50,8 @@ void transmit_worker(C, Alloc)(
     ref TxMetaData metadata
 ){
     scope(exit) {
-        writeln("END transmit_worker");
+        writefln("[transmit_worker] END transmit_worker");
+        writefln("[transmit_worker] stop_signal_called = %s", stop_signal_called);
     }
 
     C[][] eob;
@@ -67,6 +68,9 @@ void transmit_worker(C, Alloc)(
     foreach(i; 0 .. nTXUSRP)
         initTxBuffers[i][] = C(0);
 
+    C[][] txbuffers = alloc.makeMultidimensionalArray!C(nTXUSRP, 4096);
+    scope(exit) alloc.disposeMultidimensionalArray(txbuffers);
+
     shared(TxRequest!C)* nowTargetRequest;
     shared(TxRequestTypes!C.Transmit) nowTargetTransmitRequest;
     // auto nowTargetBuffers = new shared(const(C))[][](nTXUSRP);
@@ -79,16 +83,26 @@ void transmit_worker(C, Alloc)(
         nowTargetTransmitRequest = typeof(nowTargetTransmitRequest).init;
     }
 
-    const(C)[][] _tmpbuffers = alloc.makeArray!(const(C)[])(nTXUSRP);
+    const(C)[][128] _tmpbuffers;
     Nullable!VUHDException transmitAllBuffer(const(C)[][] buffers)
+    in(buffers.length == nTXUSRP)
     {
         size_t numTotalSamples = 0;
         while(numTotalSamples < buffers[0].length && !stop_signal_called) {
+            {
+                import std.algorithm;
+                immutable nMin = min(buffers[0].length, txbuffers[0].length - numTotalSamples);
+                foreach(i; 0 .. nTXUSRP) {
+                    txbuffers[i][0 .. nMin] = buffers[i][numTotalSamples .. numTotalSamples + nMin];
+                    _tmpbuffers[i] = txbuffers[i][0 .. nMin];
+                }
+            }
+
             foreach(i; 0 .. nTXUSRP)
                 _tmpbuffers[i] = buffers[i][numTotalSamples .. $];
 
             size_t txsize;
-            if(auto err = tx_streamer.send(_tmpbuffers, afterFirstMD, 0.1, txsize)){
+            if(auto err = tx_streamer.send(_tmpbuffers[0 .. nTXUSRP], afterFirstMD, 0.1, txsize)){
                 // error = err;
                 // writeln(err);
                 // Thread.sleep(2.seconds);
@@ -105,20 +119,38 @@ void transmit_worker(C, Alloc)(
     () {
         //send data until the signal handler gets called
         while(!stop_signal_called){
-            while(! txMsgQueue.emptyRequest) {
-                auto req = txMsgQueue.popRequest();
-                (cast(TxRequest!C) *req).match!(
-                    (TxRequestTypes!C.Transmit r) {
-                        if(nowTargetRequest !is null)
-                            txMsgQueue.pushResponse(nowTargetRequest, cast(shared)alloc.make!(TxResponse!C)(TxResponseTypes!C.TransmitDone(cast(C[][]) nowTargetTransmitRequest.buffer)));
-
-                        nowTargetRequest = req;
-                        nowTargetTransmitRequest = cast(shared)r;
+            {
+                bool b = false;
+                scope(exit) {
+                    if(b == false) {
+                        writeln("[transmit_worker] This thread is killed by txMsgQueue.");
                     }
-                )();
+                }
+
+                while(! txMsgQueue.emptyRequest) {
+                    writeln("POPOPOP");
+                    auto req = txMsgQueue.popRequest();
+                    (cast(TxRequest!C) *req).match!(
+                        (TxRequestTypes!C.Transmit r) {
+                            if(nowTargetRequest !is null)
+                                txMsgQueue.pushResponse(nowTargetRequest, cast(shared)alloc.make!(TxResponse!C)(TxResponseTypes!C.TransmitDone(cast(C[][]) nowTargetTransmitRequest.buffer)));
+
+                            nowTargetRequest = req;
+                            nowTargetTransmitRequest = cast(shared)r;
+                        }
+                    )();
+                    writeln("POP");
+                }
+                b = true;
             }
 
             {
+                bool b = false;
+                scope(exit) {
+                    if(b == false) {
+                        writeln("[transmit_worker] This thread is killed by transmitAllBuffer.");
+                    }
+                }
                 auto err = transmitAllBuffer(nowTargetRequest is null ? cast(const(C)[][])initTxBuffers : cast(const(C)[][])nowTargetTransmitRequest.buffer);
                 if(! err.isNull) {
                     error = err.get;
@@ -126,7 +158,7 @@ void transmit_worker(C, Alloc)(
                     Thread.sleep(2.seconds);
                     transmit_worker!C(stop_signal_called, alloc, nTXUSRP, txMsgQueue, tx_streamer, metadata);
                 }
-                write("T");
+                b = true;
             }
         }
     }();

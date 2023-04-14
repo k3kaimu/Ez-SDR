@@ -19,6 +19,11 @@ def readSignalFromSock(sock, size = None):
     data = data[::2] + data[1::2] * 1j;
     return data;
 
+# ソケットにInt32の値を書き込む
+def writeInt32ToSock(sock, value):
+    data = np.array([value], dtype=np.uint32).tobytes()
+    sock.sendall(data)
+
 
 # ソケットに信号を書き込む
 def writeSignalToSock(sock, signal, withHeader = True):
@@ -30,7 +35,7 @@ def writeSignalToSock(sock, signal, withHeader = True):
     else:
         data = np.array([])
 
-    data = data.tobytes()
+    data = data.astype(np.float32).tobytes()
 
     # サンプル数をヘッダーとして付与
     header = np.array([size], dtype=np.uint32).tobytes()
@@ -44,3 +49,5 @@ def writeSignalToSock(sock, signal, withHeader = True):
     txbytes = 0
     while txbytes != len(response):
         txbytes += sock.send(response[txbytes:])
+
+    print("{} bytes transmitted...".format(txbytes))
