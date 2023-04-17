@@ -22,8 +22,10 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
     ]
 
     usrp.transmit(signals)
+    usrp.changeRxAlignSize(nSamples)
     time.sleep(1)
 
-    recv = usrp.receive(nSamples)
+    recv1 = usrp.receive(nSamples)
+    recv2 = usrp.receive(nSamples)
     for i in range(nSamples):
-        print("{},{},{},{},{}".format(i, np.real(recv[0][i]),np.imag(recv[0][i]),np.real(recv[1][i]),np.imag(recv[1][i])))
+        print("{},{},{},{},{},{},{},{},{}".format(i, np.real(recv1[0][i]),np.imag(recv1[0][i]),np.real(recv1[1][i]),np.imag(recv1[1][i]), np.real(recv2[0][i]),np.imag(recv2[0][i]),np.real(recv2[1][i]),np.imag(recv2[1][i])))
