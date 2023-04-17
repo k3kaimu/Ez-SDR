@@ -31,6 +31,7 @@ enum CommandID : ubyte
     shutdown = 0x51,    // 'Q'
     receive = 0x52,     // 'R'
     transmit = 0x54,    // 'T'
+    changeRxAlignSize = 0x41, // 'A'
 }
 
 
@@ -136,6 +137,15 @@ void eventIOLoop(C, Alloc)(
                             TxRequest!C* req = alloc.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
                             txMsgQueue.pushRequest(cast(shared)req);
                             break;
+
+                        case CommandID.changeRxAlignSize:
+                            immutable size_t newAlign = client.rawReadValue!uint.enforceNotNull;
+                            dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
+
+                            RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.ChangeAlignSize(newAlign));
+                            rxMsgQueue.pushRequest(cast(shared)req);
+                            break;
+                            
                     }
                 } else {
                     break Lconnect;

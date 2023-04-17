@@ -23,10 +23,10 @@ import uhd.utils;
 
 struct RxRequestTypes(C)
 {
-    // static struct ChangeAlignSize
-    // {
-    //     size_t alignSize;
-    // }
+    static struct ChangeAlignSize
+    {
+        size_t newAlign;
+    }
 
 
     // static struct DelayAlign
@@ -51,7 +51,7 @@ struct RxResponseTypes(C)
 }
 
 
-alias RxRequest(C) = SumType!(/*RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.DelayAlign, */RxRequestTypes!C.Receive);
+alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, /*RxRequestTypes!C.DelayAlign, */RxRequestTypes!C.Receive);
 alias RxResponse(C) = SumType!(RxResponseTypes!C.Receive);
 
 
@@ -65,6 +65,7 @@ void receive_worker(C, Alloc)(
     string wire_format,
     immutable(size_t)[] rx_channel_nums,
     float settling_time,
+    size_t alignSize,
     ref shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue,
 )
 {
@@ -83,7 +84,7 @@ void receive_worker(C, Alloc)(
 
     // Prepare buffers for received samples and metadata
     RxMetaData md = makeRxMetaData();
-    C[][] receiveBuffers = alloc.makeMultidimensionalArray!C(nRXUSRP, 4096);
+    C[][] receiveBuffers = alloc.makeMultidimensionalArray!C(nRXUSRP, alignSize);
     scope(exit) {
         alloc.disposeMultidimensionalArray(receiveBuffers);
     }
@@ -148,6 +149,20 @@ void receive_worker(C, Alloc)(
                         nowTargetReceiveRequest = cast(shared)r;
                         foreach(i; 0 .. nRXUSRP)
                             nowTargetBuffers[i] = cast(shared)r.buffer[i];
+                    },
+                    (RxRequestTypes!C.ChangeAlignSize r) {
+                        dbg.writefln("POP ChangeAlignSize(%s)!", r.newAlign);
+
+                        if(alignSize != r.newAlign) {
+                            alignSize = r.newAlign;
+                            // 古いreceiveBuffersは破棄する
+                            alloc.disposeMultidimensionalArray(receiveBuffers);
+
+                            // alignSizeの新しいreceiveBuffersを作る
+                            receiveBuffers = alloc.makeMultidimensionalArray!C(nRXUSRP, alignSize);
+                        }
+
+                        alloc.dispose(req);
                     }
                 )();
             }
@@ -167,7 +182,7 @@ void receive_worker(C, Alloc)(
             if(auto uhderr = md.getErrorCode(errorCode)){
                 error = uhderr;
                 Thread.sleep(2.seconds);
-                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, rx_channel_nums, settling_time, rxMsgQueue);
+                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, rx_channel_nums, settling_time, alignSize, rxMsgQueue);
             }
             if (errorCode == md.ErrorCode.TIMEOUT) {
                 import core.stdc.stdio : puts;

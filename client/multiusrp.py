@@ -132,5 +132,10 @@ class SimpleClient:
         else:
             return self.mockserver.onIncomingReceiveCommand()
 
-    def shutdown():
-        sock.sendall(b'Q');
+    def shutdown(self):
+        self.sock.sendall(b'Q');
+
+    def changeRxAlignSize(self, newAlign):
+        self.sock.sendall(b'A')
+        sigdatafmt.writeInt32ToSock(self.sock, newAlign)
+

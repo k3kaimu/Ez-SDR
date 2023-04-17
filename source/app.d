@@ -106,6 +106,7 @@ void main(string[] args){
     float settling;
     bool tx_int_n, rx_int_n;
     ushort tcpPort = 8888;
+    size_t recvAlignSize = 4096;
 
     // set default values
     file = "usrp_samples.dat";
@@ -146,6 +147,7 @@ void main(string[] args){
         "tx_int_n", "tune USRP TX with integer-N tuing", &tx_int_n,
         "rx_int_n", "tune USRP RX with integer-N tuing", &rx_int_n,
         "port", "TCP port", &tcpPort,
+        "recv_align", "alignment of buffer on the receivers", &recvAlignSize,
     );
 
     if(helpInformation.helpWanted){
@@ -421,7 +423,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, rx_channel_nums, settling, rxMsgQueue);
+            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, rx_channel_nums, settling, recvAlignSize, rxMsgQueue);
         catch(Throwable ex){
             writeln(ex);
         }
