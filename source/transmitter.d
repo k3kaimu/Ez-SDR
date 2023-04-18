@@ -5,9 +5,11 @@ import core.thread;
 import std.experimental.allocator;
 import std.sumtype;
 import std.complex;
+import std.math;
 import std.stdio;
 import std.typecons;
 
+import utils;
 import msgqueue;
 
 import uhd.usrp;
@@ -19,6 +21,12 @@ struct TxRequestTypes(C)
     static struct Transmit
     {
         C[][] buffer;
+    }
+
+
+    static struct SyncToPPS
+    {
+        bool _dummy;
     }
 }
 
@@ -32,7 +40,7 @@ struct TxResponseTypes(C)
 }
 
 
-alias TxRequest(C) = SumType!(TxRequestTypes!C.Transmit);
+alias TxRequest(C) = SumType!(TxRequestTypes!C.Transmit, TxRequestTypes!C.SyncToPPS);
 alias TxResponse(C) = SumType!(TxResponseTypes!C.TransmitDone);
 
 
@@ -44,24 +52,32 @@ alias TxResponse(C) = SumType!(TxResponseTypes!C.TransmitDone);
 void transmit_worker(C, Alloc)(
     ref shared bool stop_signal_called,
     ref Alloc alloc,
+    ref USRP usrp,
     size_t nTXUSRP,
+    string cpu_format,
+    string wire_format,
+    immutable(size_t)[] tx_channel_nums,
+    float settling_time,
     ref shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue,
-    ref TxStreamer tx_streamer,
-    ref TxMetaData metadata
 ){
+    alias dbg = debugMsg!"transmit_worker";
+
     scope(exit) {
         writefln("[transmit_worker] END transmit_worker");
         writefln("[transmit_worker] stop_signal_called = %s", stop_signal_called);
     }
 
-    C[][] eob;
-    foreach(i; 0 .. nTXUSRP) eob ~= null;
+    StreamArgs stream_args = StreamArgs(cpu_format, wire_format, "", tx_channel_nums);
+    auto tx_streamer = usrp.makeTxStreamer(stream_args);
 
+    C[][] nullBuffers;
+    foreach(i; 0 .. nTXUSRP) nullBuffers ~= null;
+
+    // TxMetaData firstMD = TxMetaData((cast(long)floor(settling_time*1E6)).usecs + 1.seconds, true, false);
+    TxMetaData firstMD = TxMetaData((cast(long)floor(settling_time*1E6)).usecs, true, false);
     TxMetaData afterFirstMD = TxMetaData(false, 0, 0, false, false);
     TxMetaData endMD = TxMetaData(false, 0, 0, false, true);
     VUHDException error;
-
-    tx_streamer.send(eob, metadata, 0.1);
 
     C[][] initTxBuffers = alloc.makeMultidimensionalArray!C(nTXUSRP, 4096);
     scope(exit) alloc.disposeMultidimensionalArray(initTxBuffers);
@@ -83,12 +99,18 @@ void transmit_worker(C, Alloc)(
         nowTargetTransmitRequest = typeof(nowTargetTransmitRequest).init;
     }
 
+    // PPSのsettling_time秒後に送信
+    usrp.setTimeUnknownPPS(0.seconds);
+    // usrp.setTimeNow(0.seconds);
+    tx_streamer.send(nullBuffers, firstMD, 1);
+
     const(C)[][128] _tmpbuffers;
     Nullable!VUHDException transmitAllBuffer(const(C)[][] buffers)
     in(buffers.length == nTXUSRP)
     {
         size_t numTotalSamples = 0;
         while(numTotalSamples < buffers[0].length && !stop_signal_called) {
+            // dbg.writefln("*");
             {
                 import std.algorithm;
                 immutable nMin = min(buffers[0].length, txbuffers[0].length - numTotalSamples);
@@ -137,6 +159,16 @@ void transmit_worker(C, Alloc)(
 
                             nowTargetRequest = req;
                             nowTargetTransmitRequest = cast(shared)r;
+                        },
+                        (TxRequestTypes!C.SyncToPPS r) {
+                                scope(exit) alloc.dispose(req);
+
+                                tx_streamer.send(nullBuffers, endMD, 0.1);
+
+                                // PPSのsettling_time秒後に次を送信
+                                usrp.setTimeNextPPS(0.seconds);
+                                Thread.sleep(1.seconds);
+                                tx_streamer.send(nullBuffers, firstMD, 0.1);
                         }
                     )();
                     writeln("POP");
@@ -156,7 +188,7 @@ void transmit_worker(C, Alloc)(
                     error = err.get;
                     writeln(error);
                     Thread.sleep(2.seconds);
-                    transmit_worker!C(stop_signal_called, alloc, nTXUSRP, txMsgQueue, tx_streamer, metadata);
+                    transmit_worker!C(stop_signal_called, alloc, usrp, nTXUSRP, cpu_format, wire_format, tx_channel_nums, settling_time, txMsgQueue);
                 }
                 b = true;
             }
@@ -164,7 +196,7 @@ void transmit_worker(C, Alloc)(
     }();
 
     //send a mini EOB packet
-    tx_streamer.send(eob, endMD, 0.1);
+    tx_streamer.send(nullBuffers, endMD, 0.1);
 
     if(error)
         throw error.makeException();

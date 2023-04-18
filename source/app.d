@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-// gdb --args ./multiusrp --tx-args="addr0=192.168.10.15,addr1=192.168.10.17" --rx-args="addr0=192.168.10.18,addr1=192.168.10.19" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --ampl=0.3 --tx-gain=10 --rx-gain=30 --ref=external --tx-channels="0,1" --rx-channels="0,1" --port=8888
+// gdb --args ./multiusrp --tx-args="addr0=192.168.10.211,addr1=192.168.10.212" --rx-args="addr0=192.168.10.213,addr1=192.168.10.214" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --ampl=0.3 --tx-gain=10 --rx-gain=30 --clockref=external --timeref=external --tx-channels="0,1" --rx-channels="0,1" --port=8888
 
 import std.complex;
 import std.math;
@@ -95,13 +95,13 @@ void main(string[] args){
 
     //transmit variables to be set by po
     // string[] txfiles;
-    string tx_args, /*wave_type,*/ tx_ant, tx_subdev, ref_, otw, tx_channels;
+    string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref = "internal", timeref = "internal", otw, tx_channels;
     double tx_rate, tx_freq, tx_gain, /*wave_freq,*/ tx_bw;
     float ampl;
 
     //receive variables to be set by po
     string rx_args, file, type, rx_ant, rx_subdev, rx_channels;
-    size_t spb;
+    // size_t spb;
     double rx_rate, rx_freq, rx_gain, rx_bw;
     float settling;
     bool tx_int_n, rx_int_n;
@@ -140,7 +140,8 @@ void main(string[] args){
         // "txfiles",  "transmit waveform file",                       &txfiles, 
         // "wave-type",    "waveform type (CONST, SQUARE, RAMP, SINE)",    &wave_type,
         // "wave-freq",    "waveform frequency in Hz",                 &wave_freq,
-        "ref",      "clock reference (internal, external, mimo)",   &ref_,
+        "clockref",      "clock reference (internal, external, mimo)",   &clockref,
+        "timeref",      "time reference (internal, external, mimo)",   &timeref,
         "otw",      "specify the over-the-wire sample mode",        &otw,
         "tx-channels",  `which TX channel(s) to use (specify "0", "1", "0,1", etc)`,    &tx_channels,
         "rx-channels",  `which RX channel(s) to use (specify "0", "1", "0,1", etc)`,    &rx_channels,
@@ -167,10 +168,13 @@ void main(string[] args){
     immutable(size_t)[] rx_channel_nums = rx_channels.splitter(',').map!(to!size_t).array();
     foreach(e; rx_channel_nums) enforce(e < rx_usrp.rxNumChannels, "Invalid RX channel(s) specified.");
 
+    // Set time source
+    tx_usrp.timeSource = timeref;
+    rx_usrp.timeSource = timeref;
+
     //Lock mboard clocks
-    tx_usrp.clockSource = ref_;
-    rx_usrp.clockSource = ref_;
-    // rx_usrp.clockSource = "internal";
+    tx_usrp.clockSource = clockref;
+    rx_usrp.clockSource = clockref;
 
     //always select the subdevice first, the channel mapping affects the other settings
     if(! tx_subdev.empty) tx_usrp.txSubdevSpec = tx_subdev;
@@ -269,15 +273,15 @@ void main(string[] args){
     writeln("DONE");
     if (! rx_ant.empty) rx_usrp.rxAntenna = rx_ant;
 
-    //create a transmit streamer
-    //linearly map channels (index0 = channel0, index1 = channel1, ...)
-    writeln("Create Streaming Object");
-    StreamArgs stream_args = StreamArgs("fc32", otw, "", tx_channel_nums);
-    auto tx_stream = tx_usrp.makeTxStreamer(stream_args);
+    // //create a transmit streamer
+    // //linearly map channels (index0 = channel0, index1 = channel1, ...)
+    // writeln("Create Streaming Object");
+    // StreamArgs stream_args = StreamArgs("fc32", otw, "", tx_channel_nums);
+    // auto tx_stream = tx_usrp.makeTxStreamer(stream_args);
 
-    //setup the metadata flags
-    writeln("Make TxMetaData");
-    TxMetaData md = TxMetaData(true, 0, 0.1, true, false);
+    // //setup the metadata flags
+    // writeln("Make TxMetaData");
+    // TxMetaData md = TxMetaData(true, 0, 0.1, true, false);
 
     writeln("Check Ref and LO Lock detect");
     //Check Ref and LO Lock detect
@@ -296,7 +300,7 @@ void main(string[] args){
 
     foreach(i, ref usrp; AliasSeq!(tx_usrp, rx_usrp)){
         foreach(sname; usrp.getMboardSensorNames(0)){
-            if((ref_ == "mimo" && sname == "mimo_locked") || (ref_ == "external" && sname == "ref_locked")){
+            if((clockref == "mimo" && sname == "mimo_locked") || (clockref == "external" && sname == "ref_locked")){
                 SensorValue locked = tx_usrp.getTxSensor(sname, 0);
                 static if(0) writefln("Checking %s: %s ...", i == 0 ? "TX" : "RX", locked);
                 enforce(cast(bool)locked);
@@ -394,7 +398,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            transmit_worker!C(stop_signal_called, theAllocator, tx_channel_nums.length, txMsgQueue, tx_stream, md);
+            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, "fc32", otw, tx_channel_nums, settling, txMsgQueue);
         catch(Throwable ex){
             writeln(ex);
         }

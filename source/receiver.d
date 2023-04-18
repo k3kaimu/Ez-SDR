@@ -39,6 +39,12 @@ struct RxRequestTypes(C)
     {
         C[][] buffer;
     }
+
+
+    static struct SyncToPPS
+    {
+        bool _dummy;
+    }
 }
 
 
@@ -51,7 +57,7 @@ struct RxResponseTypes(C)
 }
 
 
-alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive);
+alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive, RxRequestTypes!C.SyncToPPS);
 alias RxResponse(C) = SumType!(RxResponseTypes!C.Receive);
 
 
@@ -75,6 +81,9 @@ void receive_worker(C, Alloc)(
         dbg.writeln("END receive_worker");
     }
 
+    C[][] nullBuffers;
+    foreach(i; 0 .. nRXUSRP) nullBuffers ~= null;
+
     int num_total_samps = 0;
     //create a receive streamer
     dbg.writeln("CPU_FORMAT: ", cpu_format);
@@ -93,9 +102,12 @@ void receive_worker(C, Alloc)(
     float timeout = settling_time + 0.1f; //expected settling time + padding for first recv
 
     //setup streaming
-    usrp.setTimeNow(0.seconds);
+    // usrp.setTimeNextPPS(0.seconds);
+    // Thread.sleep(1.seconds);
+    usrp.setTimeUnknownPPS(0.seconds);
+    // usrp.setTimeNow(0.seconds);
     StreamCommand stream_cmd = StreamCommand.startContinuous;
-    stream_cmd.streamNow = rx_channel_nums.length == 1 ? true : false;
+    stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
     stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
     rx_stream.issue(stream_cmd);
 
@@ -126,6 +138,10 @@ void receive_worker(C, Alloc)(
             if(auto err = rx_stream.recv(_tmpbuffers, md, timeout, num_rx_samps)){
                 return typeof(return)(err);
             }
+
+            if(num_rx_samps == 0)
+                dbg.writeln("?");
+
             numTotalSamples += num_rx_samps;
         }
 
@@ -134,9 +150,10 @@ void receive_worker(C, Alloc)(
 
 
     VUHDException error;
-    Thread.sleep(1.seconds);
     () {
         while(! stop_signal_called) {
+
+            // dbg.writeln("!");
 
             // リクエストの処理をする
             while(! rxMsgQueue.emptyRequest) {
@@ -174,6 +191,18 @@ void receive_worker(C, Alloc)(
                             fillBuffer(receiveBuffers, d);
                             totdelay -= d;
                         }
+                    },
+                    (RxRequestTypes!C.SyncToPPS){
+                        // Shut down receiver
+                        rx_stream.issue(StreamCommand.stopContinuous);
+
+                        //setup streaming
+                        usrp.setTimeNextPPS(0.seconds);
+                        Thread.sleep(1.seconds);
+                        StreamCommand stream_cmd = StreamCommand.startContinuous;
+                        stream_cmd.streamNow = rx_channel_nums.length == 1 ? true : false;
+                        stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs + 1.seconds;
+                        rx_stream.issue(stream_cmd);                        
                     }
                 )();
             }
