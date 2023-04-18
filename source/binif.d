@@ -157,7 +157,7 @@ void eventIOLoop(C, Alloc)(
                             
                     }
                 } else {
-                    break Lconnect;
+                    continue Lconnect;
                 }
 
 
