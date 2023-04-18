@@ -26,8 +26,18 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
     time.sleep(1)
 
     recv1 = usrp.receive(nSamples)
-
-    usrp.skipRx(4)
     recv2 = usrp.receive(nSamples)
     for i in range(nSamples):
         print("{},{},{},{},{},{},{},{},{}".format(i, np.real(recv1[0][i]),np.imag(recv1[0][i]),np.real(recv1[1][i]),np.imag(recv1[1][i]), np.real(recv2[0][i]),np.imag(recv2[0][i]),np.real(recv2[1][i]),np.imag(recv2[1][i])))
+
+
+def calc_delay(tx, rx):
+    tx_freq = np.fft.fft(tx)
+    rx_freq = np.fft.fft(rx)
+    rxy = np.abs(np.fft.ifft(np.conj(tx_freq) * rx_freq))
+    return np.argmax(rxy)
+
+print("delay[0,0]: {} samples".format(calc_delay(signals[0], recv1[0])))
+print("delay[0,1]: {} samples".format(calc_delay(signals[1], recv1[1])))
+print("delay[1,0]: {} samples".format(calc_delay(signals[0], recv2[0])))
+print("delay[1,1]: {} samples".format(calc_delay(signals[1], recv2[1])))
