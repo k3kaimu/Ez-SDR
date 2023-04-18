@@ -103,9 +103,6 @@ class SimpleClient:
         if self.ipaddr is not None:
             self.sock.connect((self.ipaddr, self.port));
 
-    def connectToMockServer(self, mockserver):
-        self.mockserver = mockserver
-
     def transmit(self, signals):
         if self.mockserver is None:
             self.sock.sendall(b'T');
@@ -138,4 +135,61 @@ class SimpleClient:
     def changeRxAlignSize(self, newAlign):
         self.sock.sendall(b'A')
         sigdatafmt.writeInt32ToSock(self.sock, newAlign)
+    
+    def skipRx(self, delay):
+        self.sock.sendall(b'D')
+        sigdatafmt.writeInt32ToSock(self.sock, delay)
 
+
+class SimpleMockClient:
+    def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix):
+        self.nTXUSRP = nTXUSRP
+        self.nRXUSRP = nRXUSRP
+        self.sampleIndex = 0
+        self.alignSize = 4096
+        self.signals = np.zeros(nTXUSRP, 4096)
+        self.impRespMatrix = impRespMatrix
+    
+    def __enter__(self):
+        self.sampleIndex = 0
+        self.alignSize = 4096
+        return self
+
+    def __exit__(self, *args):
+        pass
+    
+    def connect(self):
+        pass
+    
+    def transmit(self, signals):
+        self.signals = signals
+    
+    def receive(self, nsamples):
+        dst = np.zeros((self.nRXUSPR, nsamples), dtype=np.complex128)
+
+        # 次のアライメント（受信バッファの先頭）を計算する
+        self.sampleIndex = self.sampleIndex + self.alignSize - (self.sampleIndex % self.alignSize)
+
+        N = len(self.signals[0])
+        D = self.sampleIndex % N
+        for i in range(self.nTXUSRP):
+            tx_freq = np.fft.fft(np.roll(self.signals[i], -D), norm="ortho")
+            for j in range(self.nRXUSPR):
+                h_freq = np.fft.fft(np.hstack((impRespMatrix[i, j], np.zeros(N, np.complex128)))[:N], norm="ortho")
+                rx_freq = tx_freq * h_freq
+                rx_time = np.fft.ifft(rx_freq, norm="ortho")
+                dst[j] += np.tile(rx_time, nsamples // N + 1)[:nsamples]
+
+        self.sampleIndex += nsamples
+        return dst
+
+    def shutdown(self):
+        pass
+    
+    def changeRxAlignSize(self, newAlign):
+        self.alignSize = newAlign
+
+    def skipRx(self, delay):
+        D = delay % N
+        for i in range(self.nTXUSRP):
+            self.signals[i] = np.roll(self.signals[i], -D)

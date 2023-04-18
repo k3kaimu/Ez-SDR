@@ -32,6 +32,7 @@ enum CommandID : ubyte
     receive = 0x52,     // 'R'
     transmit = 0x54,    // 'T'
     changeRxAlignSize = 0x41, // 'A'
+    skipRx = 0x44, // 'D'
 }
 
 
@@ -143,6 +144,14 @@ void eventIOLoop(C, Alloc)(
                             dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
 
                             RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.ChangeAlignSize(newAlign));
+                            rxMsgQueue.pushRequest(cast(shared)req);
+                            break;
+
+                        case CommandID.skipRx:
+                            immutable size_t delaySamples = client.rawReadValue!uint.enforceNotNull;
+                            dbg.writefln!"skipRx: %s samples"(delaySamples);
+
+                            RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Skip(delaySamples));
                             rxMsgQueue.pushRequest(cast(shared)req);
                             break;
                             

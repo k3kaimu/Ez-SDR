@@ -29,10 +29,10 @@ struct RxRequestTypes(C)
     }
 
 
-    // static struct DelayAlign
-    // {
-    //     size_t delaySize;
-    // }
+    static struct Skip
+    {
+        size_t delaySize;
+    }
 
 
     static struct Receive
@@ -51,7 +51,7 @@ struct RxResponseTypes(C)
 }
 
 
-alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, /*RxRequestTypes!C.DelayAlign, */RxRequestTypes!C.Receive);
+alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive);
 alias RxResponse(C) = SumType!(RxResponseTypes!C.Receive);
 
 
@@ -108,7 +108,7 @@ void receive_worker(C, Alloc)(
     C[][] _tmpbuffers = alloc.makeArray!(C[])(nRXUSRP);
     scope(exit) alloc.dispose(_tmpbuffers);
 
-    Nullable!VUHDException fillBuffer(C[][] buffer)
+    Nullable!VUHDException fillBuffer(C[][] buffer, size_t maxSamples = size_t.max)
     in {
         assert(buffer.length == nRXUSRP);
         foreach(i; 0 .. nRXUSRP)
@@ -118,9 +118,9 @@ void receive_worker(C, Alloc)(
         scope(exit) foreach(i; 0 .. nRXUSRP) _tmpbuffers[i] = null;
 
         size_t numTotalSamples = 0;
-        while(numTotalSamples < buffer[0].length) {
+        while(numTotalSamples < min(buffer[0].length, maxSamples)) {
             foreach(i; 0 .. nRXUSRP)
-                _tmpbuffers[i] = buffer[i][numTotalSamples .. $];
+                _tmpbuffers[i] = buffer[i][numTotalSamples .. min($, maxSamples)];
 
             size_t num_rx_samps;
             if(auto err = rx_stream.recv(_tmpbuffers, md, timeout, num_rx_samps)){
@@ -151,6 +151,8 @@ void receive_worker(C, Alloc)(
                             nowTargetBuffers[i] = cast(shared)r.buffer[i];
                     },
                     (RxRequestTypes!C.ChangeAlignSize r) {
+                        scope(exit) alloc.dispose(req);
+
                         dbg.writefln("POP ChangeAlignSize(%s)!", r.newAlign);
 
                         if(alignSize != r.newAlign) {
@@ -161,8 +163,17 @@ void receive_worker(C, Alloc)(
                             // alignSizeの新しいreceiveBuffersを作る
                             receiveBuffers = alloc.makeMultidimensionalArray!C(nRXUSRP, alignSize);
                         }
+                    },
+                    (RxRequestTypes!C.Skip r) {
+                        scope(exit) alloc.dispose(req);
 
-                        alloc.dispose(req);
+                        dbg.writefln("POP Skip(%s)!", r.delaySize);
+                        size_t totdelay = r.delaySize;
+                        while(totdelay > 0) {
+                            immutable size_t d = min(totdelay, alignSize);
+                            fillBuffer(receiveBuffers, d);
+                            totdelay -= d;
+                        }
                     }
                 )();
             }
