@@ -141,143 +141,138 @@ void main(string[] args){
         return;
     }
 
-    writefln("Creating the transmit usrp device with: %s...", tx_args);
-    USRP tx_usrp = USRP(tx_args);
-    writefln("Creating the receive usrp device with: %s...", rx_args);
-    USRP rx_usrp = USRP(rx_args);
-
     immutable(size_t)[] tx_channel_nums = tx_channels.splitter(',').map!(to!size_t).array();
-    // enforce(tx_channel_nums.length == txfiles.length, "The number of channels is not equal to the number of txfiles.");
-    foreach(e; tx_channel_nums) enforce(e < tx_usrp.txNumChannels, "Invalid TX channel(s) specified.");
-
     immutable(size_t)[] rx_channel_nums = rx_channels.splitter(',').map!(to!size_t).array();
+
+
+    immutable bool
+        useTxUSRP = tx_channel_nums.length != 0,
+        useRxUSRP = rx_channel_nums.length != 0;
+
+    USRP tx_usrp, rx_usrp;
+
+    if(useTxUSRP) {
+        writefln("Creating the transmit usrp device with: %s...", tx_args);
+        tx_usrp = USRP(tx_args);
+    }
+
+    if(useRxUSRP) {
+        writefln("Creating the receive usrp device with: %s...", rx_args);
+        rx_usrp = USRP(rx_args);
+    }
+
+    foreach(e; tx_channel_nums) enforce(e < tx_usrp.txNumChannels, "Invalid TX channel(s) specified.");
     foreach(e; rx_channel_nums) enforce(e < rx_usrp.rxNumChannels, "Invalid RX channel(s) specified.");
 
     // Set time source
-    tx_usrp.timeSource = timeref;
-    rx_usrp.timeSource = timeref;
+    if(useTxUSRP) tx_usrp.timeSource = timeref;
+    if(useRxUSRP) rx_usrp.timeSource = timeref;
 
     //Lock mboard clocks
-    tx_usrp.clockSource = clockref;
-    rx_usrp.clockSource = clockref;
+    if(useTxUSRP) tx_usrp.clockSource = clockref;
+    if(useRxUSRP) rx_usrp.clockSource = clockref;
 
     //always select the subdevice first, the channel mapping affects the other settings
-    if(! tx_subdev.empty) tx_usrp.txSubdevSpec = tx_subdev;
-    if(! rx_subdev.empty) rx_usrp.rxSubdevSpec = rx_subdev;
-
-    static if(0){
-        writeln("Using TX Device: ", tx_usrp);
-        writeln("Using RX Device: ", rx_usrp);
-    }
+    if(useTxUSRP && ! tx_subdev.empty) tx_usrp.txSubdevSpec = tx_subdev;
+    if(useRxUSRP && ! rx_subdev.empty) rx_usrp.rxSubdevSpec = rx_subdev;
 
     //set the transmit sample rate
-    if (tx_rate.isNaN){
-        writeln("Please specify the transmit sample rate with --tx-rate");
-        return;
-    }
+    if(useTxUSRP) {
 
-    writefln("Setting TX Rate: %f Msps...", tx_rate/1e6);
-    tx_usrp.txRate = tx_rate;
-    writefln("Actual TX Rate: %f Msps...", tx_usrp.txRate/1e6);
-
-    //set the receive sample rate
-    if (rx_rate.isNaN){
-        writeln("Please specify the sample rate with --rx-rate");
-        return;
-    }
-    writefln("Setting RX Rate: %f Msps...", rx_rate/1e6);
-    rx_usrp.rxRate = rx_rate;
-    writefln("Actual RX Rate: %f Msps...", rx_usrp.rxRate/1e6);
-
-    //set the transmit center frequency
-    if (tx_freq.isNaN) {
-        writeln("Please specify the transmit center frequency with --tx-freq");
-        return;
-    }
-
-    // for(size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
-    foreach(channel; tx_channel_nums){
-        if (tx_channel_nums.length > 1) {
-            writefln("Configuring TX Channel %s", channel);
-        }
-        writefln("Setting TX Freq: %f MHz...", tx_freq/1e6);
-        TuneRequest tx_tune_request = TuneRequest(tx_freq);
-        if(tx_int_n) tx_tune_request.args = "mode_n=integer";
-        tx_usrp.tuneTxFreq(tx_tune_request, channel);
-        writefln("Actual TX Freq: %f MHz...", tx_usrp.getTxFreq(channel)/1e6);
-
-        //set the rf gain
-        if (! tx_gain.isNaN) {
-            writefln("Setting TX Gain: %f dB...", tx_gain);
-            tx_usrp.setTxGain(tx_gain, channel);
-            writefln("Actual TX Gain: %f dB...", tx_usrp.getTxGain(channel));
-        }
-
-        //set the analog frontend filter bandwidth
-        if (! tx_bw.isNaN){
-            writefln("Setting TX Bandwidth: %f MHz...", tx_bw);
-            tx_usrp.setTxBandwidth(tx_bw, channel);
-            writefln("Actual TX Bandwidth: %f MHz...", tx_usrp.getTxBandwidth(channel));
-        }
-
-        //set the antenna
-        if (! tx_ant.empty) tx_usrp.setTxAntenna(tx_ant, channel);
-    }
-
-    foreach(channel; rx_channel_nums){
-        if (rx_channel_nums.length > 1) {
-            writeln("Configuring RX Channel ", channel);
-        }
-
-        //set the receive center frequency
-        if (rx_freq.isNaN){
-            stderr.writeln("Please specify the center frequency with --rx-freq");
+        if(tx_rate.isNaN) {
+            writeln("Please specify the transmit sample rate with --tx-rate");
             return;
         }
-        writefln("Setting RX Freq: %f MHz...", rx_freq/1e6);
-        TuneRequest rx_tune_request = TuneRequest(rx_freq);
-        if(rx_int_n) rx_tune_request.args = "mode_n=integer";
-        rx_usrp.tuneRxFreq(rx_tune_request, channel);
-        writefln("Actual RX Freq: %f MHz...", rx_usrp.getRxFreq(channel)/1e6);
 
-        //set the receive rf gain
-        if (! rx_gain.isNaN){
-            writefln("Setting RX Gain: %f dB...", rx_gain);
-            rx_usrp.setRxGain(rx_gain, channel);
-            writefln("Actual RX Gain: %f dB...", rx_usrp.getRxGain(channel));
+        writefln("Setting TX Rate: %f Msps...", tx_rate/1e6);
+        tx_usrp.txRate = tx_rate;
+        writefln("Actual TX Rate: %f Msps...", tx_usrp.txRate/1e6);
+    }
+
+    //set the receive sample rate
+    if(useRxUSRP) {
+        if (rx_rate.isNaN){
+            writeln("Please specify the sample rate with --rx-rate");
+            return;
+        }
+        writefln("Setting RX Rate: %f Msps...", rx_rate/1e6);
+        rx_usrp.rxRate = rx_rate;
+        writefln("Actual RX Rate: %f Msps...", rx_usrp.rxRate/1e6);
+    }
+
+    //set the transmit center frequency
+    if(useTxUSRP) {
+        if (tx_freq.isNaN) {
+            writeln("Please specify the transmit center frequency with --tx-freq");
+            return;
         }
 
-        //set the receive analog frontend filter bandwidth
-        if (! rx_bw.isNaN){
-            writefln("Setting RX Bandwidth: %f MHz...", rx_bw/1e6);
-            rx_usrp.setRxBandwidth(rx_bw, channel);
-            writefln("Actual RX Bandwidth: %f MHz...", rx_usrp.getRxBandwidth(channel)/1e6);
+        // for(size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
+        foreach(channel; tx_channel_nums){
+            if (tx_channel_nums.length > 1) {
+                writefln("Configuring TX Channel %s", channel);
+            }
+            writefln("Setting TX Freq: %f MHz...", tx_freq/1e6);
+            TuneRequest tx_tune_request = TuneRequest(tx_freq);
+            if(tx_int_n) tx_tune_request.args = "mode_n=integer";
+            tx_usrp.tuneTxFreq(tx_tune_request, channel);
+            writefln("Actual TX Freq: %f MHz...", tx_usrp.getTxFreq(channel)/1e6);
+
+            //set the rf gain
+            if (! tx_gain.isNaN) {
+                writefln("Setting TX Gain: %f dB...", tx_gain);
+                tx_usrp.setTxGain(tx_gain, channel);
+                writefln("Actual TX Gain: %f dB...", tx_usrp.getTxGain(channel));
+            }
+
+            //set the analog frontend filter bandwidth
+            if (! tx_bw.isNaN){
+                writefln("Setting TX Bandwidth: %f MHz...", tx_bw);
+                tx_usrp.setTxBandwidth(tx_bw, channel);
+                writefln("Actual TX Bandwidth: %f MHz...", tx_usrp.getTxBandwidth(channel));
+            }
+
+            //set the antenna
+            if (! tx_ant.empty) tx_usrp.setTxAntenna(tx_ant, channel);
         }
     }
+
+    //set the receiver center frequency
+    if(useRxUSRP) {
+        foreach(channel; rx_channel_nums){
+            if (rx_channel_nums.length > 1) {
+                writeln("Configuring RX Channel ", channel);
+            }
+
+            //set the receive center frequency
+            if (rx_freq.isNaN){
+                stderr.writeln("Please specify the center frequency with --rx-freq");
+                return;
+            }
+            writefln("Setting RX Freq: %f MHz...", rx_freq/1e6);
+            TuneRequest rx_tune_request = TuneRequest(rx_freq);
+            if(rx_int_n) rx_tune_request.args = "mode_n=integer";
+            rx_usrp.tuneRxFreq(rx_tune_request, channel);
+            writefln("Actual RX Freq: %f MHz...", rx_usrp.getRxFreq(channel)/1e6);
+
+            //set the receive rf gain
+            if (! rx_gain.isNaN){
+                writefln("Setting RX Gain: %f dB...", rx_gain);
+                rx_usrp.setRxGain(rx_gain, channel);
+                writefln("Actual RX Gain: %f dB...", rx_usrp.getRxGain(channel));
+            }
+
+            //set the receive analog frontend filter bandwidth
+            if (! rx_bw.isNaN){
+                writefln("Setting RX Bandwidth: %f MHz...", rx_bw/1e6);
+                rx_usrp.setRxBandwidth(rx_bw, channel);
+                writefln("Actual RX Bandwidth: %f MHz...", rx_usrp.getRxBandwidth(channel)/1e6);
+            }
+        }
+    }
+
     //set the receive antenna
-    if (! rx_ant.empty) rx_usrp.rxAntenna = rx_ant;
-
-    writeln("Check Ref and LO Lock detect");
-    //Check Ref and LO Lock detect
-    foreach(i, ref usrp; AliasSeq!(tx_usrp, rx_usrp)){
-        foreach(sname; usrp.getTxSensorNames(0)){
-            if(sname == "lo_locked"){
-                SensorValue lo_locked = tx_usrp.getTxSensor(sname, 0);
-                static if(0) writefln("Checking %s: %s ...", i == 0 ? "TX" : "RX", lo_locked);
-                enforce(cast(bool)lo_locked);
-            }
-        }
-    }
-
-    foreach(i, ref usrp; AliasSeq!(tx_usrp, rx_usrp)){
-        foreach(sname; usrp.getMboardSensorNames(0)){
-            if((clockref == "mimo" && sname == "mimo_locked") || (clockref == "external" && sname == "ref_locked")){
-                SensorValue locked = tx_usrp.getTxSensor(sname, 0);
-                static if(0) writefln("Checking %s: %s ...", i == 0 ? "TX" : "RX", locked);
-                enforce(cast(bool)locked);
-            }
-        }
-    }
+    if (useRxUSRP && ! rx_ant.empty) rx_usrp.rxAntenna = rx_ant;
 
     {
         import core.stdc.signal;
@@ -289,7 +284,7 @@ void main(string[] args){
         stop_signal_called = true;
     writeln("START");
 
-    GC.disable();
+    // GC.disable();
 
     shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue;
     shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue;
@@ -318,7 +313,8 @@ void main(string[] args){
             writeln(ex);
         }
     });
-    transmit_thread.start();
+
+    if(useTxUSRP) transmit_thread.start();
 
     auto receive_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
@@ -329,11 +325,12 @@ void main(string[] args){
             writeln(ex);
         }
     });
-    receive_thread.start();
+
+    if(useRxUSRP) receive_thread.start();
 
     //clean up
-    transmit_thread.join();
-    receive_thread.join();
+    if(useTxUSRP) transmit_thread.join();
+    if(useRxUSRP) receive_thread.join();
     event_thread.join();
 
     stop_signal_called = true;

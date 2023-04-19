@@ -169,13 +169,20 @@ void eventIOLoop(C, Alloc)(
                                 case CommandID.syncToPPS:
                                     dbg.writeln("syncToPPS");
 
-                                    // 送受信で準備できたかを相互チェックするための配列
-                                    auto isReady = alloc.makeArray!(shared(bool))(2);
+                                    immutable useBothTxRx = (nTXUSRP != 0) && (nRXUSRP != 0);
 
-                                    TxRequest!C* txreq = alloc.make!(TxRequest!C)(TxRequestTypes!C.SyncToPPS(0, isReady));
-                                    RxRequest!C* rxreq = alloc.make!(RxRequest!C)(RxRequestTypes!C.SyncToPPS(1, isReady));
-                                    txMsgQueue.pushRequest(cast(shared)txreq);
-                                    rxMsgQueue.pushRequest(cast(shared)rxreq);
+                                    // 送受信で準備できたかを相互チェックするための配列
+                                    auto isReady = alloc.makeArray!(shared(bool))(useBothTxRx ? 2 : 1);
+
+                                    if(nTXUSRP != 0) {
+                                        TxRequest!C* txreq = alloc.make!(TxRequest!C)(TxRequestTypes!C.SyncToPPS(0, isReady));
+                                        txMsgQueue.pushRequest(cast(shared)txreq);
+                                    }
+
+                                    if(nRXUSRP != 0) {
+                                        RxRequest!C* rxreq = alloc.make!(RxRequest!C)(RxRequestTypes!C.SyncToPPS(useBothTxRx ? 1 : 0, isReady));
+                                        rxMsgQueue.pushRequest(cast(shared)rxreq);
+                                    }
                             }
                         } else {
                             continue Lconnect;
