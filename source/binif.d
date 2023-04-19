@@ -32,7 +32,8 @@ enum CommandID : ubyte
     receive = 0x52,     // 'R'
     transmit = 0x54,    // 'T'
     changeRxAlignSize = 0x41, // 'A'
-    skipRx = 0x44, // 'D'
+    skipRx = 0x44,      // 'D'
+    syncToPPS = 0x53,   //'S'
 }
 
 
@@ -163,7 +164,17 @@ void eventIOLoop(C, Alloc)(
                                 RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Skip(delaySamples));
                                 rxMsgQueue.pushRequest(cast(shared)req);
                                 break;
-                                
+
+                            case CommandID.syncToPPS:
+                                dbg.writeln("syncToPPS");
+
+                                // 送受信で準備できたかを相互チェックするための配列
+                                auto isReady = alloc.makeArray!(shared(bool))(2);
+
+                                TxRequest!C* txreq = alloc.make!(TxRequest!C)(TxRequestTypes!C.SyncToPPS(0, isReady));
+                                RxRequest!C* rxreq = alloc.make!(RxRequest!C)(RxRequestTypes!C.SyncToPPS(1, isReady));
+                                txMsgQueue.pushRequest(cast(shared)txreq);
+                                rxMsgQueue.pushRequest(cast(shared)rxreq);
                         }
                     } else {
                         continue Lconnect;

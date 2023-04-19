@@ -43,7 +43,8 @@ struct RxRequestTypes(C)
 
     static struct SyncToPPS
     {
-        bool _dummy;
+        size_t myIndex;
+        shared(bool)[] isReady;
     }
 }
 
@@ -102,10 +103,7 @@ void receive_worker(C, Alloc)(
     float timeout = settling_time + 0.1f; //expected settling time + padding for first recv
 
     //setup streaming
-    // usrp.setTimeNextPPS(0.seconds);
-    // Thread.sleep(1.seconds);
     usrp.setTimeUnknownPPS(0.seconds);
-    // usrp.setTimeNow(0.seconds);
     StreamCommand stream_cmd = StreamCommand.startContinuous;
     stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
     stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
@@ -192,17 +190,48 @@ void receive_worker(C, Alloc)(
                             totdelay -= d;
                         }
                     },
-                    (RxRequestTypes!C.SyncToPPS){
-                        // Shut down receiver
+                    (RxRequestTypes!C.SyncToPPS r){
+                        import core.atomic;
+                        scope(exit) {
+                            alloc.dispose(req);
+                            if(r.myIndex == 0)
+                                alloc.dispose(cast(void[])r.isReady);
+                        }
+
+                        // shutdown receiver
                         rx_stream.issue(StreamCommand.stopContinuous);
 
-                        //setup streaming
-                        usrp.setTimeNextPPS(0.seconds);
-                        Thread.sleep(1.seconds);
+                        // バッファの残りを受け取る
+                        while(1) {
+                            foreach(i; 0 .. nRXUSRP)
+                                _tmpbuffers[i] = receiveBuffers[i];
+
+                            size_t num_rx_samps;
+                            rx_stream.recv(_tmpbuffers, md, timeout, num_rx_samps);
+                            if(num_rx_samps == 0)
+                                break;
+                        }
+
+                        dbg.writeln("Ready sync and wait other threads...");
+                        // 自分は準備完了したことを他のスレッドに伝える
+                        atomicStore(r.isReady[r.myIndex], true);
+
+                        // 他のスレッドがすべて準備完了するまでwhileで待つ
+                        while(1) {
+                            bool check = true;
+                            foreach(ref b; r.isReady)
+                                check = check && atomicLoad(b);
+
+                            if(check)
+                                break;
+                        }
+
+                        // setup streaming
+                        usrp.setTimeUnknownPPS(0.seconds);
                         StreamCommand stream_cmd = StreamCommand.startContinuous;
-                        stream_cmd.streamNow = rx_channel_nums.length == 1 ? true : false;
-                        stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs + 1.seconds;
-                        rx_stream.issue(stream_cmd);                        
+                        stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
+                        stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
+                        rx_stream.issue(stream_cmd);
                     }
                 )();
             }

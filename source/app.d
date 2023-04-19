@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-// gdb --args ./multiusrp --tx-args="addr0=192.168.10.211,addr1=192.168.10.212" --rx-args="addr0=192.168.10.213,addr1=192.168.10.214" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --ampl=0.3 --tx-gain=10 --rx-gain=30 --clockref=external --timeref=external --tx-channels="0,1" --rx-channels="0,1" --port=8888
+// gdb --args ./multiusrp --tx-args="addr0=192.168.10.211,addr1=192.168.10.212" --rx-args="addr0=192.168.10.213,addr1=192.168.10.214" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --tx-gain=10 --rx-gain=30 --clockref=external --timeref=external --tx-channels="0,1" --rx-channels="0,1" --port=8888
 
 import std.complex;
 import std.math;
@@ -81,20 +81,6 @@ string generate_out_filename(string base_fn, size_t n_names, size_t this_name)
 void main(string[] args){
     alias C = Complex!float;
 
-    /*
-    {
-        shared MsgQueue!(shared(TxRequest)*, shared(TxResponse)*) txMsgQueue;
-        shared MsgQueue!(shared(RxRequest)*, shared(RxResponse)*) rxMsgQueue;
-        eventIOLoop(stop_signal_called, theAllocator, txMsgQueue, rxMsgQueue);
-    }
-
-
-  version(none)
-  {*/
-    // uhd_set_thread_priority(uhd_default_thread_priority, true);
-
-    //transmit variables to be set by po
-    // string[] txfiles;
     string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref = "internal", timeref = "internal", otw, tx_channels;
     double tx_rate, tx_freq, tx_gain, /*wave_freq,*/ tx_bw;
     float ampl;
@@ -128,7 +114,6 @@ void main(string[] args){
         "rx-rate",  "rate of receive incoming samples",             &rx_rate,
         "tx-freq",  "transmit RF center frequency in Hz",           &tx_freq,
         "rx-freq",  "receive RF center frequency in Hz",            &rx_freq,
-        "ampl",     "amplitude of the waveform [0 to 0.7]",         &ampl,
         "tx-gain",  "gain for the transmit RF chain",               &tx_gain,
         "rx-gain",  "gain for the receive RF chain",                &rx_gain,
         "tx-ant",   "transmit antenna selection",                   &tx_ant,
@@ -270,24 +255,10 @@ void main(string[] args){
         }
     }
     //set the receive antenna
-    writeln("DONE");
     if (! rx_ant.empty) rx_usrp.rxAntenna = rx_ant;
-
-    // //create a transmit streamer
-    // //linearly map channels (index0 = channel0, index1 = channel1, ...)
-    // writeln("Create Streaming Object");
-    // StreamArgs stream_args = StreamArgs("fc32", otw, "", tx_channel_nums);
-    // auto tx_stream = tx_usrp.makeTxStreamer(stream_args);
-
-    // //setup the metadata flags
-    // writeln("Make TxMetaData");
-    // TxMetaData md = TxMetaData(true, 0, 0.1, true, false);
 
     writeln("Check Ref and LO Lock detect");
     //Check Ref and LO Lock detect
-    string[] tx_sensor_names, rx_sensor_names;
-    // tx_sensor_names = tx_usrp->get_tx_sensor_names(0);
-    // foreach(sensor; tx_usrp.getTxSensorNames(0)) tx_sensor_names ~= sensor.dup;
     foreach(i, ref usrp; AliasSeq!(tx_usrp, rx_usrp)){
         foreach(sname; usrp.getTxSensorNames(0)){
             if(sname == "lo_locked"){
@@ -314,49 +285,9 @@ void main(string[] args){
         writeln("Press Ctrl + C to stop streaming...");
     }
 
-    //reset usrp time to prepare for transmit/receive
-    Thread.sleep(1.seconds);
-    tx_usrp.setTimeSource("mimo", 1);
-    // writeln("Setting device timestamp to 0...");
-    // tx_usrp.setTimeUnknownPPS(0.seconds);
-
-    Thread.sleep(1.seconds);
     scope(exit)
         stop_signal_called = true;
     writeln("START");
-
-
-    // auto fftw = makeFFTWObject!Complex(SYMBOL_SIZE);
-
-    //start transmit worker thread
-    // boost::thread_group transmit_thread;
-    // transmit_thread.create_thread(boost::bind(&transmit_worker, buff, wave_table, tx_stream, md, step, index, num_channels));
-    version(none){
-        enforce(txfiles.length == tx_channel_nums.length);
-        shared(Complex!float[])[] waveTable;
-        foreach(i, filename; txfiles){
-            import std.file : read;
-            auto signal = cast(Complex!float[])read(filename);
-            foreach(ref e; signal) e *= ampl;
-            waveTable ~= cast(shared)signal;
-            enforce(signal.length == SYMBOL_SIZE);
-        }
-
-        Complex!float[] waveTableForAUX = new Complex!float[SYMBOL_SIZE];
-        shared(Complex!float[]) zeros = cast(shared)iota(SYMBOL_SIZE).map!(a => Complex!float(0)).array();
-        Complex!float[] supplyContinuedBuffer = new Complex!float[SYMBOL_SIZE * 128];
-        shared(Complex!float[])[2] trainingSignals = (){
-            Complex!float[][2] signals;
-            foreach(phase; [0, 1]){
-                foreach(i; 0 .. NUM_TRAINING_SYMBOL){
-                    signals[0] ~= phase == 0 ? waveTable[1] : zeros;
-                    signals[1] ~= phase == 1 ? waveTable[1] : zeros;
-                }
-            }
-
-            return cast(shared(Complex!float[])[2])signals;
-        }();
-    }
 
     GC.disable();
 
@@ -377,22 +308,6 @@ void main(string[] args){
         }
     });
     event_thread.start();
-    // 
-
-
-    
-
-    // immutable real inputDeltaTheta = 10.0L / SYMBOL_SIZE * 2*PI;
-    // immutable(Complex!float)[] sineWave = (){
-    //     Complex!float[] buf;
-    //     foreach(i; 0 .. SYMBOL_SIZE)
-    //         buf ~= cast(Complex!float)std.complex.expi(inputDeltaTheta * i) * ampl;
-    //     return cast(immutable)buf;
-    // }();
-
-    // shared RWQueue!(const(shared(Complex!float))[][2]) txqueue;
-    
-    // txqueue.push([waveTable[0], zeros]);
 
     auto transmit_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
@@ -405,24 +320,6 @@ void main(string[] args){
     });
     transmit_thread.start();
 
-    // {
-    //     immutable nTXUSRP = tx_channel_nums.length;
-    //     C[][] buffer = theAllocator.makeMultidimensionalArray!C(nTXUSRP, 1000);
-    //     foreach(i; 0 .. nTXUSRP) {
-    //         buffer[i][] = C(0);
-    //     }
-    //     TxRequest!C* req = theAllocator.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
-    //     txMsgQueue.pushRequest(cast(shared)req);
-    // }
-
-    // transmit_worker!C(stop_signal_called, theAllocator, tx_channel_nums.length, txMsgQueue, tx_stream, md);
-    // transmit_thread.start();
-
-    //recv to file
-    // shared RWQueue!(Complex!float[]) supplyBufferQueue;
-    // shared RWQueue!(Complex!float[]) reportedSignal;
-    // shared RWQueue!(double) powerQueue;
-    // shared(real)[] receivedSpectrum = new shared(real)[REPORT_FFT_SIZE];
     auto receive_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
 
@@ -432,300 +329,13 @@ void main(string[] args){
             writeln(ex);
         }
     });
-    // receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, rx_channel_nums, settling, rxMsgQueue);
     receive_thread.start();
-    /+
-    
-    +/
 
-    // イベントループを始める
-    // eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
-
-    /+
-    // ESTIMATION
-    auto zmqReportThread = new Thread(delegate() {
-        try{
-            scope(exit) stop_signal_called = true;
-
-            void* context = zmq_ctx_new();
-            void* canc_pusher = zmq_socket(context, ZMQ_PUSH);
-            zmq_bind(canc_pusher, "ipc:///tmp/mwe2017_app_cancellation");
-
-            void* spec_pusher = zmq_socket(context, ZMQ_PUSH);
-            zmq_bind(spec_pusher, "ipc:///tmp/mwe2017_app_spectrum");
-
-            while(! stop_signal_called) {
-                while(powerQueue.empty && ! stop_signal_called)
-                    Thread.sleep(1.msecs);
-
-                //printf("%f\n", db);
-                bool err;
-                char[32 * REPORT_FFT_SIZE] buf;
-
-                if(! powerQueue.empty){
-                    double value = powerQueue.pop();
-                    double db = 10*log10(value);
-                    if(! isFinite(db)) db = 0;
-                    immutable len = snprintf(buf.ptr, buf.length - 1, `{"CANCELLATION": %f}`, db);
-                    if(len > 0){
-                        s_send(canc_pusher, buf[0 .. len], err);
-                        //printf("%s\n", buf.ptr);
-                    }
-                }
-                {
-                    auto offset = snprintf(buf.ptr, buf.length - 1, `{"SPECTRUM": [`);
-                    if(offset <= 0){
-                        printf("ERROR: %d", __LINE__);
-                        goto Lnext;
-                    }
-                    foreach(i; 0 .. REPORT_FFT_SIZE){
-                        double db = 10*log10(receivedSpectrum[i]);
-                        if(! isFinite(db)) db = 0;
-                        int writeN;
-                        if(i == REPORT_FFT_SIZE - 1)
-                            writeN = snprintf(buf.ptr + offset, buf.length - 1 - offset, "%f]}", db);
-                        else
-                            writeN = snprintf(buf.ptr + offset, buf.length - 1 - offset, "%f,", db);
-
-                        if(writeN <= 0){
-                            printf("ERROR: %d", __LINE__);
-                            goto Lnext;
-                        }
-
-                        offset += writeN;
-                    }
-
-                    //writeln(buf[0 .. offset]);
-                    s_send(spec_pusher, buf[0 .. offset], err);
-                }
-
-              Lnext:
-                Thread.sleep(100.msecs);
-                while(! powerQueue.empty) powerQueue.pop();
-            }
-        }catch(Throwable ex){
-            writeln(ex);
-        }
-    });
-    zmqReportThread.start();
-
-    void* context = zmq_ctx_new();
-    void* command_puller = zmq_socket(context, ZMQ_PULL);
-    zmq_connect(command_puller, "ipc:///tmp/mwe2017_app_command");
-
-    const(shared(Complex!float))[][2] nowTransmitSignals = [waveTable[0], zeros];
-    while(! stop_signal_called){
-        bool error;
-        if(auto data = s_recv_noblock(command_puller, error)){
-            scope(exit) free(data.ptr);
-
-            auto cmdMsg = cast(const(ubyte)[])data;
-            switch(cmdMsg[0]) {
-                case CommandID.transmit:
-                    break;
-                case CommandID.receive:
-                    break;
-                case CommandID.set:
-                    break;
-                default:
-                    break;
-            }
-
-            // const(char)[] str = cast(const(char)[])data;
-
-            // if(str.startsWith("EST")){
-            //     estimateAndSetSignal(fftw, txqueue, supplyBufferQueue, reportedSignal,
-            //         cast(Complex!float[][2])trainingSignals,
-            //         cast(Complex!float[])waveTable[1],
-            //         cast(Complex!float[])waveTable[0],
-            //         cast(Complex!float[])zeros,
-            //         cast(shared)waveTableForAUX,
-            //         supplyContinuedBuffer, 0);
-
-            //     nowTransmitSignals = [waveTable[0], cast(shared)waveTableForAUX];
-            // }else if(str.startsWith("CH0-OFF")) {
-            //     nowTransmitSignals = [zeros, nowTransmitSignals[1]];
-            //     txqueue.push(nowTransmitSignals);
-            // }else if(str.startsWith("CH1-OFF")) {
-            //     nowTransmitSignals = [nowTransmitSignals[0], zeros];
-            //     txqueue.push(nowTransmitSignals);
-            // }else if(str.startsWith("CH0-ON")){
-            //     nowTransmitSignals = [waveTable[0], nowTransmitSignals[1]];
-            //     txqueue.push(nowTransmitSignals);
-            // }else if(str.startsWith("CH1-ON")){
-            //     nowTransmitSignals = [nowTransmitSignals[0], cast(shared)waveTableForAUX];
-            //     txqueue.push(nowTransmitSignals);
-            // }else if(str.startsWith("INIT")){
-            //     waveTableForAUX[] = zeros[];
-            //     nowTransmitSignals = [waveTable[0], cast(shared)waveTableForAUX];
-            // }
-        }
-
-        enforce(!error);
-        Thread.sleep(100.msecs);
-    }
-    +/
-
-
-    // eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
-
-    //clean up transmit worker
+    //clean up
     transmit_thread.join();
     receive_thread.join();
     event_thread.join();
+
     stop_signal_called = true;
-    // zmqReportThread.join();
-    //GC.enable();
-
-    //finished
     writeln("\nDone!\n");
-//   }
 }
-
-
-/+
-void estimateAndSetSignal(
-    ref FFTWObject!Complex fftw,
-    ref shared RWQueue!(const(shared(Complex!float))[][2]) txqueue,
-    ref shared RWQueue!(Complex!float[]) rxsupplier,
-    ref shared RWQueue!(Complex!float[]) rxreporter,
-    const(Complex!float[])[2] trainingSignals,
-    const(Complex!float)[] trainingSymbol,
-    const(Complex!float)[] transmitSymbol,
-    const(Complex!float)[] zeros,
-    shared(Complex!float)[] waveTableForAUX,
-    Complex!float[] rxbuffer,
-    real deltaThetaOfFreqOffset,
-)
-{
-    //Thread.sleep(5.seconds);
-    if(!rxreporter.empty){
-        printf("ERROR on line:%d",  cast(int)__LINE__);
-        return;
-    }
-
-    rxsupplier.push(cast(shared)rxbuffer);
-
-    puts("SEND TRAINING SIGNAL\n");
-    txqueue.push(cast(shared)trainingSignals);
-    txqueue.push(cast(shared)[zeros, zeros]);
-
-    // 信号が受信されるまで待つ
-    while(rxreporter.empty && ! stop_signal_called) {
-        Thread.sleep(100.msecs);
-    }
-    if(stop_signal_called) return;
-    if(! txqueue.empty){
-        printf("ERROR on line:%d",  cast(int)__LINE__);
-        return;
-    }
-    rxreporter.pop();   // 信号を取り出しておく
-
-    puts("START ESTIMATE\n");
-
-    // 周波数を補正する
-    foreach(i, ref e; rxbuffer)
-        e *= std.complex.expi(i * deltaThetaOfFreqOffset * -1);
-
-    // SNR=30dBを達成するピークを探す
-    auto peakResult = peakSearch(trainingSymbol, rxbuffer, 30);
-    if(peakResult.index.isNull){
-        printf("ERROR on line:%d",  cast(int)__LINE__);
-        return;
-    }
-
-    // ピークの位置から探す
-    rxbuffer = rxbuffer[peakResult.index.get() .. $];
-    auto recv0s = rxbuffer[0 .. SYMBOL_SIZE * NUM_TRAINING_SYMBOL];
-    auto recv1s = rxbuffer[SYMBOL_SIZE * NUM_TRAINING_SYMBOL .. SYMBOL_SIZE * NUM_TRAINING_SYMBOL * 2];
-
-    // 受信シンボルで平均を取る
-    foreach(ref rs; AliasSeq!(recv0s, recv1s)){
-        foreach(i; 1 .. NUM_TRAINING_SYMBOL){
-            foreach(j; 0 .. SYMBOL_SIZE)
-                rs[j] += rs[i*SYMBOL_SIZE + j];
-        }
-    }
-
-    // 送信信号をfftしたもの
-    Complex!float[SYMBOL_SIZE] sendSpec;
-    .fft!float(fftw, trainingSymbol, sendSpec[]);
-
-    Complex!float[SYMBOL_SIZE] recv0Spec;
-    .fft!float(fftw, recv0s[0 .. SYMBOL_SIZE], recv0Spec[]);
-
-    Complex!float[SYMBOL_SIZE] recv1Spec;
-    .fft!float(fftw, recv1s[0 .. SYMBOL_SIZE], recv1Spec[]);
-
-    foreach(i; 0 .. SYMBOL_SIZE){
-        recv0Spec[i] /= sendSpec[i];
-        recv1Spec[i] /= sendSpec[i];
-    }
-
-    fftw.inputs!float[] = transmitSymbol[];
-    fftw.fft!float();
-    foreach(i; 0 .. SYMBOL_SIZE){
-        if((recv0Spec[i] / recv1Spec[i]).sqAbs < 100)
-            fftw.inputs!float[i] = fftw.outputs!float[i] * recv0Spec[i] / recv1Spec[i] * -1;
-        else
-            fftw.inputs!float[i] = Complex!float(0, 0);
-    }
-    fftw.ifft!float();
-
-    waveTableForAUX[] = fftw.outputs!float[];
-
-    writeln("RESEND");
-    txqueue.push(cast(shared(Complex!float[])[2])[cast(shared)transmitSymbol, waveTableForAUX]);
-}
-+/
-
-
-
-// real estimateFrequencyOffset(
-//     ref shared RWQueue!(immutable(Complex!float)[][2]) txqueue,
-//     ref shared RWQueue!(Complex!float[]) rxsupplier,
-//     ref shared RWQueue!(Complex!float[]) rxreporter,
-//     real inputDeltaTheta,
-//     immutable(Complex!float)[] sineWave,
-//     immutable(Complex!float)[] zeros,
-//     Complex!float[] rxbuffer,
-// )
-// {
-//     writeln("START FREQUENCY OFFSET ESTIMATING");
-//     writeln("TRANSMIT SINE WAVE");
-//     txqueue.push([sineWave, zeros]);
-//     Thread.sleep(1.seconds);
-
-//     rxsupplier.push(cast(shared)rxbuffer);
-//     // 信号が受信されるまで待つ
-//     while(rxreporter.empty && ! stop_signal_called) {
-//         Thread.sleep(100.msecs);
-//     }
-//     if(stop_signal_called) return real.nan;
-//     enforce(txqueue.empty);
-//     rxreporter.pop();   // 信号を取り出しておく
-
-//     writeln("RECEIVING END");
-//     writeln("START OFFSET ESTIMATING");
-
-//     auto fftw = makeFFTWObject!Complex(rxbuffer.length);
-//     fftw.inputs!float[] = rxbuffer[];
-//     fftw.fft!float();
-//     rxbuffer[] = fftw.outputs!float[];
-
-//     real maxValue = -real.infinity;
-//     size_t maxPos;
-//     foreach(i, e; rxbuffer){
-//         auto p = e.sqAbs;
-//         if(maxValue < p){
-//             maxValue = p;
-//             maxPos = i;
-//         }
-//     }
-
-//     if(maxPos < rxbuffer.length / 2){
-//         return (maxPos*1.0L / rxbuffer.length)*2*PI - inputDeltaTheta;
-//     }else{
-//         return (maxPos*1.0L / rxbuffer.length)*2*PI - 2*PI - inputDeltaTheta;
-//     }
-// }

@@ -26,7 +26,8 @@ struct TxRequestTypes(C)
 
     static struct SyncToPPS
     {
-        bool _dummy;
+        size_t myIndex;
+        shared(bool)[] isReady;
     }
 }
 
@@ -84,8 +85,8 @@ void transmit_worker(C, Alloc)(
     foreach(i; 0 .. nTXUSRP)
         initTxBuffers[i][] = C(0);
 
-    C[][] txbuffers = alloc.makeMultidimensionalArray!C(nTXUSRP, 4096);
-    scope(exit) alloc.disposeMultidimensionalArray(txbuffers);
+    // C[][] txbuffers = alloc.makeMultidimensionalArray!C(nTXUSRP, 4096);
+    // scope(exit) alloc.disposeMultidimensionalArray(txbuffers);
 
     shared(TxRequest!C)* nowTargetRequest;
     shared(TxRequestTypes!C.Transmit) nowTargetTransmitRequest;
@@ -101,7 +102,6 @@ void transmit_worker(C, Alloc)(
 
     // PPSのsettling_time秒後に送信
     usrp.setTimeUnknownPPS(0.seconds);
-    // usrp.setTimeNow(0.seconds);
     tx_streamer.send(nullBuffers, firstMD, 1);
 
     const(C)[][128] _tmpbuffers;
@@ -111,14 +111,14 @@ void transmit_worker(C, Alloc)(
         size_t numTotalSamples = 0;
         while(numTotalSamples < buffers[0].length && !stop_signal_called) {
             // dbg.writefln("*");
-            {
-                import std.algorithm;
-                immutable nMin = min(buffers[0].length, txbuffers[0].length - numTotalSamples);
-                foreach(i; 0 .. nTXUSRP) {
-                    txbuffers[i][0 .. nMin] = buffers[i][numTotalSamples .. numTotalSamples + nMin];
-                    _tmpbuffers[i] = txbuffers[i][0 .. nMin];
-                }
-            }
+            // {
+            //     import std.algorithm;
+            //     immutable nMin = min(buffers[0].length, txbuffers[0].length - numTotalSamples);
+            //     foreach(i; 0 .. nTXUSRP) {
+            //         txbuffers[i][0 .. nMin] = buffers[i][numTotalSamples .. numTotalSamples + nMin];
+            //         _tmpbuffers[i] = txbuffers[i][0 .. nMin];
+            //     }
+            // }
 
             foreach(i; 0 .. nTXUSRP)
                 _tmpbuffers[i] = buffers[i][numTotalSamples .. $];
@@ -161,14 +161,33 @@ void transmit_worker(C, Alloc)(
                             nowTargetTransmitRequest = cast(shared)r;
                         },
                         (TxRequestTypes!C.SyncToPPS r) {
-                                scope(exit) alloc.dispose(req);
+                                import core.atomic;
+                                scope(exit) {
+                                    alloc.dispose(req);
+                                    if(r.myIndex == 0)
+                                        alloc.dispose(cast(void[])r.isReady);
+                                }
 
+                                // 現在送信中のストリームを終了
                                 tx_streamer.send(nullBuffers, endMD, 0.1);
 
-                                // PPSのsettling_time秒後に次を送信
-                                usrp.setTimeNextPPS(0.seconds);
-                                Thread.sleep(1.seconds);
-                                tx_streamer.send(nullBuffers, firstMD, 0.1);
+                                dbg.writeln("Ready sync and wait other threads...");
+                                // 自分は準備完了したことを他のスレッドに伝える
+                                atomicStore(r.isReady[r.myIndex], true);
+
+                                // 他のスレッドがすべて準備完了するまでwhileで待つ
+                                while(1) {
+                                    bool check = true;
+                                    foreach(ref b; r.isReady)
+                                        check = check && atomicLoad(b);
+
+                                    if(check)
+                                        break;
+                                }
+
+                                // PPSのsettling_time秒後に送信
+                                usrp.setTimeUnknownPPS(0.seconds);
+                                tx_streamer.send(nullBuffers, firstMD, 1);
                         }
                     )();
                     writeln("POP");
