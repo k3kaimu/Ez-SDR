@@ -140,6 +140,9 @@ class SimpleClient:
         self.sock.sendall(b'D')
         sigdatafmt.writeInt32ToSock(self.sock, delay)
 
+    def sync(self):
+        self.sock.sendall(b'S')
+
 
 class SimpleMockClient:
     def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix):
