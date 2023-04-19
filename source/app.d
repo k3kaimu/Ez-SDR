@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-// gdb --args ./multiusrp --tx-args="addr0=192.168.10.211,addr1=192.168.10.212" --rx-args="addr0=192.168.10.213,addr1=192.168.10.214" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --tx-gain=10 --rx-gain=30 --clockref=external --timeref=external --tx-channels="0,1" --rx-channels="0,1" --port=8888
+// gdb --args ./multiusrp --tx-args="addr0=192.168.10.211,addr1=192.168.10.212" --rx-args="addr0=192.168.10.213,addr1=192.168.10.214" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --tx-gain=10 --rx-gain=30 --clockref=external --timeref=external --timesync=true --tx-channels="0,1" --rx-channels="0,1" --port=8888
 
 import std.complex;
 import std.math;
@@ -82,6 +82,7 @@ void main(string[] args){
     alias C = Complex!float;
 
     string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref = "internal", timeref = "internal", otw, tx_channels;
+    bool time_sync = false;
     double tx_rate, tx_freq, tx_gain, /*wave_freq,*/ tx_bw;
     float ampl;
 
@@ -127,6 +128,7 @@ void main(string[] args){
         // "wave-freq",    "waveform frequency in Hz",                 &wave_freq,
         "clockref",      "clock reference (internal, external, mimo)",   &clockref,
         "timeref",      "time reference (internal, external, mimo)",   &timeref,
+        "timesync",     "synchronization of timing",                &time_sync,
         "otw",      "specify the over-the-wire sample mode",        &otw,
         "tx-channels",  `which TX channel(s) to use (specify "0", "1", "0,1", etc)`,    &tx_channels,
         "rx-channels",  `which RX channel(s) to use (specify "0", "1", "0,1", etc)`,    &rx_channels,
@@ -308,7 +310,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, "fc32", otw, tx_channel_nums, settling, txMsgQueue);
+            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, "fc32", otw, time_sync, tx_channel_nums, settling, txMsgQueue);
         catch(Throwable ex){
             writeln(ex);
         }
@@ -320,7 +322,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, rx_channel_nums, settling, recvAlignSize, rxMsgQueue);
+            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, time_sync, rx_channel_nums, settling, recvAlignSize, rxMsgQueue);
         catch(Throwable ex){
             writeln(ex);
         }

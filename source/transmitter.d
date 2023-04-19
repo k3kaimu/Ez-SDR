@@ -57,6 +57,7 @@ void transmit_worker(C, Alloc)(
     size_t nTXUSRP,
     string cpu_format,
     string wire_format,
+    bool time_sync,
     immutable(size_t)[] tx_channel_nums,
     float settling_time,
     ref shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue,
@@ -101,7 +102,11 @@ void transmit_worker(C, Alloc)(
     }
 
     // PPSのsettling_time秒後に送信
-    usrp.setTimeUnknownPPS(0.seconds);
+    if(time_sync)
+        usrp.setTimeUnknownPPS(0.seconds);
+    else
+        usrp.setTimeNow(0.seconds);
+
     tx_streamer.send(nullBuffers, firstMD, 1);
 
     const(C)[][128] _tmpbuffers;
@@ -186,7 +191,10 @@ void transmit_worker(C, Alloc)(
                                 }
 
                                 // PPSのsettling_time秒後に送信
-                                usrp.setTimeUnknownPPS(0.seconds);
+                                if(time_sync)
+                                    usrp.setTimeUnknownPPS(0.seconds);
+                                else
+                                    usrp.setTimeNow(0.seconds);
                                 tx_streamer.send(nullBuffers, firstMD, 1);
                         }
                     )();
@@ -207,7 +215,7 @@ void transmit_worker(C, Alloc)(
                     error = err.get;
                     writeln(error);
                     Thread.sleep(2.seconds);
-                    transmit_worker!C(stop_signal_called, alloc, usrp, nTXUSRP, cpu_format, wire_format, tx_channel_nums, settling_time, txMsgQueue);
+                    transmit_worker!C(stop_signal_called, alloc, usrp, nTXUSRP, cpu_format, wire_format, time_sync, tx_channel_nums, settling_time, txMsgQueue);
                 }
                 b = true;
             }

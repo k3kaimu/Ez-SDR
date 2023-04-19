@@ -70,6 +70,7 @@ void receive_worker(C, Alloc)(
     size_t nRXUSRP,
     string cpu_format,
     string wire_format,
+    bool time_sync,
     immutable(size_t)[] rx_channel_nums,
     float settling_time,
     size_t alignSize,
@@ -103,7 +104,11 @@ void receive_worker(C, Alloc)(
     float timeout = settling_time + 0.1f; //expected settling time + padding for first recv
 
     //setup streaming
-    usrp.setTimeUnknownPPS(0.seconds);
+    if(time_sync)
+        usrp.setTimeUnknownPPS(0.seconds);
+    else
+        usrp.setTimeNow(0.seconds);
+
     StreamCommand stream_cmd = StreamCommand.startContinuous;
     stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
     stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
@@ -227,7 +232,11 @@ void receive_worker(C, Alloc)(
                         }
 
                         // setup streaming
-                        usrp.setTimeUnknownPPS(0.seconds);
+                        if(time_sync)
+                            usrp.setTimeUnknownPPS(0.seconds);
+                        else
+                            usrp.setTimeNow(0.seconds);
+
                         StreamCommand stream_cmd = StreamCommand.startContinuous;
                         stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
                         stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
@@ -251,7 +260,7 @@ void receive_worker(C, Alloc)(
             if(auto uhderr = md.getErrorCode(errorCode)){
                 error = uhderr;
                 Thread.sleep(2.seconds);
-                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, rx_channel_nums, settling_time, alignSize, rxMsgQueue);
+                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, time_sync, rx_channel_nums, settling_time, alignSize, rxMsgQueue);
             }
             if (errorCode == md.ErrorCode.TIMEOUT) {
                 import core.stdc.stdio : puts;
