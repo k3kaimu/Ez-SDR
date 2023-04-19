@@ -284,7 +284,7 @@ void main(string[] args){
         stop_signal_called = true;
     writeln("START");
 
-    // GC.disable();
+    GC.disable();
 
     shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue;
     shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue;
