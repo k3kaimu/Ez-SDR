@@ -28,44 +28,53 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
         np.repeat(np.random.choice(qpsk_constellation, nSamples//4), 4),
     ]
 
-    usrp.changeRxAlignSize(1000)
+    rxAlignSize = 1000
+    usrp.changeRxAlignSize(rxAlignSize)
     usrp.transmit(signals)
     time.sleep(1)
 
     recv1 = usrp.receive(nSamples)
     recv2 = usrp.receive(nSamples)
 
-    print("delay[0,0]: {} samples".format(calc_delay(signals[0], recv1[0])))
-    print("delay[0,1]: {} samples".format(calc_delay(signals[1], recv1[1])))
-    print("delay[1,0]: {} samples".format(calc_delay(signals[0], recv2[0])))
-    print("delay[1,1]: {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("Tx: nSamples = {}, Rx: rxAlignSize = {}".format(nSamples, rxAlignSize))
+    print("1st: delay[0]: {} samples".format(calc_delay(signals[0], recv1[0])))
+    print("1st: delay[1]: {} samples".format(calc_delay(signals[1], recv1[1])))
+    print("2nd: delay[0]: {} samples".format(calc_delay(signals[0], recv2[0])))
+    print("2nd: delay[1]: {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("")
 
-    usrp.changeRxAlignSize(nSamples)
+    rxAlignSize = nSamples
+    usrp.changeRxAlignSize(rxAlignSize)
 
     recv1 = usrp.receive(nSamples)
     recv2 = usrp.receive(nSamples)
 
-    print("delay[0,0]: {} samples".format(calc_delay(signals[0], recv1[0])))
-    print("delay[0,1]: {} samples".format(calc_delay(signals[1], recv1[1])))
-    print("delay[1,0]: {} samples".format(calc_delay(signals[0], recv2[0])))
-    print("delay[1,1]: {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("Tx: nSamples = {}, Rx: rxAlignSize = {}".format(nSamples, rxAlignSize))
+    print("1st: tx[0] to rx[0]: delay = {} samples".format(calc_delay(signals[0], recv1[0])))
+    print("1st: tx[1] to rx[1]: delay = {} samples".format(calc_delay(signals[1], recv1[1])))
+    print("2nd: tx[0] to rx[0]: delay = {} samples".format(calc_delay(signals[0], recv2[0])))
+    print("2nd: tx[1] to rx[1]: delay = {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("")
 
     usrp.sync()
     recv1 = usrp.receive(nSamples)
     recv2 = usrp.receive(nSamples)
 
-    print("delay[0,0]: {} samples".format(calc_delay(signals[0], recv1[0])))
-    print("delay[0,1]: {} samples".format(calc_delay(signals[1], recv1[1])))
-    print("delay[1,0]: {} samples".format(calc_delay(signals[0], recv2[0])))
-    print("delay[1,1]: {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("Tx: nSamples = {}, Rx: rxAlignSize = {}, After Synchronization".format(nSamples, rxAlignSize))
+    print("1st: tx[0] to rx[0]: delay = {} samples".format(calc_delay(signals[0], recv1[0])))
+    print("1st: tx[1] to rx[1]: delay = {} samples".format(calc_delay(signals[1], recv1[1])))
+    print("2nd: tx[0] to rx[0]: delay = {} samples".format(calc_delay(signals[0], recv2[0])))
+    print("2nd: tx[1] to rx[1]: delay = {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("")
 
     recv1 = usrp.receive(nSamples)
     recv2 = usrp.receive(nSamples)
 
-    print("delay[0,0]: {} samples".format(calc_delay(signals[0], recv1[0])))
-    print("delay[0,1]: {} samples".format(calc_delay(signals[1], recv1[1])))
-    print("delay[1,0]: {} samples".format(calc_delay(signals[0], recv2[0])))
-    print("delay[1,1]: {} samples".format(calc_delay(signals[1], recv2[1])))
+    print("Tx: nSamples = {}, Rx: rxAlignSize = {}, After Synchronization".format(nSamples, rxAlignSize))
+    print("1st: tx[0] to rx[0]: delay = {} samples".format(calc_delay(signals[0], recv1[0])))
+    print("1st: tx[1] to rx[1]: delay = {} samples".format(calc_delay(signals[1], recv1[1])))
+    print("2nd: tx[0] to rx[0]: delay = {} samples".format(calc_delay(signals[0], recv2[0])))
+    print("2nd: tx[1] to rx[1]: delay = {} samples".format(calc_delay(signals[1], recv2[1])))
 
     # for i in range(nSamples):
     #     print("{},{},{},{},{},{},{},{},{}".format(i, np.real(recv1[0][i]),np.imag(recv1[0][i]),np.real(recv1[1][i]),np.imag(recv1[1][i]), np.real(recv2[0][i]),np.imag(recv2[0][i]),np.real(recv2[1][i]),np.imag(recv2[1][i])))
