@@ -60,143 +60,148 @@ void eventIOLoop(C, Alloc)(
             dbg.writefln!"retry... (%s)"(tryCount);
             Thread.sleep(10.seconds);
         }
+        try {
 
-        auto socket = new TcpSocket(AddressFamily.INET);
-        scope(exit) {
-            // socket.shutdown();
-            socket.close();
-            dbg.writefln("END eventIOLoop");
-        }
+            auto socket = new TcpSocket(AddressFamily.INET);
+            scope(exit) {
+                // socket.shutdown();
+                socket.close();
+                dbg.writefln("END eventIOLoop");
+            }
 
-        socket.bind(new InternetAddress("127.0.0.1", port));
-        socket.listen(10);
-        dbg.writefln("START EVENT LOOP");
+            socket.bind(new InternetAddress("127.0.0.1", port));
+            socket.listen(10);
+            dbg.writefln("START EVENT LOOP");
 
-        alias C = Complex!float;
+            alias C = Complex!float;
 
-        void disposeReqRes(X)(X reqres) {
-            if(reqres[0] != null) alloc.dispose(reqres[0]);
-            if(reqres[1] != null) alloc.dispose(reqres[1]);
-        }
+            void disposeReqRes(X)(X reqres) {
+                if(reqres[0] != null) alloc.dispose(reqres[0]);
+                if(reqres[1] != null) alloc.dispose(reqres[1]);
+            }
 
 
-        Lconnect: while(!stop_signal_called) {
-            try {
-                writeln("PLEASE COMMAND");
-                // auto cid = stdin.readCommandID();
-                auto client = socket.accept();
-                writeln("CONNECTED");
+            Lconnect: while(!stop_signal_called) {
+                try {
+                    writeln("PLEASE COMMAND");
+                    // auto cid = stdin.readCommandID();
+                    auto client = socket.accept();
+                    writeln("CONNECTED");
 
-                while(!stop_signal_called && client.isAlive) {
-                    // binaryDump(client, stop_signal_called);
-                    auto cid = client.readCommandID();
-                    if(!cid.isNull) {
-                        writeln(cid.get);
-                        final switch(cid.get) {
-                            case CommandID.shutdown:
-                                stop_signal_called = true;
-                                return;
+                    while(!stop_signal_called && client.isAlive) {
+                        // binaryDump(client, stop_signal_called);
+                        auto cid = client.readCommandID();
+                        if(!cid.isNull) {
+                            writeln(cid.get);
+                            final switch(cid.get) {
+                                case CommandID.shutdown:
+                                    stop_signal_called = true;
+                                    return;
 
-                            case CommandID.receive:
-                                immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
-                                dbg.writefln("RX: numSamples = %s", numSamples);
+                                case CommandID.receive:
+                                    immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: numSamples = %s", numSamples);
 
-                                C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
-                                RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Receive(buffer));
+                                    C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
+                                    RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Receive(buffer));
 
-                                dbg.writefln("RX: Push Request");
-                                rxMsgQueue.pushRequest(cast(shared)req);
+                                    dbg.writefln("RX: Push Request");
+                                    rxMsgQueue.pushRequest(cast(shared)req);
 
-                                bool doneRecv = false;
-                                while(!doneRecv) {
-                                    dbg.writefln("RX: Wait...");
-                                    while(rxMsgQueue.emptyResponse) {
-                                        Thread.sleep(10.msecs);
+                                    bool doneRecv = false;
+                                    while(!doneRecv) {
+                                        dbg.writefln("RX: Wait...");
+                                        while(rxMsgQueue.emptyResponse) {
+                                            Thread.sleep(10.msecs);
+                                        }
+
+                                        auto reqres = cast()rxMsgQueue.popResponse();
+                                        scope(exit) disposeReqRes(reqres);
+                                        (cast()*reqres[1]).match!(
+                                            (RxResponseTypes!C.Receive r) {
+                                                dbg.writefln("RX: Coming!");
+
+                                                foreach(i; 0 .. nRXUSRP)
+                                                    enforce(client.rawWriteArray(r.buffer[i]));
+
+                                                alloc.disposeMultidimensionalArray(r.buffer);
+                                                doneRecv = true;
+                                            }
+                                        )();
+                                    }
+                                    break;
+
+                                case CommandID.transmit:
+                                    immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln!"TX: %s samples"(numSamples);
+
+                                    C[][] buffer = alloc.makeMultidimensionalArray!C(nTXUSRP, numSamples);
+                                    foreach(i; 0 .. nTXUSRP) {
+                                        enforce(client.rawReadArray(buffer[i]));
+                                        dbg.writefln!"TX: Read Done %s, len = %s"(i, buffer[i].length);
+                                        dbg.writefln!"\tFirst 5 elements: %s"(buffer[i][0 .. min(5, $)]);
+                                        dbg.writefln!"\tLast 5 elements: %s"(buffer[i][$ < 5 ? 0 : $-5 .. $]);
                                     }
 
-                                    auto reqres = cast()rxMsgQueue.popResponse();
-                                    scope(exit) disposeReqRes(reqres);
-                                    (cast()*reqres[1]).match!(
-                                        (RxResponseTypes!C.Receive r) {
-                                            dbg.writefln("RX: Coming!");
+                                    dbg.writefln("TX: Push MsgQueue");
 
-                                            foreach(i; 0 .. nRXUSRP)
-                                                enforce(client.rawWriteArray(r.buffer[i]));
+                                    // C[][] buffer = client.rawReadArray().enforceNotNull;
+                                    TxRequest!C* req = alloc.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
+                                    txMsgQueue.pushRequest(cast(shared)req);
+                                    break;
 
-                                            alloc.disposeMultidimensionalArray(r.buffer);
-                                            doneRecv = true;
-                                        }
-                                    )();
-                                }
-                                break;
+                                case CommandID.changeRxAlignSize:
+                                    immutable size_t newAlign = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
 
-                            case CommandID.transmit:
-                                immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
-                                dbg.writefln!"TX: %s samples"(numSamples);
+                                    RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.ChangeAlignSize(newAlign));
+                                    rxMsgQueue.pushRequest(cast(shared)req);
+                                    break;
 
-                                C[][] buffer = alloc.makeMultidimensionalArray!C(nTXUSRP, numSamples);
-                                foreach(i; 0 .. nTXUSRP) {
-                                    enforce(client.rawReadArray(buffer[i]));
-                                    dbg.writefln!"TX: Read Done %s, len = %s"(i, buffer[i].length);
-                                    dbg.writefln!"\tFirst 5 elements: %s"(buffer[i][0 .. min(5, $)]);
-                                    dbg.writefln!"\tLast 5 elements: %s"(buffer[i][$ < 5 ? 0 : $-5 .. $]);
-                                }
+                                case CommandID.skipRx:
+                                    immutable size_t delaySamples = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln!"skipRx: %s samples"(delaySamples);
 
-                                dbg.writefln("TX: Push MsgQueue");
+                                    RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Skip(delaySamples));
+                                    rxMsgQueue.pushRequest(cast(shared)req);
+                                    break;
 
-                                // C[][] buffer = client.rawReadArray().enforceNotNull;
-                                TxRequest!C* req = alloc.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
-                                txMsgQueue.pushRequest(cast(shared)req);
-                                break;
+                                case CommandID.syncToPPS:
+                                    dbg.writeln("syncToPPS");
 
-                            case CommandID.changeRxAlignSize:
-                                immutable size_t newAlign = client.rawReadValue!uint.enforceNotNull;
-                                dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
+                                    // 送受信で準備できたかを相互チェックするための配列
+                                    auto isReady = alloc.makeArray!(shared(bool))(2);
 
-                                RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.ChangeAlignSize(newAlign));
-                                rxMsgQueue.pushRequest(cast(shared)req);
-                                break;
-
-                            case CommandID.skipRx:
-                                immutable size_t delaySamples = client.rawReadValue!uint.enforceNotNull;
-                                dbg.writefln!"skipRx: %s samples"(delaySamples);
-
-                                RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Skip(delaySamples));
-                                rxMsgQueue.pushRequest(cast(shared)req);
-                                break;
-
-                            case CommandID.syncToPPS:
-                                dbg.writeln("syncToPPS");
-
-                                // 送受信で準備できたかを相互チェックするための配列
-                                auto isReady = alloc.makeArray!(shared(bool))(2);
-
-                                TxRequest!C* txreq = alloc.make!(TxRequest!C)(TxRequestTypes!C.SyncToPPS(0, isReady));
-                                RxRequest!C* rxreq = alloc.make!(RxRequest!C)(RxRequestTypes!C.SyncToPPS(1, isReady));
-                                txMsgQueue.pushRequest(cast(shared)txreq);
-                                rxMsgQueue.pushRequest(cast(shared)rxreq);
+                                    TxRequest!C* txreq = alloc.make!(TxRequest!C)(TxRequestTypes!C.SyncToPPS(0, isReady));
+                                    RxRequest!C* rxreq = alloc.make!(RxRequest!C)(RxRequestTypes!C.SyncToPPS(1, isReady));
+                                    txMsgQueue.pushRequest(cast(shared)txreq);
+                                    rxMsgQueue.pushRequest(cast(shared)rxreq);
+                            }
+                        } else {
+                            continue Lconnect;
                         }
-                    } else {
-                        continue Lconnect;
-                    }
 
 
-                    while(!txMsgQueue.emptyResponse) {
-                        auto reqres = txMsgQueue.popResponse();
-                        scope(exit) disposeReqRes(reqres);
+                        while(!txMsgQueue.emptyResponse) {
+                            auto reqres = txMsgQueue.popResponse();
+                            scope(exit) disposeReqRes(reqres);
 
-                        if(reqres[1]) {
-                            (cast()(*(reqres[1]))).match!(
-                                (TxResponseTypes!C.TransmitDone g) {
-                                    alloc.disposeMultidimensionalArray(g.buffer);
-                                }
-                            )();
+                            if(reqres[1]) {
+                                (cast()(*(reqres[1]))).match!(
+                                    (TxResponseTypes!C.TransmitDone g) {
+                                        alloc.disposeMultidimensionalArray(g.buffer);
+                                    }
+                                )();
+                            }
                         }
                     }
+                } catch(Exception ex) {
+                    writeln(ex);
                 }
-            } catch(Exception ex) {
-                writeln(ex);
             }
+        
+        } catch(Throwable ex) {
+            writeln(ex);
         }
     }
 }
