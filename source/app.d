@@ -81,7 +81,7 @@ string generate_out_filename(string base_fn, size_t n_names, size_t this_name)
 void main(string[] args){
     alias C = Complex!float;
 
-    string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref = "internal", timeref = "internal", otw, tx_channels;
+    string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref, timeref, otw, tx_channels;
     bool time_sync = false;
     double tx_rate, tx_freq, tx_gain, /*wave_freq,*/ tx_bw;
     float ampl;
@@ -167,12 +167,12 @@ void main(string[] args){
     foreach(e; rx_channel_nums) enforce(e < rx_usrp.rxNumChannels, "Invalid RX channel(s) specified.");
 
     // Set time source
-    if(useTxUSRP) tx_usrp.timeSource = timeref;
-    if(useRxUSRP) rx_usrp.timeSource = timeref;
+    if(useTxUSRP && timeref !is null) tx_usrp.timeSource = timeref;
+    if(useRxUSRP && timeref !is null) rx_usrp.timeSource = timeref;
 
     //Lock mboard clocks
-    if(useTxUSRP) tx_usrp.clockSource = clockref;
-    if(useRxUSRP) rx_usrp.clockSource = clockref;
+    if(useTxUSRP && clockref !is null) tx_usrp.clockSource = clockref;
+    if(useRxUSRP && clockref !is null) rx_usrp.clockSource = clockref;
 
     //always select the subdevice first, the channel mapping affects the other settings
     if(useTxUSRP && ! tx_subdev.empty) tx_usrp.txSubdevSpec = tx_subdev;
