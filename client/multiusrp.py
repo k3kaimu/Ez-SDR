@@ -81,7 +81,7 @@ class SimpleClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ipaddr = ipaddr
         self.port = port
-        self.mockserver = None
+        # self.mockserver = None
         self.nTXUSRP = nTXUSRP
         self.nRXUSRP = nRXUSRP
         # self.doClip = True
@@ -104,30 +104,26 @@ class SimpleClient:
             self.sock.connect((self.ipaddr, self.port));
 
     def transmit(self, signals):
-        if self.mockserver is None:
-            self.sock.sendall(b'T');
-            for i in range(self.nTXUSRP):
-                if i == 0:
-                    sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=True)
-                else:
-                    sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=False)
+        self.sock.sendall(b'T');
+        for i in range(self.nTXUSRP):
+            if i == 0:
+                sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=True)
+            else:
+                sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=False)
 
-        else:
-            self.mockserver.onIncomingTransmitCommand(signal)
-            return self.mockserver.onIncomingReceiveCommand()
-
-    def receive(self, nsamples):
-        if self.mockserver is None:
+    def receive(self, nsamples, **kwargs):
+        if 'onlyResponse' not in kwargs:
             self.sock.sendall(b'R');
             sigdatafmt.writeInt32ToSock(self.sock, nsamples)
 
+        if 'onlyRequest' not in kwargs:
             ret = []
             for i in range(self.nRXUSRP):
                 ret.append(sigdatafmt.readSignalFromSock(self.sock, nsamples))
             
             return np.array(ret)
         else:
-            return self.mockserver.onIncomingReceiveCommand()
+            return None
 
     def shutdown(self):
         self.sock.sendall(b'Q');
