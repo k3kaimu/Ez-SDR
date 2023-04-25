@@ -112,11 +112,11 @@ class SimpleClient:
                 sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=False)
 
     def receive(self, nsamples, **kwargs):
-        if 'onlyResponse' not in kwargs:
+        if ('onlyResponse' not in kwargs) or (not kwargs['onlyResponse']):
             self.sock.sendall(b'R');
             sigdatafmt.writeInt32ToSock(self.sock, nsamples)
 
-        if 'onlyRequest' not in kwargs:
+        if ('onlyRequest' not in kwargs) or (not kwargs['onlyRequest']):
             ret = []
             for i in range(self.nRXUSRP):
                 ret.append(sigdatafmt.readSignalFromSock(self.sock, nsamples))
