@@ -29,6 +29,7 @@ import std.algorithm;
 import std.conv;
 import std.exception;
 import std.meta;
+import std.json;
 import uhd.usrp;
 import uhd.capi;
 import uhd.utils;
@@ -82,12 +83,13 @@ void main(string[] args){
     alias C = Complex!float;
 
     string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref, timeref, otw, tx_channels;
+    string config_json;
     bool time_sync = false;
     double tx_rate, tx_freq, tx_gain, /*wave_freq,*/ tx_bw;
     float ampl;
 
     //receive variables to be set by po
-    string rx_args, file, type, rx_ant, rx_subdev, rx_channels;
+    string rx_args, rx_ant, rx_subdev, rx_channels;
     // size_t spb;
     double rx_rate, rx_freq, rx_gain, rx_bw;
     float settling;
@@ -96,8 +98,6 @@ void main(string[] args){
     size_t recvAlignSize = 4096;
 
     // set default values
-    file = "usrp_samples.dat";
-    type = "short";
     ampl = 0.3;
     settling = 1;
     otw = "sc16";
@@ -105,10 +105,9 @@ void main(string[] args){
 
     auto helpInformation = getopt(
         args,
+        std.getopt.config.passThrough,
         "tx-args",  "uhd transmit device address args",             &tx_args,
         "rx-args",  "uhd receive device address args",              &rx_args,
-        "file",     "name of the file to write binary samples to",  &file,
-        "type",     "sample type in file: double, float, or short", &type,
         // "nsamps",   "total number of samples to receive",           &total_num_samps,
         "settling", "total time (seconds) before receiving",        &settling,
         "tx-rate",  "rate of transmit outgoing samples",            &tx_rate,
@@ -136,7 +135,39 @@ void main(string[] args){
         "rx_int_n", "tune USRP RX with integer-N tuing", &rx_int_n,
         "port", "TCP port", &tcpPort,
         "recv_align", "alignment of buffer on the receivers", &recvAlignSize,
+        "config_json", "read settings from json", &config_json,
     );
+
+    if(config_json !is null) {
+        import std.file : read;
+        JSONValue[string] settings = parseJSON(cast(const(char)[])read(config_json)).object;
+
+        tx_args = settings.get("tx-args", JSONValue(tx_args)).get!(typeof(tx_args))();
+        rx_args = settings.get("rx-args", JSONValue(rx_args)).get!(typeof(rx_args))();
+        settling = settings.get("settling", JSONValue(settling)).get!(typeof(settling))();
+        tx_rate = settings.get("tx-rate", JSONValue(tx_rate)).get!(typeof(tx_rate))();
+        rx_rate = settings.get("rx-rate", JSONValue(rx_rate)).get!(typeof(rx_rate))();
+        tx_freq = settings.get("tx-freq", JSONValue(tx_freq)).get!(typeof(tx_freq))();
+        rx_freq = settings.get("rx-freq", JSONValue(rx_freq)).get!(typeof(rx_freq))();
+        tx_gain = settings.get("tx-gain", JSONValue(tx_gain)).get!(typeof(tx_gain))();
+        rx_gain = settings.get("rx-gain", JSONValue(rx_gain)).get!(typeof(rx_gain))();
+        tx_ant = settings.get("tx-ant", JSONValue(tx_ant)).get!(typeof(tx_ant))();
+        rx_ant = settings.get("rx-ant", JSONValue(rx_ant)).get!(typeof(rx_ant))();
+        tx_subdev = settings.get("tx-subdev", JSONValue(tx_subdev)).get!(typeof(tx_subdev))();
+        rx_subdev = settings.get("rx-subdev", JSONValue(rx_subdev)).get!(typeof(rx_subdev))();
+        tx_bw = settings.get("tx-bw", JSONValue(tx_bw)).get!(typeof(tx_bw))();
+        rx_bw = settings.get("rx-bw", JSONValue(rx_bw)).get!(typeof(rx_bw))();
+        clockref = settings.get("clockref", JSONValue(clockref)).get!(typeof(clockref))();
+        timeref = settings.get("timeref", JSONValue(timeref)).get!(typeof(timeref))();
+        time_sync = settings.get("timesync", JSONValue(time_sync)).get!(typeof(time_sync))();
+        otw = settings.get("otw", JSONValue(otw)).get!(typeof(otw))();
+        tx_channels = settings.get("tx-channels", JSONValue(tx_channels)).get!(typeof(tx_channels))();
+        rx_channels = settings.get("rx-channels", JSONValue(rx_channels)).get!(typeof(rx_channels))();
+        tx_int_n = settings.get("tx_int_n", JSONValue(tx_int_n)).get!(typeof(tx_int_n))();
+        rx_int_n = settings.get("rx_int_n", JSONValue(rx_int_n)).get!(typeof(rx_int_n))();
+        tcpPort = settings.get("port", JSONValue(tcpPort)).get!(typeof(tcpPort))();
+        recvAlignSize = settings.get("recv_align", JSONValue(recvAlignSize)).get!(typeof(recvAlignSize))();
+    }
 
     if(helpInformation.helpWanted){
         defaultGetoptPrinter("UHD TXRX Loopback to File.", helpInformation.options);
@@ -145,7 +176,6 @@ void main(string[] args){
 
     immutable(size_t)[] tx_channel_nums = tx_channels.splitter(',').map!(to!size_t).array();
     immutable(size_t)[] rx_channel_nums = rx_channels.splitter(',').map!(to!size_t).array();
-
 
     immutable bool
         useTxUSRP = tx_channel_nums.length != 0,
