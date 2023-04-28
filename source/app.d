@@ -82,15 +82,13 @@ string generate_out_filename(string base_fn, size_t n_names, size_t this_name)
 void main(string[] args){
     alias C = Complex!float;
 
-    string tx_args, /*wave_type,*/ tx_ant, tx_subdev, clockref, timeref, otw, tx_channels;
+    string tx_args, tx_ant, tx_subdev, clockref, timeref, otw, tx_channels;
     string config_json;
     bool time_sync = false;
-    double tx_rate, tx_freq, tx_gain, /*wave_freq,*/ tx_bw;
+    double tx_rate, tx_freq, tx_gain, tx_bw;
     float ampl;
 
-    //receive variables to be set by po
     string rx_args, rx_ant, rx_subdev, rx_channels;
-    // size_t spb;
     double rx_rate, rx_freq, rx_gain, rx_bw;
     float settling;
     bool tx_int_n, rx_int_n;
@@ -101,7 +99,6 @@ void main(string[] args){
     ampl = 0.3;
     settling = 1;
     otw = "sc16";
-    // wave_freq = 0;
 
     auto helpInformation1 = getopt(
         args,
@@ -248,7 +245,6 @@ void main(string[] args){
             return;
         }
 
-        // for(size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
         foreach(channel; tx_channel_nums){
             if (tx_channel_nums.length > 1) {
                 writefln("Configuring TX Channel %s", channel);

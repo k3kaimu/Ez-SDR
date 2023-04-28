@@ -45,11 +45,6 @@ alias TxRequest(C) = SumType!(TxRequestTypes!C.Transmit, TxRequestTypes!C.SyncTo
 alias TxResponse(C) = SumType!(TxResponseTypes!C.TransmitDone);
 
 
-
-/***********************************************************************
- * transmit_worker function
- * A function to be used as a boost::thread_group thread for transmitting
- **********************************************************************/
 void transmit_worker(C, Alloc)(
     ref shared bool stop_signal_called,
     ref Alloc alloc,
@@ -75,7 +70,6 @@ void transmit_worker(C, Alloc)(
     C[][] nullBuffers;
     foreach(i; 0 .. nTXUSRP) nullBuffers ~= null;
 
-    // TxMetaData firstMD = TxMetaData((cast(long)floor(settling_time*1E6)).usecs + 1.seconds, true, false);
     TxMetaData firstMD = TxMetaData((cast(long)floor(settling_time*1E6)).usecs, true, false);
     TxMetaData afterFirstMD = TxMetaData(false, 0, 0, false, false);
     TxMetaData endMD = TxMetaData(false, 0, 0, false, true);
@@ -86,12 +80,8 @@ void transmit_worker(C, Alloc)(
     foreach(i; 0 .. nTXUSRP)
         initTxBuffers[i][] = C(0);
 
-    // C[][] txbuffers = alloc.makeMultidimensionalArray!C(nTXUSRP, 4096);
-    // scope(exit) alloc.disposeMultidimensionalArray(txbuffers);
-
     shared(TxRequest!C)* nowTargetRequest;
     shared(TxRequestTypes!C.Transmit) nowTargetTransmitRequest;
-    // auto nowTargetBuffers = new shared(const(C))[][](nTXUSRP);
 
     scope(exit) {
         if(nowTargetRequest !is null)
@@ -115,25 +105,11 @@ void transmit_worker(C, Alloc)(
     {
         size_t numTotalSamples = 0;
         while(numTotalSamples < buffers[0].length && !stop_signal_called) {
-            // dbg.writefln("*");
-            // {
-            //     import std.algorithm;
-            //     immutable nMin = min(buffers[0].length, txbuffers[0].length - numTotalSamples);
-            //     foreach(i; 0 .. nTXUSRP) {
-            //         txbuffers[i][0 .. nMin] = buffers[i][numTotalSamples .. numTotalSamples + nMin];
-            //         _tmpbuffers[i] = txbuffers[i][0 .. nMin];
-            //     }
-            // }
-
             foreach(i; 0 .. nTXUSRP)
                 _tmpbuffers[i] = buffers[i][numTotalSamples .. $];
 
             size_t txsize;
             if(auto err = tx_streamer.send(_tmpbuffers[0 .. nTXUSRP], afterFirstMD, 0.1, txsize)){
-                // error = err;
-                // writeln(err);
-                // Thread.sleep(2.seconds);
-                // transmit_worker!C(stop_signal_called, alloc, nTXUSRP, txMsgQueue, tx_streamer, metadata);
                 return typeof(return)(err);
             }
             numTotalSamples += txsize;
