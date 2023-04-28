@@ -103,44 +103,16 @@ void main(string[] args){
     otw = "sc16";
     // wave_freq = 0;
 
-    auto helpInformation = getopt(
+    auto helpInformation1 = getopt(
         args,
         std.getopt.config.passThrough,
-        "tx-args",  "uhd transmit device address args",             &tx_args,
-        "rx-args",  "uhd receive device address args",              &rx_args,
-        // "nsamps",   "total number of samples to receive",           &total_num_samps,
-        "settling", "total time (seconds) before receiving",        &settling,
-        "tx-rate",  "rate of transmit outgoing samples",            &tx_rate,
-        "rx-rate",  "rate of receive incoming samples",             &rx_rate,
-        "tx-freq",  "transmit RF center frequency in Hz",           &tx_freq,
-        "rx-freq",  "receive RF center frequency in Hz",            &rx_freq,
-        "tx-gain",  "gain for the transmit RF chain",               &tx_gain,
-        "rx-gain",  "gain for the receive RF chain",                &rx_gain,
-        "tx-ant",   "transmit antenna selection",                   &tx_ant,
-        "rx-ant",   "receive antenna selection",                    &rx_ant,
-        "tx-subdev",    "transmit subdevice specification",         &tx_subdev,
-        "rx-subdev",    "receive subdevice specification",          &rx_subdev,
-        "tx-bw",    "analog transmit filter bandwidth in Hz",       &tx_bw,
-        "rx-bw",    "analog receive filter bandwidth in Hz",        &rx_bw,
-        // "txfiles",  "transmit waveform file",                       &txfiles, 
-        // "wave-type",    "waveform type (CONST, SQUARE, RAMP, SINE)",    &wave_type,
-        // "wave-freq",    "waveform frequency in Hz",                 &wave_freq,
-        "clockref",      "clock reference (internal, external, mimo)",   &clockref,
-        "timeref",      "time reference (internal, external, mimo)",   &timeref,
-        "timesync",     "synchronization of timing",                &time_sync,
-        "otw",      "specify the over-the-wire sample mode",        &otw,
-        "tx-channels",  `which TX channel(s) to use (specify "0", "1", "0,1", etc)`,    &tx_channels,
-        "rx-channels",  `which RX channel(s) to use (specify "0", "1", "0,1", etc)`,    &rx_channels,
-        "tx_int_n", "tune USRP TX with integer-N tuing", &tx_int_n,
-        "rx_int_n", "tune USRP RX with integer-N tuing", &rx_int_n,
-        "port", "TCP port", &tcpPort,
-        "recv_align", "alignment of buffer on the receivers", &recvAlignSize,
-        "config_json", "read settings from json", &config_json,
+        "config_json|c", "read settings from json", &config_json,
     );
 
     if(config_json !is null) {
         import std.file : read;
         JSONValue[string] settings = parseJSON(cast(const(char)[])read(config_json)).object;
+        writeln("[multiusrp] Read config json: ", config_json);
 
         tx_args = settings.get("tx-args", JSONValue(tx_args)).get!(typeof(tx_args))();
         rx_args = settings.get("rx-args", JSONValue(rx_args)).get!(typeof(rx_args))();
@@ -169,8 +141,40 @@ void main(string[] args){
         recvAlignSize = settings.get("recv_align", JSONValue(recvAlignSize)).get!(typeof(recvAlignSize))();
     }
 
-    if(helpInformation.helpWanted){
-        defaultGetoptPrinter("UHD TXRX Loopback to File.", helpInformation.options);
+    auto helpInformation2 = getopt(
+        args,
+        "tx-args",  "uhd transmit device address args",             &tx_args,
+        "rx-args",  "uhd receive device address args",              &rx_args,
+        "settling", "total time (seconds) before receiving",        &settling,
+        "tx-rate",  "rate of transmit outgoing samples",            &tx_rate,
+        "rx-rate",  "rate of receive incoming samples",             &rx_rate,
+        "tx-freq",  "transmit RF center frequency in Hz",           &tx_freq,
+        "rx-freq",  "receive RF center frequency in Hz",            &rx_freq,
+        "tx-gain",  "gain for the transmit RF chain",               &tx_gain,
+        "rx-gain",  "gain for the receive RF chain",                &rx_gain,
+        "tx-ant",   "transmit antenna selection",                   &tx_ant,
+        "rx-ant",   "receive antenna selection",                    &rx_ant,
+        "tx-subdev",    "transmit subdevice specification",         &tx_subdev,
+        "rx-subdev",    "receive subdevice specification",          &rx_subdev,
+        "tx-bw",    "analog transmit filter bandwidth in Hz",       &tx_bw,
+        "rx-bw",    "analog receive filter bandwidth in Hz",        &rx_bw,
+        "clockref",      "clock reference (internal, external, mimo)",   &clockref,
+        "timeref",      "time reference (internal, external, mimo)",   &timeref,
+        "timesync",     "synchronization of timing",                &time_sync,
+        "otw",      "specify the over-the-wire sample mode",        &otw,
+        "tx-channels",  `which TX channel(s) to use (specify "0", "1", "0,1", etc)`,    &tx_channels,
+        "rx-channels",  `which RX channel(s) to use (specify "0", "1", "0,1", etc)`,    &rx_channels,
+        "tx_int_n", "tune USRP TX with integer-N tuing", &tx_int_n,
+        "rx_int_n", "tune USRP RX with integer-N tuing", &rx_int_n,
+        "port", "TCP port", &tcpPort,
+        "recv_align", "alignment of buffer on the receivers", &recvAlignSize,
+        "config_json|c", "read settings from json", &config_json,
+    );
+
+    // helpInformation2には--helpの情報がないので，helpInformation2でhelpを表示するか判断する
+    if(helpInformation1.helpWanted){
+        // ただじ実際に表示するhelp情報はhelpInformation2を使う
+        defaultGetoptPrinter("Management system of multiple USRPs.", helpInformation2.options);
         return;
     }
 
@@ -180,6 +184,11 @@ void main(string[] args){
     immutable bool
         useTxUSRP = tx_channel_nums.length != 0,
         useRxUSRP = rx_channel_nums.length != 0;
+
+    if(!useTxUSRP && !useRxUSRP) {
+        writeln("[multiusrp] Please add 'tx-args' or 'rx-args'!");
+        return;
+    }
 
     USRP tx_usrp, rx_usrp;
 
