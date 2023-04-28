@@ -1,8 +1,8 @@
 {
     "tx-args": "addr0=192.168.40.2",
     "rx-args": "addr0=192.168.40.2",
-    "tx-rate": 100e6,
-    "rx-rate": 100e6,
+    "tx-rate": 200e6,
+    "rx-rate": 200e6,
     "tx-freq": 0,
     "rx-freq": 0,
     "tx-gain": 10,
