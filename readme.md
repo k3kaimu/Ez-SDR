@@ -1,6 +1,95 @@
 # multiusrp
 
 
+## コマンドラインオプション
+
+* `-c jsonfile.json`
+
+USRPの構成情報をjsonファイルから読み込みます．
+`config_examples`の中を参考にしてください．
+
+なお，次のように`-c`とは別にパラメータを指定することで構成情報を上書きして使用することもできます．
+例では，`config_examples/n210_TX1_RX1_sync.json`に記載されている`tx-rate`と`rx-rate`がどのような値だとしても，実際に使用する値は両方とも10MHzになります．
+
+```sh
+$ ./multiusrp -c config_examples/n210_TX1_RX1_sync.json --tx-rate=10e6 --rx-rate=10e6
+```
+
+* `--tx-args="usrpAddrInfo..."`
+送信に利用するUSRPのIPアドレス等を指定します．
+複数のUSRPを使用する場合は`addr0=...,addr1=...`のように指定します．
+
+* `--rx-args="usrpAddrInfo..."`
+受信に利用するUSRPのIPアドレス等を指定します．
+複数のUSRPを使用する場合は`addr0=...,addr1=...`のように指定します．
+
+
+* `--settling=floatNum`
+syncToPPSコマンドで，PPSに対して何秒後に送受信を再開するのかを秒数で指定します．
+デフォルト値は1です．
+
+* `--tx-rate`
+送信用USRPのサンプリングレートです．
+
+* `--rx-rate`
+受信用USRPのサンプリングレートです．
+
+* `--tx-freq`
+送信用USRPのRF周波数です．
+
+* `--rx-freq`
+受信用USRPのRF周波数です．
+
+* `--tx-gain`
+送信用USRPの利得です．
+
+* `--rx-gain`
+受信用USRPの利得です．
+
+* `--tx-ant`
+送信用USRPのアンテナ設定です．
+
+
+* `--rx-ant`
+受信用USRPのアンテナ設定です．
+
+* `--tx-subdev`
+送信用USRPのサブデバイス設定です．
+
+* `--rx-subdev`
+受信用USRPのサブデバイス設定です．
+
+* `--tx-bw`
+送信用USRPのフィルタの帯域幅です．
+
+* `--rx-bw`
+受信用USRPのフィルタの帯域幅です．
+
+* `--clockref`
+すべてのUSRPで使用する10MHzのクロックを指定します．
+
+* `--timeref`
+すべてのUSRPで使用するPPSを指定します．
+
+* `--timesync`
+すべてのUSRPで時間同期をするのかを設定します．
+
+* `--otw`
+PCとUSRP間のデータフォーマットを指定します．
+
+* `--tx-channels`
+送信用USRPの使用チャネルを指定します．
+
+* `--rx-channels`
+受信用USRPの使用チャネルを指定します．
+
+* `--port`
+受け付けるTCP/IPポートを指定します．
+
+* `--recv_align`
+デフォルトの受信アライメント値を設定します．
+
+
 ## TCP/IPによるAPI
 
 次のようなバイナリ列を送ることで制御します．
