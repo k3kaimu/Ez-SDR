@@ -1,6 +1,5 @@
 # multiusrp
 
-
 ## コマンドラインオプション
 
 * `-c jsonfile.json`
@@ -88,6 +87,20 @@ PCとUSRP間のデータフォーマットを指定します．
 
 * `--recv_align`
 デフォルトの受信アライメント値を設定します．
+
+
+## ビルド環境構築とビルド
+
+コンテナの起動からビルドまでは次のようにします．
+
+```
+$ docker compose up -d
+$ ...少し待つ...
+$ docker exec -it container_name bash
+$ dub build --build=release --compiler=ldc2
+```
+
+なおlibuhdのバージョンの変更等はリポジトリの中の`docker-compose.yml`や`entrypoint.sh`を参考にしてください．
 
 
 ## TCP/IPによるAPI
