@@ -9,5 +9,6 @@
 	"dependencies": {
 		"uhd": { "path": "../uhd4d" },
 		"lock-free": "~>0.1.2",
+		"automem": "~>0.6.9"
 	}
 }

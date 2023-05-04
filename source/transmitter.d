@@ -16,6 +16,8 @@ import uhd.usrp;
 import uhd.capi;
 import uhd.utils;
 
+import automem.unique;
+
 struct TxRequestTypes(C)
 {
     static struct Transmit
@@ -55,7 +57,7 @@ void transmit_worker(C, Alloc)(
     bool time_sync,
     immutable(size_t)[] tx_channel_nums,
     float settling_time,
-    ref shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue,
+    ref shared UniqueMsgQueue!(TxRequest!C, TxResponse!C) txMsgQueue,
 ){
     alias dbg = debugMsg!"transmit_worker";
 
@@ -80,15 +82,21 @@ void transmit_worker(C, Alloc)(
     foreach(i; 0 .. nTXUSRP)
         initTxBuffers[i][] = C(0);
 
-    shared(TxRequest!C)* nowTargetRequest;
-    shared(TxRequestTypes!C.Transmit) nowTargetTransmitRequest;
+    static struct RequestInfo {
+        bool haveRequest = false;
+        TxRequest!C req;
+        TxRequestTypes!C.Transmit txReq;
+    }
+
+    RequestInfo reqInfo;
 
     scope(exit) {
-        if(nowTargetRequest !is null)
-            txMsgQueue.pushResponse(nowTargetRequest, cast(shared)alloc.make!(TxResponse!C)(TxResponseTypes!C.TransmitDone(cast(C[][]) nowTargetTransmitRequest.buffer)));
+        if(reqInfo.haveRequest)
+            txMsgQueue.pushResponse(reqInfo.req, TxResponse!C(TxResponseTypes!C.TransmitDone(cast(C[][]) reqInfo.txReq.buffer)));
 
-        nowTargetRequest = null;
-        nowTargetTransmitRequest = typeof(nowTargetTransmitRequest).init;
+        reqInfo.haveRequest = false;
+        reqInfo.req = typeof(reqInfo.req).init;
+        reqInfo.txReq = typeof(reqInfo.txReq).init;
     }
 
     // PPSのsettling_time秒後に送信
@@ -100,7 +108,7 @@ void transmit_worker(C, Alloc)(
     tx_streamer.send(nullBuffers, firstMD, 1);
 
     const(C)[][128] _tmpbuffers;
-    Nullable!VUHDException transmitAllBuffer(const(C)[][] buffers)
+    Nullable!VUHDException transmitAllBuffer(const(C)[][] buffers) @nogc
     in(buffers.length == nTXUSRP)
     {
         size_t numTotalSamples = 0;
@@ -132,19 +140,19 @@ void transmit_worker(C, Alloc)(
 
                 while(! txMsgQueue.emptyRequest) {
                     writeln("POPOPOP");
-                    auto req = txMsgQueue.popRequest();
-                    (cast(TxRequest!C) *req).match!(
+                    auto req = cast()txMsgQueue.popRequest();
+                    req.match!(
                         (TxRequestTypes!C.Transmit r) {
-                            if(nowTargetRequest !is null)
-                                txMsgQueue.pushResponse(nowTargetRequest, cast(shared)alloc.make!(TxResponse!C)(TxResponseTypes!C.TransmitDone(cast(C[][]) nowTargetTransmitRequest.buffer)));
+                            if(reqInfo.haveRequest)
+                                txMsgQueue.pushResponse(reqInfo.req, TxResponse!C(TxResponseTypes!C.TransmitDone(cast(C[][]) reqInfo.txReq.buffer)));
 
-                            nowTargetRequest = req;
-                            nowTargetTransmitRequest = cast(shared)r;
+                            reqInfo.haveRequest = true;
+                            reqInfo.req = req;
+                            reqInfo.txReq = r;
                         },
                         (TxRequestTypes!C.SyncToPPS r) {
                                 import core.atomic;
                                 scope(exit) {
-                                    alloc.dispose(req);
                                     if(r.myIndex == 0)
                                         alloc.dispose(cast(void[])r.isReady);
                                 }
@@ -186,7 +194,7 @@ void transmit_worker(C, Alloc)(
                         writeln("[transmit_worker] This thread is killed by transmitAllBuffer.");
                     }
                 }
-                auto err = transmitAllBuffer(nowTargetRequest is null ? cast(const(C)[][])initTxBuffers : cast(const(C)[][])nowTargetTransmitRequest.buffer);
+                auto err = transmitAllBuffer(!reqInfo.haveRequest ? cast(const(C)[][])initTxBuffers : cast(const(C)[][])reqInfo.txReq.buffer);
                 if(! err.isNull) {
                     error = err.get;
                     writeln(error);

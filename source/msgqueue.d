@@ -2,32 +2,85 @@ module msgqueue;
 
 import std.typecons;
 import lock_free.rwqueue;
+import std.experimental.allocator.mallocator;
+import std.experimental.allocator;
 
-struct MsgQueue(Req, Res)
+
+/**
+Move Semantics Message Queue
+*/
+struct MsgQueue(Req, Res, Flag!"assumeUnique" assumeUnique = No.assumeUnique, Allocator = Mallocator)
 {
-    void pushRequest(Req req) shared
+    import core.lifetime : move;
+
+    static if(assumeUnique)
     {
-        _reqList.push(req);
+        private {
+            alias IOReq = Req;
+            alias IORes = Res;
+            alias IOReqResPair = ReqResPair;
+        }
+    }
+    else
+    {
+        private {
+            alias IOReq = shared(Req);
+            alias IORes = shared(Res);
+            alias IOReqResPair = shared(ReqResPair);
+        }
+    }
+
+    static if(!is(typeof(Allocator.instance)))
+    {
+        this(Allocator alloc)
+        {
+            _alloc = alloc;
+        }
+
+
+        ref Allocator allocator() {
+            return _alloc;
+        }
+
+
+        private Allocator _alloc;
+    }
+    else
+    {
+        static ref auto allocator() {
+            return Allocator.instance;
+        }
     }
 
 
-    Req popRequest() shared
+    void pushRequest()(auto ref IOReq req) shared
     {
-        return _reqList.pop();
+        IOReq* p = this.allocator.make!(IOReq)();
+        move(req, *p);
+        _reqList.push(cast(shared) p);
     }
 
 
-    void pushResponse(Req req, Res res) shared
+    IOReq popRequest() shared
     {
-        auto pair = ReqResPair(req, res);
-        _resList.push(pair);
+        IOReq* p = cast(IOReq*)_reqList.pop();
+        scope(exit) this.allocator.dispose(p);
+        return move(*p);
     }
 
 
-    Tuple!(Req, "req", Res, "res") popResponse() shared
+    void pushResponse()(auto ref IOReq req, auto ref IORes res) shared
     {
-        auto pair = _resList.pop();
-        return typeof(return)(pair.req, pair.res);
+        IOReqResPair* p = this.allocator.make!(IOReqResPair)(move(req), move(res));
+        _resList.push(cast(shared) p);
+    }
+
+
+    ReqResPair popResponse() shared
+    {
+        IOReqResPair* p = cast(IOReqResPair*)_resList.pop();
+        scope(exit) this.allocator.dispose(p);
+        return move(*p);
     }
 
 
@@ -44,8 +97,8 @@ struct MsgQueue(Req, Res)
 
 
   private:
-    RWQueue!(Req) _reqList;
-    RWQueue!(ReqResPair) _resList;
+    RWQueue!(Req*) _reqList;
+    RWQueue!(ReqResPair*) _resList;
 
 
     static struct ReqResPair
@@ -53,4 +106,24 @@ struct MsgQueue(Req, Res)
         Req req;
         Res res;
     }
+}
+
+
+/**
+Move Semantics Message Queue with Unique Request and Unique Response
+*/
+alias UniqueMsgQueue(Req, Res, Allocator = Mallocator) = MsgQueue!(Req, Res, Yes.assumeUnique, Allocator);
+
+unittest
+{
+    static struct S {
+        int a;
+        @disable this(this);        // non-copyable
+    }
+    static struct U {
+        int[] a;
+        @disable this(this);        // non-copyable
+    }
+
+    UniqueMsgQueue!(S, U) q;
 }

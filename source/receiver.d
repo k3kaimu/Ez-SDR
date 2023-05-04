@@ -74,7 +74,7 @@ void receive_worker(C, Alloc)(
     immutable(size_t)[] rx_channel_nums,
     float settling_time,
     size_t alignSize,
-    ref shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue,
+    ref shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
 )
 {
     alias dbg = debugMsg!"receive_worker";
@@ -114,9 +114,22 @@ void receive_worker(C, Alloc)(
     stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
     rx_stream.issue(stream_cmd);
 
-    shared(RxRequest!C)* nowTargetRequest;
-    shared(RxRequestTypes!C.Receive) nowTargetReceiveRequest;
-    auto nowTargetBuffers = new shared(C)[][](nRXUSRP);
+    static struct RequestInfo {
+        bool haveRequest;
+        RxRequest!C req;
+        RxRequestTypes!C.Receive rxReq;
+        shared(C)[][] reqBuffers;
+
+        void initialize() {
+            haveRequest = false;
+            req = typeof(req).init;
+            rxReq = typeof(rxReq).init;
+            foreach(ref e; reqBuffers)
+                e = null;
+        }
+    }
+    RequestInfo reqInfo;
+    reqInfo.reqBuffers = new shared(C)[][](nRXUSRP);
 
 
     // fillBufferの内部で利用する
@@ -160,19 +173,18 @@ void receive_worker(C, Alloc)(
 
             // リクエストの処理をする
             while(! rxMsgQueue.emptyRequest) {
-                auto req = rxMsgQueue.popRequest();
+                auto req = cast()rxMsgQueue.popRequest();
                 dbg.writeln("POP Request!");
-                (cast()*req).match!(
+                req.match!(
                     (RxRequestTypes!C.Receive r) {
                         dbg.writeln("POP Receive Request!");
-                        nowTargetRequest = req;
-                        nowTargetReceiveRequest = cast(shared)r;
+                        reqInfo.haveRequest = true;
+                        reqInfo.req = req;
+                        reqInfo.rxReq = r;
                         foreach(i; 0 .. nRXUSRP)
-                            nowTargetBuffers[i] = cast(shared)r.buffer[i];
+                            reqInfo.reqBuffers[i] = cast(shared)r.buffer[i];
                     },
                     (RxRequestTypes!C.ChangeAlignSize r) {
-                        scope(exit) alloc.dispose(req);
-
                         dbg.writefln("POP ChangeAlignSize(%s)!", r.newAlign);
 
                         if(alignSize != r.newAlign) {
@@ -185,8 +197,6 @@ void receive_worker(C, Alloc)(
                         }
                     },
                     (RxRequestTypes!C.Skip r) {
-                        scope(exit) alloc.dispose(req);
-
                         dbg.writefln("POP Skip(%s)!", r.delaySize);
                         size_t totdelay = r.delaySize;
                         while(totdelay > 0) {
@@ -198,7 +208,6 @@ void receive_worker(C, Alloc)(
                     (RxRequestTypes!C.SyncToPPS r){
                         import core.atomic;
                         scope(exit) {
-                            alloc.dispose(req);
                             if(r.myIndex == 0)
                                 alloc.dispose(cast(void[])r.isReady);
                         }
@@ -283,22 +292,19 @@ void receive_worker(C, Alloc)(
 
 
             // コピーする
-            if(nowTargetRequest !is null && nowTargetBuffers[0].length != 0) {
-                immutable numCopy = min(nowTargetBuffers[0].length, receiveBuffers[0].length);
+            if(reqInfo.haveRequest && reqInfo.reqBuffers[0].length != 0) {
+                immutable numCopy = min(reqInfo.reqBuffers[0].length, receiveBuffers[0].length);
                 foreach(i; 0 .. nRXUSRP) {
-                    nowTargetBuffers[i][0 .. numCopy] = receiveBuffers[i][0 .. numCopy];
-                    nowTargetBuffers[i] = nowTargetBuffers[i][numCopy .. $];
+                    reqInfo.reqBuffers[i][0 .. numCopy] = receiveBuffers[i][0 .. numCopy];
+                    reqInfo.reqBuffers[i] = reqInfo.reqBuffers[i][numCopy .. $];
                 }
             }
 
             // レスポンスを返す
-            if(nowTargetRequest !is null && nowTargetBuffers[0].length == 0) {
-                rxMsgQueue.pushResponse(nowTargetRequest, cast(shared)alloc.make!(RxResponse!C)(RxResponseTypes!C.Receive(cast(C[][]) nowTargetReceiveRequest.buffer)));
+            if(reqInfo.haveRequest && reqInfo.reqBuffers[0].length == 0) {
+                rxMsgQueue.pushResponse(reqInfo.req, RxResponse!C(RxResponseTypes!C.Receive(cast(C[][]) reqInfo.rxReq.buffer)));
                 dbg.writeln("Push Response!");
-                nowTargetRequest = null;
-                nowTargetReceiveRequest = typeof(nowTargetReceiveRequest).init;
-                foreach(i; 0 .. nRXUSRP)
-                    nowTargetBuffers[i] = null;
+                reqInfo.initialize();
             }
         }
     }();

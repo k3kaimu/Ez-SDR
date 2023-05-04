@@ -46,8 +46,8 @@ void eventIOLoop(C, Alloc)(
     ref Alloc alloc,
     size_t nTXUSRP,
     size_t nRXUSRP,
-    ref shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue,
-    ref shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue,
+    ref shared UniqueMsgQueue!(TxRequest!C, TxResponse!C) txMsgQueue,
+    ref shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
 )
 {
     alias dbg = debugMsg!"eventIOLoop";
@@ -75,12 +75,6 @@ void eventIOLoop(C, Alloc)(
 
             alias C = Complex!float;
 
-            void disposeReqRes(X)(X reqres) {
-                if(reqres[0] != null) alloc.dispose(reqres[0]);
-                if(reqres[1] != null) alloc.dispose(reqres[1]);
-            }
-
-
             Lconnect: while(!stop_signal_called) {
                 try {
                     writeln("PLEASE COMMAND");
@@ -103,10 +97,10 @@ void eventIOLoop(C, Alloc)(
                                     dbg.writefln("RX: numSamples = %s", numSamples);
 
                                     C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
-                                    RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Receive(buffer));
+                                    RxRequest!C req = RxRequestTypes!C.Receive(buffer);
 
                                     dbg.writefln("RX: Push Request");
-                                    rxMsgQueue.pushRequest(cast(shared)req);
+                                    rxMsgQueue.pushRequest(req);
 
                                     bool doneRecv = false;
                                     while(!doneRecv) {
@@ -116,8 +110,7 @@ void eventIOLoop(C, Alloc)(
                                         }
 
                                         auto reqres = cast()rxMsgQueue.popResponse();
-                                        scope(exit) disposeReqRes(reqres);
-                                        (cast()*reqres[1]).match!(
+                                        (cast()reqres[1]).match!(
                                             (RxResponseTypes!C.Receive r) {
                                                 dbg.writefln("RX: Coming!");
 
@@ -146,24 +139,24 @@ void eventIOLoop(C, Alloc)(
                                     dbg.writefln("TX: Push MsgQueue");
 
                                     // C[][] buffer = client.rawReadArray().enforceNotNull;
-                                    TxRequest!C* req = alloc.make!(TxRequest!C)(TxRequestTypes!C.Transmit(buffer));
-                                    txMsgQueue.pushRequest(cast(shared)req);
+                                    TxRequest!C req = TxRequestTypes!C.Transmit(buffer);
+                                    txMsgQueue.pushRequest(req);
                                     break;
 
                                 case CommandID.changeRxAlignSize:
                                     immutable size_t newAlign = client.rawReadValue!uint.enforceNotNull;
                                     dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
 
-                                    RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.ChangeAlignSize(newAlign));
-                                    rxMsgQueue.pushRequest(cast(shared)req);
+                                    RxRequest!C req = RxRequestTypes!C.ChangeAlignSize(newAlign);
+                                    rxMsgQueue.pushRequest(req);
                                     break;
 
                                 case CommandID.skipRx:
                                     immutable size_t delaySamples = client.rawReadValue!uint.enforceNotNull;
                                     dbg.writefln!"skipRx: %s samples"(delaySamples);
 
-                                    RxRequest!C* req = alloc.make!(RxRequest!C)(RxRequestTypes!C.Skip(delaySamples));
-                                    rxMsgQueue.pushRequest(cast(shared)req);
+                                    RxRequest!C req = RxRequestTypes!C.Skip(delaySamples);
+                                    rxMsgQueue.pushRequest(req);
                                     break;
 
                                 case CommandID.syncToPPS:
@@ -175,13 +168,13 @@ void eventIOLoop(C, Alloc)(
                                     auto isReady = alloc.makeArray!(shared(bool))(useBothTxRx ? 2 : 1);
 
                                     if(nTXUSRP != 0) {
-                                        TxRequest!C* txreq = alloc.make!(TxRequest!C)(TxRequestTypes!C.SyncToPPS(0, isReady));
-                                        txMsgQueue.pushRequest(cast(shared)txreq);
+                                        TxRequest!C txreq = TxRequestTypes!C.SyncToPPS(0, isReady);
+                                        txMsgQueue.pushRequest(txreq);
                                     }
 
                                     if(nRXUSRP != 0) {
-                                        RxRequest!C* rxreq = alloc.make!(RxRequest!C)(RxRequestTypes!C.SyncToPPS(useBothTxRx ? 1 : 0, isReady));
-                                        rxMsgQueue.pushRequest(cast(shared)rxreq);
+                                        RxRequest!C rxreq = RxRequestTypes!C.SyncToPPS(useBothTxRx ? 1 : 0, isReady);
+                                        rxMsgQueue.pushRequest(rxreq);
                                     }
                             }
                         } else {
@@ -191,15 +184,12 @@ void eventIOLoop(C, Alloc)(
 
                         while(!txMsgQueue.emptyResponse) {
                             auto reqres = txMsgQueue.popResponse();
-                            scope(exit) disposeReqRes(reqres);
 
-                            if(reqres[1]) {
-                                (cast()(*(reqres[1]))).match!(
+                            (cast()reqres[1]).match!(
                                     (TxResponseTypes!C.TransmitDone g) {
                                         alloc.disposeMultidimensionalArray(g.buffer);
                                     }
                                 )();
-                            }
                         }
                     }
                 } catch(Exception ex) {
