@@ -26,6 +26,8 @@ import transmitter : TxRequest, TxResponse, TxRequestTypes, TxResponseTypes;
 import receiver : RxRequest, RxResponse, RxRequestTypes, RxResponseTypes;
 
 
+enum uint interfaceVersion = 1;
+
 enum CommandID : ubyte
 {
     shutdown = 0x51,            // 'Q'
@@ -35,6 +37,7 @@ enum CommandID : ubyte
     skipRx = 0x44,              // 'D'
     syncToPPS = 0x53,           // 'S',
     checkSetting = 0x43,        // 'C'
+    checkVersion = 0x56,        // 'V'
 }
 
 
@@ -189,6 +192,11 @@ void eventIOLoop(C, Alloc)(
                                     fmtstr[] = 0x00;
                                     fmtstr[0 .. cpufmt] = cpufmt[];
                                     client.rawWriteValue!(char[16])(fmtstr);
+                                    break;
+
+                                case CommandID.checkVersion:
+                                    dbg.writeln("checkVersion");
+                                    client.rawWriteValue!uint(interfaceVersion);
                                     break;
                             }
                         } else {
