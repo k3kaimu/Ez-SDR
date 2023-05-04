@@ -28,12 +28,13 @@ import receiver : RxRequest, RxResponse, RxRequestTypes, RxResponseTypes;
 
 enum CommandID : ubyte
 {
-    shutdown = 0x51,    // 'Q'
-    receive = 0x52,     // 'R'
-    transmit = 0x54,    // 'T'
-    changeRxAlignSize = 0x41, // 'A'
-    skipRx = 0x44,      // 'D'
-    syncToPPS = 0x53,   //'S'
+    shutdown = 0x51,            // 'Q'
+    receive = 0x52,             // 'R'
+    transmit = 0x54,            // 'T'
+    changeRxAlignSize = 0x41,   // 'A'
+    skipRx = 0x44,              // 'D'
+    syncToPPS = 0x53,           // 'S',
+    checkSetting = 0x43,        // 'C'
 }
 
 
@@ -46,6 +47,7 @@ void eventIOLoop(C, Alloc)(
     ref Alloc alloc,
     size_t nTXUSRP,
     size_t nRXUSRP,
+    string cpufmt,
     ref shared UniqueMsgQueue!(TxRequest!C, TxResponse!C) txMsgQueue,
     ref shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
 )
@@ -176,6 +178,18 @@ void eventIOLoop(C, Alloc)(
                                         RxRequest!C rxreq = RxRequestTypes!C.SyncToPPS(useBothTxRx ? 1 : 0, isReady);
                                         rxMsgQueue.pushRequest(rxreq);
                                     }
+                                    break;
+
+                                case CommandID.checkSetting:
+                                    dbg.writeln("checkSetting");
+                                    client.rawWriteValue!uint(nTXUSRP);
+                                    client.rawWriteValue!uint(nRXUSRP);
+
+                                    char[16] fmtstr;
+                                    fmtstr[] = 0x00;
+                                    fmtstr[0 .. cpufmt] = cpufmt[];
+                                    client.rawWriteValue!(char[16])(fmtstr);
+                                    break;
                             }
                         } else {
                             continue Lconnect;
@@ -186,10 +200,10 @@ void eventIOLoop(C, Alloc)(
                             auto reqres = txMsgQueue.popResponse();
 
                             (cast()reqres[1]).match!(
-                                    (TxResponseTypes!C.TransmitDone g) {
-                                        alloc.disposeMultidimensionalArray(g.buffer);
-                                    }
-                                )();
+                                (TxResponseTypes!C.TransmitDone g) {
+                                    alloc.disposeMultidimensionalArray(g.buffer);
+                                }
+                            )();
                         }
                     }
                 } catch(Exception ex) {
@@ -346,8 +360,10 @@ if(!hasIndirections!T)
 }
 
 
+alias readCommandID = readEnum!CommandID;
+
 private
-Nullable!CommandID readCommandID(Socket sock)
+Nullable!Enum readEnum(Enum)(Socket sock)
 {
     auto value = rawReadValue!ubyte(sock);
     if(value.isNull)
@@ -355,7 +371,7 @@ Nullable!CommandID readCommandID(Socket sock)
     else {
         switch(value.get) {
             import std.traits : EnumMembers;
-            static foreach(m; EnumMembers!CommandID)
+            static foreach(m; EnumMembers!Enum)
                 case m: return typeof(return)(m);
             
             default:
