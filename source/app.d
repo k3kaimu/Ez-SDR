@@ -82,7 +82,7 @@ string generate_out_filename(string base_fn, size_t n_names, size_t this_name)
 void main(string[] args){
     alias C = Complex!float;
 
-    string tx_args, tx_ant, tx_subdev, clockref, timeref, otw, tx_channels;
+    string tx_args, tx_ant, tx_subdev, clockref, timeref, otw, cpufmt, tx_channels;
     string config_json;
     bool time_sync = false;
     double tx_rate, tx_freq, tx_gain, tx_bw;
@@ -99,6 +99,7 @@ void main(string[] args){
     ampl = 0.3;
     settling = 1;
     otw = "sc16";
+    cpufmt = "fc32";
 
     auto helpInformation1 = getopt(
         args,
@@ -130,6 +131,7 @@ void main(string[] args){
         timeref = settings.get("timeref", JSONValue(timeref)).get!(typeof(timeref))();
         time_sync = settings.get("timesync", JSONValue(time_sync)).get!(typeof(time_sync))();
         otw = settings.get("otw", JSONValue(otw)).get!(typeof(otw))();
+        cpufmt = settings.get("cpufmt", JSONValue(cpufmt)).get!(typeof(cpufmt))();
         tx_channels = settings.get("tx-channels", JSONValue(tx_channels)).get!(typeof(tx_channels))();
         rx_channels = settings.get("rx-channels", JSONValue(rx_channels)).get!(typeof(rx_channels))();
         tx_int_n = settings.get("tx_int_n", JSONValue(tx_int_n)).get!(typeof(tx_int_n))();
@@ -159,6 +161,7 @@ void main(string[] args){
         "timeref",      "time reference (internal, external, mimo)",   &timeref,
         "timesync",     "synchronization of timing",                &time_sync,
         "otw",      "specify the over-the-wire sample mode",        &otw,
+        "cpufmt",   "specify the on-CPU sample mode",               &cpufmt,
         "tx-channels",  `which TX channel(s) to use (specify "0", "1", "0,1", etc)`,    &tx_channels,
         "rx-channels",  `which RX channel(s) to use (specify "0", "1", "0,1", etc)`,    &rx_channels,
         "tx_int_n", "tune USRP TX with integer-N tuing", &tx_int_n,
@@ -323,8 +326,7 @@ void main(string[] args){
 
     GC.disable();
 
-    shared MsgQueue!(shared(TxRequest!C)*, shared(TxResponse!C)*) txMsgQueue;
-    shared MsgQueue!(shared(RxRequest!C)*, shared(RxResponse!C)*) rxMsgQueue;
+    enforce(cpufmt == "fc32");
 
     auto event_thread = new Thread(delegate(){
         scope(exit) {
@@ -345,7 +347,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, "fc32", otw, time_sync, tx_channel_nums, settling, txMsgQueue);
+            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, cpufmt, otw, time_sync, tx_channel_nums, settling, txMsgQueue);
         catch(Throwable ex){
             writeln(ex);
         }
@@ -357,7 +359,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, "fc32", otw, time_sync, rx_channel_nums, settling, recvAlignSize, rxMsgQueue);
+            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, cpufmt, otw, time_sync, rx_channel_nums, settling, recvAlignSize, rxMsgQueue);
         catch(Throwable ex){
             writeln(ex);
         }
