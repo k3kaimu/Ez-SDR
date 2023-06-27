@@ -46,6 +46,12 @@ struct RxRequestTypes(C)
         size_t myIndex;
         shared(bool)[] isReady;
     }
+
+
+    static struct ApplyFilter
+    {
+        bool delegate(C[][]) fn;
+    }
 }
 
 
@@ -58,7 +64,7 @@ struct RxResponseTypes(C)
 }
 
 
-alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive, RxRequestTypes!C.SyncToPPS);
+alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive, RxRequestTypes!C.SyncToPPS, RxRequestTypes!C.ApplyFilter);
 alias RxResponse(C) = SumType!(RxResponseTypes!C.Receive);
 
 
@@ -116,12 +122,14 @@ void receive_worker(C, Alloc)(
 
     static struct RequestInfo {
         bool haveRequest;
+        bool isProceeded;
         RxRequest!C req;
         RxRequestTypes!C.Receive rxReq;
         shared(C)[][] reqBuffers;
 
         void initialize() {
             haveRequest = false;
+            isProceeded = false;
             req = typeof(req).init;
             rxReq = typeof(rxReq).init;
             foreach(ref e; reqBuffers)
@@ -165,9 +173,13 @@ void receive_worker(C, Alloc)(
     }
 
 
+    // フィルター
+    bool delegate(C[][]) filterFunc;
+
+
     VUHDException error;
     () {
-        while(! stop_signal_called) {
+        Lnextreceive: while(! stop_signal_called) {
 
             // dbg.writeln("!");
 
@@ -250,7 +262,10 @@ void receive_worker(C, Alloc)(
                         stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
                         stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
                         rx_stream.issue(stream_cmd);
-                    }
+                    },
+                    (RxRequestTypes!C.ApplyFilter r) {
+                        filterFunc = r.fn;
+                    },
                 )();
             }
 
@@ -291,8 +306,16 @@ void receive_worker(C, Alloc)(
             }
 
 
+            if(reqInfo.haveRequest && !reqInfo.isProceeded && filterFunc !is null) {
+                // もしフィルターを満たさないなら，次の受信信号を受信する
+                if(!filterFunc(receiveBuffers))
+                    continue Lnextreceive;
+            }
+
+
             // コピーする
             if(reqInfo.haveRequest && reqInfo.reqBuffers[0].length != 0) {
+                reqInfo.isProceeded = true;     // 現在処理中であるフラグを立てる
                 immutable numCopy = min(reqInfo.reqBuffers[0].length, receiveBuffers[0].length);
                 foreach(i; 0 .. nRXUSRP) {
                     reqInfo.reqBuffers[i][0 .. numCopy] = receiveBuffers[i][0 .. numCopy];
