@@ -4,6 +4,7 @@ import std.typecons;
 import lock_free.rwqueue;
 import std.experimental.allocator.mallocator;
 import std.experimental.allocator;
+import automem.vector;
 
 
 /**
@@ -94,6 +95,117 @@ final class MsgQueue(Req, Res, Flag!"assumeUnique" assumeUnique = No.assumeUniqu
     {
         return _resList.empty;
     }
+
+  static if(assumeUnique)
+  {
+    Commander makeCommander() shared
+    {
+        return new Commander(this);
+    }
+
+
+    Executer makeExecuter() shared
+    {
+        return new Executer(this);
+    }
+
+
+    static final class Commander
+    {
+        this(shared MsgQueue queue)
+        {
+            _queue = queue;
+        }
+
+
+        IOReqResTuple[] allResponseList()
+        {
+            return _resList[];
+        }
+
+
+        void peekAllResponse()
+        {
+            while(! _queue.emptyResponse)
+                _resList ~= _queue.popResponse();
+        }
+
+
+        bool emptyResponse()
+        {
+            this.peekAllResponse();
+            return _resList.empty;
+        }
+
+
+        IOReqResTuple popResponse()
+        {
+            this.peekAllResponse();
+            auto f = _resList[0];
+            _resList.popFront();
+            return f;
+        }
+
+
+        void pushRequest(Req req)
+        {
+            _queue.pushRequest(req);
+        }
+
+
+        shared MsgQueue _queue;
+        Vector!(IOReqResTuple, Allocator) _resList;
+    }
+
+
+    static final class Executer
+    {
+        this(shared MsgQueue queue)
+        {
+            _queue = queue;
+        }
+
+
+        IOReq[] allRequestList()
+        {
+            return _reqList[];
+        }
+
+
+        void peekAllRequest()
+        {
+            while(! _queue.emptyRequest)
+                _reqList ~= _queue.popRequest();
+        }
+
+
+        bool emptyRequest()
+        {
+            this.peekAllRequest();
+            return _reqList.empty;
+        }
+
+
+        Req popRequest()
+        {
+            this.peekAllRequest();
+            auto f = _reqList[0];
+            _reqList.popFront();
+            return f;
+        }
+
+
+        void pushResponse(Req req, Res res)
+        {
+            _queue.pushResponse(req, res);
+        }
+
+
+      private:
+        shared MsgQueue _queue;
+        Vector!(IOReq, Allocator) _reqList;
+    }
+  }
 
 
   private:

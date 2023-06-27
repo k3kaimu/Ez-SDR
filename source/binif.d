@@ -51,8 +51,8 @@ void eventIOLoop(C, Alloc)(
     size_t nTXUSRP,
     size_t nRXUSRP,
     string cpufmt,
-    shared UniqueMsgQueue!(TxRequest!C, TxResponse!C) txMsgQueue,
-    shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
+    UniqueMsgQueue!(TxRequest!C, TxResponse!C).Commander txMsgQueue,
+    UniqueMsgQueue!(RxRequest!C, RxResponse!C).Commander rxMsgQueue,
 )
 {
     alias dbg = debugMsg!"eventIOLoop";

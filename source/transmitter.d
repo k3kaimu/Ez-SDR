@@ -57,7 +57,7 @@ void transmit_worker(C, Alloc)(
     bool time_sync,
     immutable(size_t)[] tx_channel_nums,
     float settling_time,
-    shared UniqueMsgQueue!(TxRequest!C, TxResponse!C) txMsgQueue,
+    UniqueMsgQueue!(TxRequest!C, TxResponse!C).Executer txMsgQueue,
 ){
     alias dbg = debugMsg!"transmit_worker";
 

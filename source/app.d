@@ -339,7 +339,7 @@ void main(string[] args){
 
         try
             // イベントループを始める
-            eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, cpufmt, txMsgQueue, rxMsgQueue);
+            eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, cpufmt, txMsgQueue.makeCommander, rxMsgQueue.makeCommander);
         catch(Exception ex){
             writeln(ex);
         }
@@ -350,7 +350,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, cpufmt, otw, time_sync, tx_channel_nums, settling, txMsgQueue);
+            transmit_worker!C(stop_signal_called, theAllocator, tx_usrp, tx_channel_nums.length, cpufmt, otw, time_sync, tx_channel_nums, settling, txMsgQueue.makeExecuter);
         catch(Throwable ex){
             writeln(ex);
         }
@@ -362,7 +362,7 @@ void main(string[] args){
         scope(exit) stop_signal_called = true;
 
         try
-            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, cpufmt, otw, time_sync, rx_channel_nums, settling, recvAlignSize, rxMsgQueue);
+            receive_worker!C(stop_signal_called, theAllocator, rx_usrp, rx_channel_nums.length, cpufmt, otw, time_sync, rx_channel_nums, settling, recvAlignSize, rxMsgQueue.makeExecuter);
         catch(Throwable ex){
             writeln(ex);
         }

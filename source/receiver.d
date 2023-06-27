@@ -74,7 +74,7 @@ void receive_worker(C, Alloc)(
     immutable(size_t)[] rx_channel_nums,
     float settling_time,
     size_t alignSize,
-    shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
+    UniqueMsgQueue!(RxRequest!C, RxResponse!C).Executer rxMsgQueue,
 )
 {
     alias dbg = debugMsg!"receive_worker";
