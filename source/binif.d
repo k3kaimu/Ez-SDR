@@ -115,7 +115,7 @@ void eventIOLoop(C, Alloc)(
                                         }
 
                                         auto reqres = cast()rxMsgQueue.popResponse();
-                                        (cast()reqres[1]).match!(
+                                        (cast()reqres.res).match!(
                                             (RxResponseTypes!C.Receive r) {
                                                 dbg.writefln("RX: Coming!");
 
@@ -185,12 +185,12 @@ void eventIOLoop(C, Alloc)(
 
                                 case CommandID.checkSetting:
                                     dbg.writeln("checkSetting");
-                                    client.rawWriteValue!uint(nTXUSRP);
-                                    client.rawWriteValue!uint(nRXUSRP);
+                                    client.rawWriteValue!uint(cast(uint)nTXUSRP);
+                                    client.rawWriteValue!uint(cast(uint)nRXUSRP);
 
                                     char[16] fmtstr;
                                     fmtstr[] = 0x00;
-                                    fmtstr[0 .. cpufmt] = cpufmt[];
+                                    fmtstr[0 .. cpufmt.length] = cpufmt[];
                                     client.rawWriteValue!(char[16])(fmtstr);
                                     break;
 
@@ -207,7 +207,7 @@ void eventIOLoop(C, Alloc)(
                         while(!txMsgQueue.emptyResponse) {
                             auto reqres = txMsgQueue.popResponse();
 
-                            (cast()reqres[1]).match!(
+                            (cast()reqres.res).match!(
                                 (TxResponseTypes!C.TransmitDone g) {
                                     alloc.disposeMultidimensionalArray(g.buffer);
                                 }

@@ -339,7 +339,7 @@ void main(string[] args){
 
         try
             // イベントループを始める
-            eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, txMsgQueue, rxMsgQueue);
+            eventIOLoop!C(stop_signal_called, tcpPort, theAllocator, tx_channel_nums.length, rx_channel_nums.length, cpufmt, txMsgQueue, rxMsgQueue);
         catch(Exception ex){
             writeln(ex);
         }
