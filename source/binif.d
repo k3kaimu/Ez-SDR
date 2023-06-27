@@ -38,6 +38,8 @@ enum CommandID : ubyte
     syncToPPS = 0x53,           // 'S',
     checkSetting = 0x43,        // 'C'
     checkVersion = 0x56,        // 'V'
+    receiveNBReq = 0x72,        // 'r'
+    receiveNBRes = 0x67,        // 'g'
 }
 
 
@@ -56,6 +58,57 @@ void eventIOLoop(C, Alloc)(
 )
 {
     alias dbg = debugMsg!"eventIOLoop";
+
+
+    void pushReceiveRequest(Socket client)
+    {
+        immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
+        dbg.writefln("RX: numSamples = %s", numSamples);
+
+        C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
+        RxRequest!C req = RxRequestTypes!C.Receive(buffer);
+
+        dbg.writefln("RX: Push Request");
+        rxMsgQueue.pushRequest(req);
+    }
+
+
+    void popReceiveResponse(Socket client, Flag!"isBlocking" isBlocking)
+    {
+        bool doneRecv = false;
+        do {
+            if(!isBlocking && rxMsgQueue.emptyResponse)
+                break;
+
+            dbg.writefln("RX: Wait...");
+            while(rxMsgQueue.emptyResponse) {
+                Thread.sleep(10.msecs);
+            }
+
+            auto reqres = cast()rxMsgQueue.popResponse();
+            (cast()reqres.res).match!(
+                (RxResponseTypes!C.Receive r) {
+                    dbg.writefln("RX: Coming!");
+
+                    if(!isBlocking) {
+                        // ブロッキングじゃないリクエストに対しては，まずは成功したことを通知するために信号の長さを送る
+                        client.rawWriteValue!uint(cast(uint )r.buffer[0].length);
+                    }
+
+                    foreach(i; 0 .. nRXUSRP)
+                        enforce(client.rawWriteArray(r.buffer[i]));
+
+                    alloc.disposeMultidimensionalArray(r.buffer);
+                    doneRecv = true;
+                }
+            )();
+        } while(!doneRecv && isBlocking);
+
+        if(!doneRecv && !isBlocking) {
+            client.rawWriteValue!uint(0);
+        }
+    }
+
 
     size_t tryCount = 0;
     while(!stop_signal_called && tryCount < 10)
@@ -98,35 +151,16 @@ void eventIOLoop(C, Alloc)(
                                     return;
 
                                 case CommandID.receive:
-                                    immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: numSamples = %s", numSamples);
+                                    pushReceiveRequest(client);
+                                    popReceiveResponse(client, Yes.isBlocking);
+                                    break;
 
-                                    C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
-                                    RxRequest!C req = RxRequestTypes!C.Receive(buffer);
-
-                                    dbg.writefln("RX: Push Request");
-                                    rxMsgQueue.pushRequest(req);
-
-                                    bool doneRecv = false;
-                                    while(!doneRecv) {
-                                        dbg.writefln("RX: Wait...");
-                                        while(rxMsgQueue.emptyResponse) {
-                                            Thread.sleep(10.msecs);
-                                        }
-
-                                        auto reqres = cast()rxMsgQueue.popResponse();
-                                        (cast()reqres.res).match!(
-                                            (RxResponseTypes!C.Receive r) {
-                                                dbg.writefln("RX: Coming!");
-
-                                                foreach(i; 0 .. nRXUSRP)
-                                                    enforce(client.rawWriteArray(r.buffer[i]));
-
-                                                alloc.disposeMultidimensionalArray(r.buffer);
-                                                doneRecv = true;
-                                            }
-                                        )();
-                                    }
+                                case CommandID.receiveNBReq:
+                                    pushReceiveRequest(client);
+                                    break;
+                                
+                                case CommandID.receiveNBRes:
+                                    popReceiveResponse(client, No.isBlocking);
                                     break;
 
                                 case CommandID.transmit:

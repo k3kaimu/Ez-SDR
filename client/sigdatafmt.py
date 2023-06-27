@@ -19,6 +19,10 @@ def readSignalFromSock(sock, size = None):
     data = data[::2] + data[1::2] * 1j;
     return data;
 
+# ソケットからInt32の値を読む
+def readInt32FromSock(sock):
+    return int.from_bytes(sock.recv(4), 'little');
+
 # ソケットにInt32の値を書き込む
 def writeInt32ToSock(sock, value):
     data = np.array([value], dtype=np.uint32).tobytes()

@@ -125,6 +125,22 @@ class SimpleClient:
         else:
             return None
 
+    def receiveNBRequest(self, nsamples):
+        self.sock.sendall(b'r');
+        sigdatafmt.writeInt32ToSock(self.sock, nsamples)
+    
+    def receiveNBResponse(self):
+        self.sock.sendall(b'g');
+        nsamples = sigdatafmt.readInt32FromSock(self.sock)
+        if nsamples == 0:
+            return (False, np.array([]))
+
+        ret = []
+        for i in range(self.nRXUSRP):
+            ret.append(sigdatafmt.readSignalFromSock(self.sock, nsamples))
+        
+        return (True, np.array(ret))
+
     def shutdown(self):
         self.sock.sendall(b'Q');
 
