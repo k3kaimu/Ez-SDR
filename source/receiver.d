@@ -172,7 +172,7 @@ void receive_worker(C, Alloc)(
             // dbg.writeln("!");
 
             // リクエストの処理をする
-            while(! rxMsgQueue.emptyRequest) {
+            while(! rxMsgQueue.emptyRequest && !reqInfo.haveRequest) {
                 auto req = cast()rxMsgQueue.popRequest();
                 dbg.writeln("POP Request!");
                 req.match!(
