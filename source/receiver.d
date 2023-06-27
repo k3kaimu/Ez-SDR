@@ -74,7 +74,7 @@ void receive_worker(C, Alloc)(
     immutable(size_t)[] rx_channel_nums,
     float settling_time,
     size_t alignSize,
-    ref shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
+    shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue,
 )
 {
     alias dbg = debugMsg!"receive_worker";

@@ -326,8 +326,8 @@ void main(string[] args){
 
     GC.disable();
 
-    shared UniqueMsgQueue!(TxRequest!C, TxResponse!C) txMsgQueue;
-    shared UniqueMsgQueue!(RxRequest!C, RxResponse!C) rxMsgQueue;
+    shared txMsgQueue = new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
+    shared rxMsgQueue = new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
 
     enforce(cpufmt == "fc32");
 

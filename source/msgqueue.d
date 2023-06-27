@@ -9,7 +9,7 @@ import std.experimental.allocator;
 /**
 Move Semantics Message Queue
 */
-struct MsgQueue(Req, Res, Flag!"assumeUnique" assumeUnique = No.assumeUnique, Allocator = Mallocator)
+final class MsgQueue(Req, Res, Flag!"assumeUnique" assumeUnique = No.assumeUnique, Allocator = Mallocator)
 {
     import core.lifetime : move;
 
@@ -76,11 +76,11 @@ struct MsgQueue(Req, Res, Flag!"assumeUnique" assumeUnique = No.assumeUnique, Al
     }
 
 
-    ReqResPair popResponse() shared
+    IOReqResTuple popResponse() shared
     {
         IOReqResPair* p = cast(IOReqResPair*)_resList.pop();
         scope(exit) this.allocator.dispose(p);
-        return move(*p);
+        return IOReqResTuple(move(p.req), move(p.res));
     }
 
 
@@ -106,6 +106,9 @@ struct MsgQueue(Req, Res, Flag!"assumeUnique" assumeUnique = No.assumeUnique, Al
         Req req;
         Res res;
     }
+
+
+    alias IOReqResTuple = Tuple!(IOReq, "req", IORes, "res");
 }
 
 
