@@ -50,16 +50,8 @@ import std.experimental.allocator;
 import lock_free.rwqueue;
 
 
-/***********************************************************************
- * Signal handlers
- **********************************************************************/
+// kill switch for transmit and receive threads
 shared bool stop_signal_called = false;
-extern(C) void sig_int_handler(int) nothrow @nogc @system
-{
-    import core.stdc.stdio;
-    printf("STOP\n");
-    stop_signal_called = true;
-}
 
 /***********************************************************************
  * Utilities
@@ -315,8 +307,6 @@ void main(string[] args){
     if (useRxUSRP && ! rx_ant.empty) rx_usrp.rxAntenna = rx_ant;
 
     {
-        import core.stdc.signal;
-        signal(SIGINT, &sig_int_handler);
         writeln("Press Ctrl + C to stop streaming...");
     }
 
@@ -331,7 +321,7 @@ void main(string[] args){
 
     enforce(cpufmt == "fc32");
 
-    auto event_thread = new Thread(delegate(){
+    auto event_dg = delegate(){
         scope(exit) {
             writeln("[eventIOLoop] END");
             stop_signal_called = true;
@@ -343,8 +333,7 @@ void main(string[] args){
         catch(Exception ex){
             writeln(ex);
         }
-    });
-    event_thread.start();
+    };
 
     auto transmit_thread = new Thread(delegate(){
         scope(exit) stop_signal_called = true;
@@ -370,11 +359,13 @@ void main(string[] args){
 
     if(useRxUSRP) receive_thread.start();
 
+    // run TCP/IP loop
+    event_dg();
+    stop_signal_called = true;
+
     //clean up
     if(useTxUSRP) transmit_thread.join();
     if(useRxUSRP) receive_thread.join();
-    event_thread.join();
 
-    stop_signal_called = true;
     writeln("\nDone!\n");
 }
