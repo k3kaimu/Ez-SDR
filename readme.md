@@ -111,6 +111,8 @@ $ dub build --build=release --compiler=ldc2
 [コマンドid（固定長1byte）][コマンドメッセージ（可変長）]
 ```
 
+簡単な例として[client/rawcommand_from_d.d](https://github.com/k3kaimu/multiusrp/blob/master/client/rawcommand_from_d.d)を参照してください．
+
 ### Transmitコマンド（id:0x54）
 
 送信信号を送信用USRPに設定します
