@@ -53,20 +53,6 @@ import lock_free.rwqueue;
 // kill switch for transmit and receive threads
 shared bool stop_signal_called = false;
 
-/***********************************************************************
- * Utilities
- **********************************************************************/
-//! Change to filename, e.g. from usrp_samples.dat to usrp_samples.00.dat,
-//  but only if multiple names are to be generated.
-string generate_out_filename(string base_fn, size_t n_names, size_t this_name)
-{
-    if (n_names == 1) {
-        return base_fn;
-    }
-
-    return base_fn.setExtension(format("%02d.%s", base_fn.extension));
-}
-
 
 /***********************************************************************
  * Main function
