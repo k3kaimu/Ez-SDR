@@ -12,5 +12,7 @@
     "rx-channels": "0",
     "tx-subdev": "A:0",
     "rx-subdev": "B:0",
+    "tx-ant": "AB",
+    "rx-ant": "AB",
     "port": 8888
 }
