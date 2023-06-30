@@ -5,77 +5,6 @@ from collections import namedtuple
 import sigdatafmt
 
 
-# class MockServer:
-#     def __init__(self, ipaddr, port):
-#         self.ipaddr = ipaddr
-#         self.port = port
-#         if self.ipaddr is not None:
-#             self.sock_sv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#             self.sock_sv.bind((ipaddr, port))
-
-#     def onIncomingTransmitCommand(self, signal):
-#         self.savedSignal = signal
-    
-#     def onIncomingReceiveCommand(self):
-#         return self.savedSignal.copy()
-
-#     def run(self):
-#         bStop = False
-#         if self.ipaddr is not None:
-#             self.sock_sv.listen()
-#             while not bStop:
-#                 sock_cl, addr = self.sock_sv.accept();
-#                 print("[Connected from {}]".format(addr));
-#                 try:
-#                     while not bStop:
-#                         # クライアントからのメッセージを1バイト受信
-#                         # 1バイト目がb'T'（0x54）なら送信，b'R'（0x52）なら受信
-#                         data = sock_cl.recv(1);
-#                         # print(data)
-
-#                         if len(data) == 0:
-#                             # コネクションが切断されているので次の接続を待つ
-#                             print("[Disconnected]");
-#                             break;
-#                         elif data == b'T':
-#                             print("[Transmit command]");
-
-#                             # クライアントからのデータ取得
-#                             data = readSignalFromSock(sock_cl)
-#                             print("\tFirst 10 elements: {}".format(data[:10]));
-#                             print("\tLast 10 elements: {}".format(data[-10:]));
-
-#                             # 現在送信中の信号として保存しておく
-#                             self.onIncomingTransmitCommand(data);
-
-#                             # クライアントへ返答する受信データ
-#                             recvdata = self.onIncomingReceiveCommand();
-#                             print("[Response]")
-#                             print("\tFirst 10 elements: {}".format(recvdata[:10]));
-#                             print("\tLast 10 elements: {}".format(recvdata[-10:]));
-#                             writeSignalToSock(sock_cl, recvdata);
-
-#                         elif data == b'R':
-#                             print("[Receive command]")
-
-#                             # サーバー側では受信データをクライアントに返す
-#                             # このリファレンス実装では以前に受け取っている送信データをそのまま返す
-#                             data = self.onIncomingReceiveCommand();
-#                             print("[Response]")
-#                             print("\tFirst 10 elements: {}".format(data[:10]));
-#                             print("\tLast 10 elements: {}".format(data[-10:]));
-#                             writeSignalToSock(sock_cl, data);
-
-#                         elif data == b'Q':
-#                             bStop = True
-
-#                         else:
-#                             print("[Undefined command]")
-
-#                 finally:
-#                     sock_cl.close()
-
-
 class SimpleClient:
     def __init__(self, ipaddr, port, nTXUSRP, nRXUSRP):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -165,13 +94,15 @@ class SimpleClient:
 
 
 class SimpleMockClient:
-    def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix):
+    def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix, SIGMA2):
         self.nTXUSRP = nTXUSRP
         self.nRXUSRP = nRXUSRP
         self.sampleIndex = 0
         self.alignSize = 4096
-        self.signals = np.zeros(nTXUSRP, 4096)
+        self.txsignals = np.zeros((nTXUSRP, 4096), dtype=np.complex64)
         self.impRespMatrix = impRespMatrix
+        self.rxsignals = np.zeros((nRXUSRP, 4096), dtype=np.complex64)
+        self.SIGMA2 = SIGMA2
     
     def __enter__(self):
         self.sampleIndex = 0
@@ -183,25 +114,41 @@ class SimpleMockClient:
     
     def connect(self):
         pass
+
+    def makeRxSignals(self):
+        self.rxsignals = np.zeros((self.nRXUSRP, len(self.txsignals[0])), dtype=np.complex64)
+        N = len(self.txsignals[0])
+        for i in range(self.nTXUSRP):
+            for j in range(self.nRXUSRP):
+                txFreq = np.fft.fft(self.txsignals[i])
+                irFreq = np.fft.fft(np.hstack((self.impRespMatrix[i, j], np.zeros(N)))[:N])
+                rxFreq = txFreq * irFreq
+                self.rxsignals[j,:] = self.rxsignals[j,:] + np.fft.ifft(rxFreq)
     
     def transmit(self, signals):
-        self.signals = signals
+        self.txsignals = signals
+        self.makeRxSignals()
+
+    def receive(self, nsamples, **kwargs):
+        if ('onlyResponse' not in kwargs) or (not kwargs['onlyResponse']):
+            return None
+
+        if ('onlyRequest' not in kwargs) or (not kwargs['onlyRequest']):
+            return self.receiveImpl(nsamples)
+        else:
+            return None
     
-    def receive(self, nsamples):
-        dst = np.zeros((self.nRXUSPR, nsamples), dtype=np.complex128)
+    def receiveImpl(self, nsamples):
+        dst = np.zeros((self.nRXUSRP, nsamples), dtype=np.complex128)
 
         # 次のアライメント（受信バッファの先頭）を計算する
         self.sampleIndex = self.sampleIndex + self.alignSize - (self.sampleIndex % self.alignSize)
 
-        N = len(self.signals[0])
+        N = len(self.rxsignals[0])
         D = self.sampleIndex % N
-        for i in range(self.nTXUSRP):
-            tx_freq = np.fft.fft(np.roll(self.signals[i], -D), norm="ortho")
-            for j in range(self.nRXUSPR):
-                h_freq = np.fft.fft(np.hstack((impRespMatrix[i, j], np.zeros(N, np.complex128)))[:N], norm="ortho")
-                rx_freq = tx_freq * h_freq
-                rx_time = np.fft.ifft(rx_freq, norm="ortho")
-                dst[j] += np.tile(rx_time, nsamples // N + 1)[:nsamples]
+        for i in range(self.nRXUSRP):
+            dst[i,:] = np.tile(self.rxsignals[i], (D + nsamples)//N + 1)[:nsamples]
+            dst[i,:] += np.random.normal(0, np.sqrt(self.SIGMA2/2), size=nsamples) + np.random.normal(0, np.sqrt(self.SIGMA2/2), size=nsamples)*1j
 
         self.sampleIndex += nsamples
         return dst
@@ -216,3 +163,6 @@ class SimpleMockClient:
         D = delay % N
         for i in range(self.nTXUSRP):
             self.signals[i] = np.roll(self.signals[i], -D)
+
+    def sync(self):
+        self.sampleIndex = 0
