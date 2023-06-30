@@ -1,6 +1,6 @@
 {
-    "tx-args": "addr0=192.168.40.2",
-    "rx-args": "addr0=192.168.40.2",
+    "tx-args": "addr0=192.168.40.2,send_frame_size=8000",
+    "rx-args": "addr0=192.168.40.2,recv_frame_size=8000",
     "tx-rate": 200e6,
     "rx-rate": 200e6,
     "tx-freq": 0,
