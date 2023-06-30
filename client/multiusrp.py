@@ -155,6 +155,14 @@ class SimpleClient:
     def sync(self):
         self.sock.sendall(b'S')
 
+    def rxPowerThr(self, p, m):
+        self.sock.sendall(b'p')
+        sigdatafmt.writeFloat32ToSock(self.sock, p)
+        sigdatafmt.writeFloat32ToSock(self.sock, m)
+
+    def clearCmdQueue(self):
+        self.sock.sendall(b'q')
+
 
 class SimpleMockClient:
     def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix):

@@ -2,6 +2,7 @@ module transmitter;
 
 import core.thread;
 
+import std.algorithm;
 import std.experimental.allocator;
 import std.sumtype;
 import std.complex;
@@ -31,6 +32,9 @@ struct TxRequestTypes(C)
         size_t myIndex;
         shared(bool)[] isReady;
     }
+
+
+    static struct ClearCmdQueue {}
 }
 
 
@@ -43,7 +47,7 @@ struct TxResponseTypes(C)
 }
 
 
-alias TxRequest(C) = SumType!(TxRequestTypes!C.Transmit, TxRequestTypes!C.SyncToPPS);
+alias TxRequest(C) = SumType!(TxRequestTypes!C.Transmit, TxRequestTypes!C.SyncToPPS, TxRequestTypes!C.ClearCmdQueue);
 alias TxResponse(C) = SumType!(TxResponseTypes!C.TransmitDone);
 
 
@@ -138,6 +142,13 @@ void transmit_worker(C, Alloc)(
                     }
                 }
 
+                if(!txMsgQueue.emptyRequest) {
+                    // キューにClearCmdQueueがあれば，全てのキューに入っているコマンドを消す
+                    bool isClear = txMsgQueue.allRequestList.canFind!(a => a.match!((TxRequestTypes!C.ClearCmdQueue q) => true, _ => false));
+                    while(isClear && !txMsgQueue.emptyRequest)
+                        txMsgQueue.popRequest();
+                }
+
                 while(! txMsgQueue.emptyRequest) {
                     writeln("POPOPOP");
                     auto req = cast()txMsgQueue.popRequest();
@@ -180,6 +191,10 @@ void transmit_worker(C, Alloc)(
                                 else
                                     usrp.setTimeNow(0.seconds);
                                 tx_streamer.send(nullBuffers, firstMD, 1);
+                        },
+                        (TxRequestTypes!C.ClearCmdQueue) {
+                            while(!txMsgQueue.emptyRequest)
+                                txMsgQueue.popRequest();
                         }
                     )();
                     writeln("POP");

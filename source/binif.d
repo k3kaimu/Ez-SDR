@@ -40,6 +40,15 @@ enum CommandID : ubyte
     checkVersion = 0x56,        // 'V'
     receiveNBReq = 0x72,        // 'r'
     receiveNBRes = 0x67,        // 'g'
+    rxPowerThr = 0x70,          // 'p'
+    clearCmdQueue = 0x71,       // 'q'
+}
+
+
+// 
+RxRequestTypes!C.ApplyFilter makeFilterRequest(C, alias fn, T...)(T args)
+{
+    return RxRequestTypes!C.ApplyFilter((C[][] signal) => fn(args, signal));
 }
 
 
@@ -232,6 +241,45 @@ void eventIOLoop(C, Alloc)(
                                     dbg.writeln("checkVersion");
                                     client.rawWriteValue!uint(interfaceVersion);
                                     break;
+
+                                case CommandID.rxPowerThr:
+                                    dbg.writefln("powerThr");
+                                    float peak = client.rawReadValue!float().enforceNotNull;
+                                    float mean = client.rawReadValue!float().enforceNotNull;
+                                    dbg.writefln!"%s, %s"(peak, mean);
+
+                                    RxRequest!C filterReq;
+                                    if(peak > 0 && mean > 0) {
+                                        filterReq = makeFilterRequest!(C, (a, b, sigs){
+                                            // 平均電力を算出するために全信号の合計電力を計算する
+                                            float sumPower = 0;
+                                            foreach(sig; sigs)
+                                                foreach(e; sig) {
+                                                    auto p = sqAbs(e);
+                                                    if(p > peak) return true;     // ピーク電力がpeakを超えたのでfilterを通過
+                                                    sumPower += p;
+                                                }
+
+                                            // 平均電力がmeanを超えたか
+                                            if(sumPower / sigs.length / sigs[0].length > mean)
+                                                return true;
+                                            else
+                                                return false;
+                                        })(peak, mean);
+                                    } else {
+                                        filterReq = RxRequestTypes!C.ApplyFilter(null);
+                                    }
+
+                                    rxMsgQueue.pushRequest(filterReq);
+                                    break;
+
+                                case CommandID.clearCmdQueue:
+                                    dbg.writefln("clearCmdQueue");
+                                    TxRequest!C txccq = TxRequestTypes!C.ClearCmdQueue();
+                                    RxRequest!C rxccq = RxRequestTypes!C.ClearCmdQueue();
+                                    txMsgQueue.pushRequest(txccq);
+                                    rxMsgQueue.pushRequest(rxccq);
+
                             }
                         } else {
                             continue Lconnect;

@@ -1,6 +1,6 @@
 import socket
 import numpy as np
-
+import struct
 
 # ソケットから信号を読む
 def readSignalFromSock(sock, size = None):
@@ -54,3 +54,7 @@ def writeSignalToSock(sock, signal, withHeader = True):
     while txbytes != len(response):
         txbytes += sock.send(response[txbytes:])
 
+
+def writeFloat32ToSock(sock, value):
+    data = np.array([value], dtype=np.float32).tobytes()
+    sock.sendall(data)

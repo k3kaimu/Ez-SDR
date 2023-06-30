@@ -3,7 +3,7 @@ module receiver;
 import core.time;
 import core.thread;
 
-import std.algorithm : min;
+import std.algorithm : min, canFind;
 import std.sumtype;
 import std.complex;
 import std.stdio;
@@ -52,6 +52,9 @@ struct RxRequestTypes(C)
     {
         bool delegate(C[][]) fn;
     }
+
+
+    static struct ClearCmdQueue {}
 }
 
 
@@ -64,7 +67,7 @@ struct RxResponseTypes(C)
 }
 
 
-alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive, RxRequestTypes!C.SyncToPPS, RxRequestTypes!C.ApplyFilter);
+alias RxRequest(C) = SumType!(RxRequestTypes!C.ChangeAlignSize, RxRequestTypes!C.Skip, RxRequestTypes!C.Receive, RxRequestTypes!C.SyncToPPS, RxRequestTypes!C.ApplyFilter, RxRequestTypes!C.ClearCmdQueue);
 alias RxResponse(C) = SumType!(RxResponseTypes!C.Receive);
 
 
@@ -181,7 +184,12 @@ void receive_worker(C, Alloc)(
     () {
         Lnextreceive: while(! stop_signal_called) {
 
-            // dbg.writeln("!");
+            if(!rxMsgQueue.emptyRequest) {
+                // キューにClearCmdQueueがあれば，全てのキューに入っているコマンドを消す
+                bool isClear = rxMsgQueue.allRequestList.canFind!(a => a.match!((RxRequestTypes!C.ClearCmdQueue q) => true, _ => false));
+                while(isClear && !rxMsgQueue.emptyRequest)
+                    rxMsgQueue.popRequest();
+            }
 
             // リクエストの処理をする
             while(! rxMsgQueue.emptyRequest && !reqInfo.haveRequest) {
@@ -266,6 +274,10 @@ void receive_worker(C, Alloc)(
                     (RxRequestTypes!C.ApplyFilter r) {
                         filterFunc = r.fn;
                     },
+                    (RxRequestTypes!C.ClearCmdQueue) {
+                        while(!rxMsgQueue.emptyRequest)
+                            rxMsgQueue.popRequest();
+                    }
                 )();
             }
 
