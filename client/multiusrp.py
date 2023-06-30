@@ -94,7 +94,7 @@ class SimpleClient:
 
 
 class SimpleMockClient:
-    def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix, SIGMA2):
+    def __init__(self, nTXUSRP, nRXUSRP, impRespMatrix=np.array([[[1]]]), SIGMA2=0, delay=0):
         self.nTXUSRP = nTXUSRP
         self.nRXUSRP = nRXUSRP
         self.sampleIndex = 0
@@ -103,6 +103,7 @@ class SimpleMockClient:
         self.impRespMatrix = impRespMatrix
         self.rxsignals = np.zeros((nRXUSRP, 4096), dtype=np.complex64)
         self.SIGMA2 = SIGMA2
+        self.delay = delay
     
     def __enter__(self):
         self.sampleIndex = 0
@@ -121,7 +122,7 @@ class SimpleMockClient:
         for i in range(self.nTXUSRP):
             for j in range(self.nRXUSRP):
                 txFreq = np.fft.fft(self.txsignals[i])
-                irFreq = np.fft.fft(np.hstack((self.impRespMatrix[i, j], np.zeros(N)))[:N])
+                irFreq = np.fft.fft(np.hstack((np.zeros(self.delay), self.impRespMatrix[i, j], np.zeros(N)))[:N])
                 rxFreq = txFreq * irFreq
                 self.rxsignals[j,:] = self.rxsignals[j,:] + np.fft.ifft(rxFreq)
     
@@ -130,9 +131,6 @@ class SimpleMockClient:
         self.makeRxSignals()
 
     def receive(self, nsamples, **kwargs):
-        if ('onlyResponse' not in kwargs) or (not kwargs['onlyResponse']):
-            return None
-
         if ('onlyRequest' not in kwargs) or (not kwargs['onlyRequest']):
             return self.receiveImpl(nsamples)
         else:
@@ -142,12 +140,12 @@ class SimpleMockClient:
         dst = np.zeros((self.nRXUSRP, nsamples), dtype=np.complex128)
 
         # 次のアライメント（受信バッファの先頭）を計算する
-        self.sampleIndex = self.sampleIndex + self.alignSize - (self.sampleIndex % self.alignSize)
+        self.sampleIndex += self.alignSize - (self.sampleIndex % self.alignSize)
 
         N = len(self.rxsignals[0])
         D = self.sampleIndex % N
         for i in range(self.nRXUSRP):
-            dst[i,:] = np.tile(self.rxsignals[i], (D + nsamples)//N + 1)[:nsamples]
+            dst[i,:] = np.tile(self.rxsignals[i], (D + nsamples)//N + 1)[D : D+nsamples]
             dst[i,:] += np.random.normal(0, np.sqrt(self.SIGMA2/2), size=nsamples) + np.random.normal(0, np.sqrt(self.SIGMA2/2), size=nsamples)*1j
 
         self.sampleIndex += nsamples
