@@ -93,7 +93,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
         demodulated = demod_ofdm(recv[numDelay : numDelay + numModSig])
 
         # チャネル推定
-        channel_resp = np.mean((demodulated[0] / subcarriers[0]).reshape([nTxSYM, nSC]), axis=0)
+        channel_resp = np.mean((demodulated / subcarriers[0]).reshape([nTxSYM, nSC]), axis=0)
 
         chresplist.append(channel_resp)
         timelist.append(time.time() - time_start)
