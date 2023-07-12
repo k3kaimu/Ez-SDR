@@ -70,6 +70,27 @@ class SimpleClient:
         
         return (True, np.array(ret))
 
+    def receiveNBResponseToFn(self, fn, bufferSize=0):
+        self.sock.sendall(b'g');
+        nsamples = sigdatafmt.readInt32FromSock(self.sock)
+        if nsamples == 0:
+            return False
+
+        if bufferSize == 0:
+            for i in range(self.nRXUSRP):
+                fn(i, 0, sigdatafmt.readSignalFromSock(self.sock, nsamples))
+        else:
+            for i in range(self.nRXUSRP):
+                nrecv = 0
+                j = 0
+                while nrecv < nsamples:
+                    psize = min(bufferSize, nsamples - nrecv)
+                    fn(i, j, sigdatafmt.readSignalFromSock(self.sock, psize))
+                    nrecv += psize
+                    j += 1
+
+        return True
+
     def shutdown(self):
         self.sock.sendall(b'Q');
 
