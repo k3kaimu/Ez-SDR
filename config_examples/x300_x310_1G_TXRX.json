@@ -1,0 +1,20 @@
+{
+    "tx-args": "addr0=192.168.10.2",
+    "rx-args": "addr0=192.168.10.31",
+    "tx-rate": 10e6,
+    "rx-rate": 10e6,
+    "tx-freq": 2.45e9,
+    "rx-freq": 2.45e9,
+    "tx-gain": 10,
+    "rx-gain": 30,
+    "clockref": "external",
+    "timeref": "external",
+    "timesync": true,
+    "tx-channels": "0",
+    "rx-channels": "0",
+    "tx-subdev": "A:0",
+    "rx-subdev": "B:0",
+    "tx-ant": "TX/RX",
+    "rx-ant": "TX/RX",
+    "port": 8888
+}
