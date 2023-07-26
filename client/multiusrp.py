@@ -6,16 +6,20 @@ import sigdatafmt
 
 
 class SimpleClient:
-    def __init__(self, ipaddr, port, nTXUSRP, nRXUSRP):
+    def __init__(self, ipaddr, port, nTXUSRPs, nRXUSRPs):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ipaddr = ipaddr
         self.port = port
         # self.mockserver = None
-        self.nTXUSRP = nTXUSRP
-        self.nRXUSRP = nRXUSRP
-        # self.doClip = True
-        # self.txMaxPowerdBm = None      # I/Q相両方が32767のときの送信電力
-        # self.rxMaxPowerdBm = None      # I/Q相両方が32767のときの受信電力
+        if type(nTXUSRPs) is int:
+            self.nTXUSRPs = [nTXUSRPs]
+        else:
+            self.nTXUSRPs = nTXUSRPs
+        
+        if type(nRXUSRPs) is int:
+            self.nRXUSRPs = [nRXUSRPs]
+        else:
+            self.nRXUSRPs = nRXUSRPs
 
     def __enter__(self):
         if self.ipaddr is not None:
@@ -32,55 +36,67 @@ class SimpleClient:
         if self.ipaddr is not None:
             self.sock.connect((self.ipaddr, self.port));
 
-    def transmit(self, signals):
+    def transmit(self, signals, **kwargs):
+        tidx = kwargs.get("tidx", 0)
+
         self.sock.sendall(b'T');
-        for i in range(self.nTXUSRP):
+        sigdatafmt.writeInt32ToSock(self.sock, tidx)
+        for i in range(self.nTXUSRPs[tidx]):
             if i == 0:
                 sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=True)
             else:
                 sigdatafmt.writeSignalToSock(self.sock, signals[i], withHeader=False)
 
     def receive(self, nsamples, **kwargs):
+        ridx = kwargs.get("ridx", 0)
+
         if ('onlyResponse' not in kwargs) or (not kwargs['onlyResponse']):
             self.sock.sendall(b'R');
+            sigdatafmt.writeInt32ToSock(self.sock, ridx)
             sigdatafmt.writeInt32ToSock(self.sock, nsamples)
 
         if ('onlyRequest' not in kwargs) or (not kwargs['onlyRequest']):
             ret = []
-            for i in range(self.nRXUSRP):
+            for i in range(self.nRXUSRPs[ridx]):
                 ret.append(sigdatafmt.readSignalFromSock(self.sock, nsamples))
             
             return np.array(ret)
         else:
             return None
 
-    def receiveNBRequest(self, nsamples):
+    def receiveNBRequest(self, nsamples, **kwargs):
+        ridx = kwargs.get("ridx", 0)
         self.sock.sendall(b'r');
+        sigdatafmt.writeInt32ToSock(self.sock, ridx)
         sigdatafmt.writeInt32ToSock(self.sock, nsamples)
     
-    def receiveNBResponse(self):
+    def receiveNBResponse(self, **kwargs):
+        ridx = kwargs.get("ridx", 0)
         self.sock.sendall(b'g');
+        sigdatafmt.writeInt32ToSock(self.sock, ridx)
         nsamples = sigdatafmt.readInt32FromSock(self.sock)
         if nsamples == 0:
             return (False, np.array([]))
 
         ret = []
-        for i in range(self.nRXUSRP):
+        for i in range(self.nRXUSRPs[ridx]):
             ret.append(sigdatafmt.readSignalFromSock(self.sock, nsamples))
         
         return (True, np.array(ret))
 
-    def receiveNBResponseToFn(self, fn, bufferSize=0):
+    def receiveNBResponseToFn(self, fn, bufferSize=0, **kwargs):
+        ridx = kwargs.get("ridx", 0)
         self.sock.sendall(b'g');
+        sigdatafmt.writeInt32ToSock(ridx)
         nsamples = sigdatafmt.readInt32FromSock(self.sock)
         if nsamples == 0:
             return False
 
         if bufferSize == 0:
-            for i in range(self.nRXUSRP):
+            for i in range(self.nRXUSRPs[ridx]):
                 fn(i, 0, sigdatafmt.readSignalFromSock(self.sock, nsamples))
         else:
-            for i in range(self.nRXUSRP):
+            for i in range(self.nRXUSRPs[ridx]):
                 nrecv = 0
                 j = 0
                 while nrecv < nsamples:
@@ -94,19 +110,25 @@ class SimpleClient:
     def shutdown(self):
         self.sock.sendall(b'Q');
 
-    def changeRxAlignSize(self, newAlign):
+    def changeRxAlignSize(self, newAlign, **kwargs):
+        ridx = kwargs.get("ridx", 0)
         self.sock.sendall(b'A')
+        sigdatafmt.writeInt32ToSock(self.sock, ridx)
         sigdatafmt.writeInt32ToSock(self.sock, newAlign)
     
     def skipRx(self, delay):
+        ridx = kwargs.get("ridx", 0)
         self.sock.sendall(b'D')
+        sigdatafmt.writeInt32ToSock(self.sock, ridx)
         sigdatafmt.writeInt32ToSock(self.sock, delay)
 
     def sync(self):
         self.sock.sendall(b'S')
 
     def rxPowerThr(self, p, m):
+        ridx = kwargs.get("ridx", 0)
         self.sock.sendall(b'p')
+        sigdatafmt.writeInt32ToSock(self.sock, ridx)
         sigdatafmt.writeFloat32ToSock(self.sock, p)
         sigdatafmt.writeFloat32ToSock(self.sock, m)
 

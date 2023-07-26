@@ -36,3 +36,21 @@ template debugMsg(string tag)
         debug std.stdio.writeln(_tag_, args);
     }
 }
+
+
+void notifyAndWait(shared(bool)[] flags, size_t myIndex)
+{
+    import core.atomic;
+
+    atomicStore(flags[myIndex], true);
+
+    // 他のスレッドがすべて準備完了するまでwhileで待つ
+    while(1) {
+        bool check = true;
+        foreach(ref b; flags)
+            check = check && atomicLoad(b);
+
+        if(check)
+            break;
+    }
+}

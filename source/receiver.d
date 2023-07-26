@@ -3,9 +3,13 @@ module receiver;
 import core.time;
 import core.thread;
 
-import std.algorithm : min, canFind;
+import std.algorithm;
+import std.array;
 import std.sumtype;
 import std.complex;
+import std.conv;
+import std.exception;
+import std.json;
 import std.stdio;
 import std.math;
 import std.experimental.allocator;
@@ -45,6 +49,7 @@ struct RxRequestTypes(C)
     {
         size_t myIndex;
         shared(bool)[] isReady;
+        shared(bool)[] isDone;
     }
 
 
@@ -76,13 +81,13 @@ void receive_worker(C, Alloc)(
     ref shared bool stop_signal_called,
     ref Alloc alloc,
     ref USRP usrp,
-    size_t nRXUSRP,
+    immutable(size_t)[] rx_channel_nums,
     string cpu_format,
     string wire_format,
     bool time_sync,
-    immutable(size_t)[] rx_channel_nums,
     float settling_time,
     size_t alignSize,
+    JSONValue[string] settings,
     UniqueMsgQueue!(RxRequest!C, RxResponse!C).Executer rxMsgQueue,
 )
 {
@@ -91,6 +96,8 @@ void receive_worker(C, Alloc)(
     scope(exit) {
         dbg.writeln("END receive_worker");
     }
+
+    immutable nRXUSRP = rx_channel_nums.length;
 
     C[][] nullBuffers;
     foreach(i; 0 .. nRXUSRP) nullBuffers ~= null;
@@ -228,8 +235,10 @@ void receive_worker(C, Alloc)(
                     (RxRequestTypes!C.SyncToPPS r){
                         import core.atomic;
                         scope(exit) {
-                            if(r.myIndex == 0)
+                            if(r.myIndex == 0) {
                                 alloc.dispose(cast(void[])r.isReady);
+                                alloc.dispose(cast(void[])r.isDone);
+                            }
                         }
 
                         // shutdown receiver
@@ -247,24 +256,18 @@ void receive_worker(C, Alloc)(
                         }
 
                         dbg.writeln("Ready sync and wait other threads...");
-                        // 自分は準備完了したことを他のスレッドに伝える
-                        atomicStore(r.isReady[r.myIndex], true);
 
-                        // 他のスレッドがすべて準備完了するまでwhileで待つ
-                        while(1) {
-                            bool check = true;
-                            foreach(ref b; r.isReady)
-                                check = check && atomicLoad(b);
-
-                            if(check)
-                                break;
-                        }
+                        // 自分は準備完了したことを他のスレッドに伝え，他のスレッドが終わるまで待つ．
+                        notifyAndWait(r.isReady, r.myIndex);
 
                         // setup streaming
                         if(time_sync)
                             usrp.setTimeUnknownPPS(0.seconds);
                         else
                             usrp.setTimeNow(0.seconds);
+
+                        // 自分は設定完了したことを他のスレッドに伝える
+                        notifyAndWait(r.isDone, r.myIndex);
 
                         StreamCommand stream_cmd = StreamCommand.startContinuous;
                         stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
@@ -296,7 +299,7 @@ void receive_worker(C, Alloc)(
             if(auto uhderr = md.getErrorCode(errorCode)){
                 error = uhderr;
                 Thread.sleep(2.seconds);
-                receive_worker!C(stop_signal_called, alloc, usrp, nRXUSRP, cpu_format, wire_format, time_sync, rx_channel_nums, settling_time, alignSize, rxMsgQueue);
+                receive_worker!C(stop_signal_called, alloc, usrp, rx_channel_nums, cpu_format, wire_format, time_sync, settling_time, alignSize, settings, rxMsgQueue);
             }
             if (errorCode == md.ErrorCode.TIMEOUT) {
                 import core.stdc.stdio : puts;
@@ -349,4 +352,70 @@ void receive_worker(C, Alloc)(
 
     if(error)
         throw error.makeException();
+}
+
+
+void settingReceiveUSRP(ref USRP usrp, JSONValue[string] settings)
+{
+    enforce("args" in settings, "Please specify the argument for USRP.");
+    writefln("Creating the receive usrp device with: %s...", settings["args"].get!string);
+    usrp = USRP(settings["args"].get!string);
+
+    // check channel settings
+    immutable chNums = settings["channels"].array.map!"a.get!size_t".array();
+    foreach(e; chNums) enforce(e < usrp.rxNumChannels, "Invalid RX channel(s) specified.");
+
+    // Set time source
+    if("timeref" in settings) usrp.timeSource = settings["timeref"].str;
+
+    //Lock mboard clocks
+    if("clockref" in settings) usrp.clockSource = settings["clockref"].str;
+
+    //always select the subdevice first, the channel mapping affects the other settings
+    if("subdev" in settings) usrp.rxSubdevSpec = settings["subdev"].str;
+
+    //set the receive sample rate
+    immutable rx_rate = enforce("rate" in settings, "Please specify the receiver sample rate.").get!double;
+    writefln("Setting RX Rate: %f Msps...", rx_rate/1e6);
+    usrp.rxRate = rx_rate;
+    writefln("Actual RX Rate: %f Msps...", usrp.rxRate/1e6);
+
+    //set the receiver center frequency
+    auto pfreq = enforce("freq" in settings, "Please specify the receiver center frequency.");
+    foreach(i, channel; chNums) {
+        if(chNums.length > 1) {
+            writeln("Configuring RX Channel ", channel);
+        }
+
+        immutable rx_freq = ((*pfreq).type == JSONType.array) ? (*pfreq)[i].get!double : (*pfreq).get!double;
+        bool rx_int_n = false;
+        if("int_n" in settings)
+            rx_int_n = (settings["int_n"].type == JSONType.array) ? settings["int_n"][i].boolean : settings["int_n"].boolean;
+
+        writefln("Setting RX Freq: %f MHz...", rx_freq/1e6);
+        TuneRequest rx_tune_request = TuneRequest(rx_freq);
+        if(rx_int_n) rx_tune_request.args = "mode_n=integer";
+        usrp.tuneRxFreq(rx_tune_request, channel);
+        writefln("Actual RX Freq: %f MHz...", usrp.getRxFreq(channel)/1e6);
+
+        //set the receive rf gain
+        if(auto p = "gain" in settings) {
+            immutable rx_gain = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting RX Gain: %f dB...", rx_gain);
+            usrp.setRxGain(rx_gain, channel);
+            writefln("Actual RX Gain: %f dB...", usrp.getRxGain(channel));
+        }
+
+        //set the receive analog frontend filter bandwidth
+        if(auto p = "bw" in settings) {
+            immutable rx_bw = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting RX Bandwidth: %f MHz...", rx_bw/1e6);
+            usrp.setRxBandwidth(rx_bw, channel);
+            writefln("Actual RX Bandwidth: %f MHz...", usrp.getRxBandwidth(channel)/1e6);
+        }
+
+        if(auto p = "ant" in settings) {
+            usrp.setRxAntenna(p.str, channel);
+        }
+    }
 }

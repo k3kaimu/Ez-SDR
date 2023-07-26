@@ -26,7 +26,7 @@ import transmitter : TxRequest, TxResponse, TxRequestTypes, TxResponseTypes;
 import receiver : RxRequest, RxResponse, RxRequestTypes, RxResponseTypes;
 
 
-enum uint interfaceVersion = 1;
+enum uint interfaceVersion = 2;
 
 enum CommandID : ubyte
 {
@@ -59,42 +59,47 @@ void eventIOLoop(C, Alloc)(
     ref shared bool stop_signal_called,
     ushort port,
     ref Alloc alloc,
-    size_t nTXUSRP,
-    size_t nRXUSRP,
+    size_t[] nTXUSRPs,
+    size_t[] nRXUSRPs,
     string cpufmt,
-    UniqueMsgQueue!(TxRequest!C, TxResponse!C).Commander txMsgQueue,
-    UniqueMsgQueue!(RxRequest!C, RxResponse!C).Commander rxMsgQueue,
+    UniqueMsgQueue!(TxRequest!C, TxResponse!C).Commander[] txMsgQueue,
+    UniqueMsgQueue!(RxRequest!C, RxResponse!C).Commander[] rxMsgQueue,
 )
 {
     alias dbg = debugMsg!"eventIOLoop";
 
 
-    void pushReceiveRequest(Socket client)
+    size_t pushReceiveRequest(Socket client)
     {
+        immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+        dbg.writefln("RX: Receiver Index = %s", ridx);
+
         immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
         dbg.writefln("RX: numSamples = %s", numSamples);
 
-        C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRP, numSamples);
+        C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRPs[ridx], numSamples);
         RxRequest!C req = RxRequestTypes!C.Receive(buffer);
 
         dbg.writefln("RX: Push Request");
-        rxMsgQueue.pushRequest(req);
+        rxMsgQueue[ridx].pushRequest(req);
+
+        return ridx;
     }
 
 
-    void popReceiveResponse(Socket client, Flag!"isBlocking" isBlocking)
+    void popReceiveResponse(Socket client, size_t ridx, Flag!"isBlocking" isBlocking)
     {
         bool doneRecv = false;
         do {
-            if(!isBlocking && rxMsgQueue.emptyResponse)
+            if(!isBlocking && rxMsgQueue[0].emptyResponse)
                 break;
 
             dbg.writefln("RX: Wait...");
-            while(rxMsgQueue.emptyResponse) {
+            while(rxMsgQueue[0].emptyResponse) {
                 Thread.sleep(10.msecs);
             }
 
-            auto reqres = cast()rxMsgQueue.popResponse();
+            auto reqres = cast()rxMsgQueue[0].popResponse();
             (cast()reqres.res).match!(
                 (RxResponseTypes!C.Receive r) {
                     dbg.writefln("RX: Coming!");
@@ -104,7 +109,7 @@ void eventIOLoop(C, Alloc)(
                         client.rawWriteValue!uint(cast(uint )r.buffer[0].length);
                     }
 
-                    foreach(i; 0 .. nRXUSRP)
+                    foreach(i; 0 .. nRXUSRPs[0])
                         enforce(client.rawWriteArray(r.buffer[i]));
 
                     alloc.disposeMultidimensionalArray(r.buffer);
@@ -160,8 +165,8 @@ void eventIOLoop(C, Alloc)(
                                     return;
 
                                 case CommandID.receive:
-                                    pushReceiveRequest(client);
-                                    popReceiveResponse(client, Yes.isBlocking);
+                                    size_t ridx = pushReceiveRequest(client);
+                                    popReceiveResponse(client, ridx, Yes.isBlocking);
                                     break;
 
                                 case CommandID.receiveNBReq:
@@ -169,15 +174,19 @@ void eventIOLoop(C, Alloc)(
                                     break;
                                 
                                 case CommandID.receiveNBRes:
-                                    popReceiveResponse(client, No.isBlocking);
+                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Receiver Index = %s", ridx);
+                                    popReceiveResponse(client, ridx, No.isBlocking);
                                     break;
 
                                 case CommandID.transmit:
+                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Transmitter Index = %s", tidx);
                                     immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
                                     dbg.writefln!"TX: %s samples"(numSamples);
 
-                                    C[][] buffer = alloc.makeMultidimensionalArray!C(nTXUSRP, numSamples);
-                                    foreach(i; 0 .. nTXUSRP) {
+                                    C[][] buffer = alloc.makeMultidimensionalArray!C(nTXUSRPs[tidx], numSamples);
+                                    foreach(i; 0 .. nTXUSRPs[tidx]) {
                                         enforce(client.rawReadArray(buffer[i]));
                                         dbg.writefln!"TX: Read Done %s, len = %s"(i, buffer[i].length);
                                         dbg.writefln!"\tFirst 5 elements: %s"(buffer[i][0 .. min(5, $)]);
@@ -188,48 +197,53 @@ void eventIOLoop(C, Alloc)(
 
                                     // C[][] buffer = client.rawReadArray().enforceNotNull;
                                     TxRequest!C req = TxRequestTypes!C.Transmit(buffer);
-                                    txMsgQueue.pushRequest(req);
+                                    txMsgQueue[tidx].pushRequest(req);
                                     break;
 
                                 case CommandID.changeRxAlignSize:
+                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Receiver Index = %s", ridx);
                                     immutable size_t newAlign = client.rawReadValue!uint.enforceNotNull;
                                     dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
 
                                     RxRequest!C req = RxRequestTypes!C.ChangeAlignSize(newAlign);
-                                    rxMsgQueue.pushRequest(req);
+                                    rxMsgQueue[ridx].pushRequest(req);
                                     break;
 
                                 case CommandID.skipRx:
+                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Receiver Index = %s", ridx);
                                     immutable size_t delaySamples = client.rawReadValue!uint.enforceNotNull;
                                     dbg.writefln!"skipRx: %s samples"(delaySamples);
 
                                     RxRequest!C req = RxRequestTypes!C.Skip(delaySamples);
-                                    rxMsgQueue.pushRequest(req);
+                                    rxMsgQueue[ridx].pushRequest(req);
                                     break;
 
                                 case CommandID.syncToPPS:
                                     dbg.writeln("syncToPPS");
 
-                                    immutable useBothTxRx = (nTXUSRP != 0) && (nRXUSRP != 0);
-
                                     // 送受信で準備できたかを相互チェックするための配列
-                                    auto isReady = alloc.makeArray!(shared(bool))(useBothTxRx ? 2 : 1);
+                                    auto isReady = alloc.makeArray!(shared(bool))(nTXUSRPs.length + nRXUSRPs.length);
+                                    auto isDone = alloc.makeArray!(shared(bool))(nTXUSRPs.length + nRXUSRPs.length);
 
-                                    if(nTXUSRP != 0) {
-                                        TxRequest!C txreq = TxRequestTypes!C.SyncToPPS(0, isReady);
-                                        txMsgQueue.pushRequest(txreq);
+                                    foreach(i; 0 .. nTXUSRPs.length) {
+                                        TxRequest!C txreq = TxRequestTypes!C.SyncToPPS(i, isReady, isDone);
+                                        txMsgQueue[i].pushRequest(txreq);
                                     }
 
-                                    if(nRXUSRP != 0) {
-                                        RxRequest!C rxreq = RxRequestTypes!C.SyncToPPS(useBothTxRx ? 1 : 0, isReady);
-                                        rxMsgQueue.pushRequest(rxreq);
+                                    foreach(i; 0 .. nRXUSRPs.length) {
+                                        RxRequest!C rxreq = RxRequestTypes!C.SyncToPPS(i + nTXUSRPs.length, isReady, isDone);
+                                        rxMsgQueue[i].pushRequest(rxreq);
                                     }
                                     break;
 
                                 case CommandID.checkSetting:
                                     dbg.writeln("checkSetting");
-                                    client.rawWriteValue!uint(cast(uint)nTXUSRP);
-                                    client.rawWriteValue!uint(cast(uint)nRXUSRP);
+                                    client.rawWriteValue!uint(cast(uint)nTXUSRPs.length);
+                                    foreach(e; nTXUSRPs) client.rawWriteValue!uint(cast(uint) e);
+                                    client.rawWriteValue!uint(cast(uint)nRXUSRPs.length);
+                                    foreach(e; nRXUSRPs) client.rawWriteValue!uint(cast(uint) e);
 
                                     char[16] fmtstr;
                                     fmtstr[] = 0x00;
@@ -244,6 +258,8 @@ void eventIOLoop(C, Alloc)(
 
                                 case CommandID.rxPowerThr:
                                     dbg.writefln("powerThr");
+                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Receiver Index = %s", ridx);
                                     float peak = client.rawReadValue!float().enforceNotNull;
                                     float mean = client.rawReadValue!float().enforceNotNull;
                                     dbg.writefln!"%s, %s"(peak, mean);
@@ -270,24 +286,28 @@ void eventIOLoop(C, Alloc)(
                                         filterReq = RxRequestTypes!C.ApplyFilter(null);
                                     }
 
-                                    rxMsgQueue.pushRequest(filterReq);
+                                    rxMsgQueue[ridx].pushRequest(filterReq);
                                     break;
 
                                 case CommandID.clearCmdQueue:
                                     dbg.writefln("clearCmdQueue");
-                                    TxRequest!C txccq = TxRequestTypes!C.ClearCmdQueue();
-                                    RxRequest!C rxccq = RxRequestTypes!C.ClearCmdQueue();
-                                    txMsgQueue.pushRequest(txccq);
-                                    rxMsgQueue.pushRequest(rxccq);
-
+                                    foreach(i; 0 .. nTXUSRPs.length) {
+                                        TxRequest!C txccq = TxRequestTypes!C.ClearCmdQueue();
+                                        txMsgQueue[i].pushRequest(txccq);
+                                    }
+                                    foreach(i; 0 .. nRXUSRPs.length) {
+                                        RxRequest!C rxccq = RxRequestTypes!C.ClearCmdQueue();
+                                        rxMsgQueue[i].pushRequest(rxccq);
+                                    }
+                                    break;
                             }
                         } else {
                             continue Lconnect;
                         }
 
 
-                        while(!txMsgQueue.emptyResponse) {
-                            auto reqres = txMsgQueue.popResponse();
+                        while(!txMsgQueue[0].emptyResponse) {
+                            auto reqres = txMsgQueue[0].popResponse();
 
                             (cast()reqres.res).match!(
                                 (TxResponseTypes!C.TransmitDone g) {

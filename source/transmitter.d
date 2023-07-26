@@ -3,9 +3,13 @@ module transmitter;
 import core.thread;
 
 import std.algorithm;
+import std.array;
+import std.exception;
 import std.experimental.allocator;
+import std.json;
 import std.sumtype;
 import std.complex;
+import std.conv;
 import std.math;
 import std.stdio;
 import std.typecons;
@@ -31,6 +35,7 @@ struct TxRequestTypes(C)
     {
         size_t myIndex;
         shared(bool)[] isReady;
+        shared(bool)[] isDone;
     }
 
 
@@ -55,12 +60,12 @@ void transmit_worker(C, Alloc)(
     ref shared bool stop_signal_called,
     ref Alloc alloc,
     ref USRP usrp,
-    size_t nTXUSRP,
+    immutable(size_t)[] tx_channel_nums,
     string cpu_format,
     string wire_format,
     bool time_sync,
-    immutable(size_t)[] tx_channel_nums,
     float settling_time,
+    JSONValue[string] settings,
     UniqueMsgQueue!(TxRequest!C, TxResponse!C).Executer txMsgQueue,
 ){
     alias dbg = debugMsg!"transmit_worker";
@@ -69,6 +74,8 @@ void transmit_worker(C, Alloc)(
         writefln("[transmit_worker] END transmit_worker");
         writefln("[transmit_worker] stop_signal_called = %s", stop_signal_called);
     }
+
+    immutable nTXUSRP = tx_channel_nums.length;
 
     StreamArgs stream_args = StreamArgs(cpu_format, wire_format, "", tx_channel_nums);
     auto tx_streamer = usrp.makeTxStreamer(stream_args);
@@ -164,8 +171,10 @@ void transmit_worker(C, Alloc)(
                         (TxRequestTypes!C.SyncToPPS r) {
                                 import core.atomic;
                                 scope(exit) {
-                                    if(r.myIndex == 0)
+                                    if(r.myIndex == 0) {
                                         alloc.dispose(cast(void[])r.isReady);
+                                        alloc.dispose(cast(void[])r.isDone);
+                                    }
                                 }
 
                                 // 現在送信中のストリームを終了
@@ -173,23 +182,16 @@ void transmit_worker(C, Alloc)(
 
                                 dbg.writeln("Ready sync and wait other threads...");
                                 // 自分は準備完了したことを他のスレッドに伝える
-                                atomicStore(r.isReady[r.myIndex], true);
-
-                                // 他のスレッドがすべて準備完了するまでwhileで待つ
-                                while(1) {
-                                    bool check = true;
-                                    foreach(ref b; r.isReady)
-                                        check = check && atomicLoad(b);
-
-                                    if(check)
-                                        break;
-                                }
+                                notifyAndWait(r.isReady, r.myIndex);
 
                                 // PPSのsettling_time秒後に送信
                                 if(time_sync)
                                     usrp.setTimeUnknownPPS(0.seconds);
                                 else
                                     usrp.setTimeNow(0.seconds);
+
+                                // 自分は設定完了したことを他のスレッドに伝える
+                                notifyAndWait(r.isDone, r.myIndex);
                                 tx_streamer.send(nullBuffers, firstMD, 1);
                         },
                         (TxRequestTypes!C.ClearCmdQueue) {
@@ -214,7 +216,7 @@ void transmit_worker(C, Alloc)(
                     error = err.get;
                     writeln(error);
                     Thread.sleep(2.seconds);
-                    transmit_worker!C(stop_signal_called, alloc, usrp, nTXUSRP, cpu_format, wire_format, time_sync, tx_channel_nums, settling_time, txMsgQueue);
+                    transmit_worker!C(stop_signal_called, alloc, usrp, tx_channel_nums, cpu_format, wire_format, time_sync, settling_time, settings, txMsgQueue);
                 }
                 b = true;
             }
@@ -228,3 +230,68 @@ void transmit_worker(C, Alloc)(
         throw error.makeException();
 }
 
+
+
+void settingTransmitUSRP(ref USRP usrp, JSONValue[string] settings)
+{
+    enforce("args" in settings, "Please specify the argument for USRP.");
+    writefln("Creating the transmit usrp device with: %s...", settings["args"].str);
+    usrp = USRP(settings["args"].str);
+
+    // check channel settings
+    immutable chNums = settings["channels"].array.map!"a.get!size_t".array();
+    foreach(e; chNums) enforce(e < usrp.txNumChannels, "Invalid TX channel(s) specified.");
+
+    // Set time source
+    if("timeref" in settings) usrp.timeSource = settings["timeref"].str;
+
+    //Lock mboard clocks
+    if("clockref" in settings) usrp.clockSource = settings["clockref"].str;
+
+    //always select the subdevice first, the channel mapping affects the other settings
+    if("subdev" in settings) usrp.txSubdevSpec = settings["subdev"].str;
+
+    //set the transmit sample rate
+    immutable tx_rate = enforce("rate" in settings, "Please specify the transmit sample rate.").floating;
+    writefln("Setting TX Rate: %f Msps...", tx_rate/1e6);
+    usrp.txRate = tx_rate;
+    writefln("Actual TX Rate: %f Msps...", usrp.txRate/1e6);
+
+    //set the transmit center frequency
+    auto pfreq = enforce("freq" in settings, "Please specify the transmit center frequency.");
+    foreach(i, channel; chNums){
+        if (chNums.length > 1) {
+            writefln("Configuring TX Channel %s", channel);
+        }
+
+        immutable tx_freq = ((*pfreq).type == JSONType.array) ? (*pfreq)[i].floating : (*pfreq).floating;
+        bool tx_int_n = false;
+        if("int_n" in settings)
+            tx_int_n = (settings["int_n"].type == JSONType.array) ? settings["int_n"][i].boolean : settings["int_n"].boolean;
+
+        writefln("Setting TX Freq: %f MHz...", tx_freq/1e6);
+        TuneRequest tx_tune_request = TuneRequest(tx_freq);
+        if(tx_int_n) tx_tune_request.args = "mode_n=integer";
+        usrp.tuneTxFreq(tx_tune_request, channel);
+        writefln("Actual TX Freq: %f MHz...", usrp.getTxFreq(channel)/1e6);
+
+        //set the rf gain
+        if(auto p = "gain" in settings) {
+            immutable tx_gain = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting TX Gain: %f dB...", tx_gain);
+            usrp.setTxGain(tx_gain, channel);
+            writefln("Actual TX Gain: %f dB...", usrp.getTxGain(channel));
+        }
+
+        //set the analog frontend filter bandwidth
+        if (auto p = "bw" in settings){
+            immutable tx_bw = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting TX Bandwidth: %f MHz...", tx_bw);
+            usrp.setTxBandwidth(tx_bw, channel);
+            writefln("Actual TX Bandwidth: %f MHz...", usrp.getTxBandwidth(channel));
+        }
+
+        //set the antenna
+        if (auto p = "ant" in settings) usrp.setTxAntenna(p.str, channel);
+    }
+}
