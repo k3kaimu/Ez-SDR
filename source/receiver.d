@@ -266,6 +266,7 @@ void receive_worker(C, Alloc)(
                         else
                             usrp.setTimeNow(0.seconds);
 
+                        dbg.writeln("Ready receive and wait other threads...");
                         // 自分は設定完了したことを他のスレッドに伝える
                         notifyAndWait(r.isDone, r.myIndex);
 

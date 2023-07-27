@@ -190,6 +190,7 @@ void transmit_worker(C, Alloc)(
                                 else
                                     usrp.setTimeNow(0.seconds);
 
+                                dbg.writeln("Ready transmit and wait other threads...");
                                 // 自分は設定完了したことを他のスレッドに伝える
                                 notifyAndWait(r.isDone, r.myIndex);
                                 tx_streamer.send(nullBuffers, firstMD, 1);
