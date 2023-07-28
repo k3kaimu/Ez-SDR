@@ -1,5 +1,5 @@
 import sys
-sys.path.append("..")
+sys.path.append("../client")
 
 import argparse
 import multiusrp
@@ -8,7 +8,7 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from matplotlib.widgets import Slider, Button
-import scipy
+import scipy.signal as spsignal
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-m', '--mod', default='bpsk')
@@ -83,7 +83,7 @@ def gen_transmit_signal(gain):
         signals[0, 0::nOverSample] = selected_symbols
 
         signals = [
-            scipy.signal.lfilter(rrcImpResp, 1, signals[0]) * gain
+            spsignal.lfilter(rrcImpResp, 1, signals[0]) * gain
         ]
 
     else:

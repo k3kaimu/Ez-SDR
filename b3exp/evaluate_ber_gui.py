@@ -1,5 +1,5 @@
 import sys
-sys.path.append("..")
+sys.path.append("../client")
 
 import argparse
 import multiusrp
@@ -8,7 +8,6 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from matplotlib.widgets import Slider, Button
-import scipy
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-m', '--mod', default='bpsk')
