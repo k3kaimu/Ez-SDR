@@ -306,14 +306,16 @@ void eventIOLoop(C, Alloc)(
                         }
 
 
-                        while(!txMsgQueue[0].emptyResponse) {
-                            auto reqres = txMsgQueue[0].popResponse();
+                        foreach(ref q; txMsgQueue) {
+                            while(!q.emptyResponse) {
+                                auto reqres = q.popResponse();
 
-                            (cast()reqres.res).match!(
-                                (TxResponseTypes!C.TransmitDone g) {
-                                    alloc.disposeMultidimensionalArray(g.buffer);
-                                }
-                            )();
+                                (cast()reqres.res).match!(
+                                    (TxResponseTypes!C.TransmitDone g) {
+                                        alloc.disposeMultidimensionalArray(g.buffer);
+                                    }
+                                )();
+                            }
                         }
                     }
                 } catch(Exception ex) {
