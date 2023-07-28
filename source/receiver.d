@@ -236,8 +236,13 @@ void receive_worker(C, Alloc)(
                         import core.atomic;
                         scope(exit) {
                             if(r.myIndex == 0) {
+                                // 他のスレッドが終了するまで待つ
+                                notifyAndWait(r.isDone, r.myIndex);
                                 alloc.dispose(cast(void[])r.isReady);
                                 alloc.dispose(cast(void[])r.isDone);
+                            } else {
+                                // 自分は設定完了したことを他のスレッドに伝える
+                                atomicStore(r.isDone[r.myIndex], true);
                             }
                         }
 
@@ -266,14 +271,12 @@ void receive_worker(C, Alloc)(
                         else
                             usrp.setTimeNow(0.seconds);
 
-                        dbg.writeln("Ready receive and wait other threads...");
-                        // 自分は設定完了したことを他のスレッドに伝える
-                        notifyAndWait(r.isDone, r.myIndex);
-
+                        dbg.writeln("Send stream command");
                         StreamCommand stream_cmd = StreamCommand.startContinuous;
                         stream_cmd.streamNow = /*rx_channel_nums.length == 1 ? true : */ false;
                         stream_cmd.timeSpec = (cast(long)floor(settling_time*1E6)).usecs;
                         rx_stream.issue(stream_cmd);
+                        dbg.writeln("Restart receive");
                     },
                     (RxRequestTypes!C.ApplyFilter r) {
                         filterFunc = r.fn;

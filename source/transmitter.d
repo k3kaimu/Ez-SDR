@@ -172,8 +172,13 @@ void transmit_worker(C, Alloc)(
                                 import core.atomic;
                                 scope(exit) {
                                     if(r.myIndex == 0) {
+                                        // 他のスレッドが終了するまで待つ
+                                        notifyAndWait(r.isDone, r.myIndex);
                                         alloc.dispose(cast(void[])r.isReady);
                                         alloc.dispose(cast(void[])r.isDone);
+                                    } else {
+                                        // 自分は設定完了したことを他のスレッドに伝える
+                                        atomicStore(r.isDone[r.myIndex], true);
                                     }
                                 }
 
@@ -190,10 +195,9 @@ void transmit_worker(C, Alloc)(
                                 else
                                     usrp.setTimeNow(0.seconds);
 
-                                dbg.writeln("Ready transmit and wait other threads...");
-                                // 自分は設定完了したことを他のスレッドに伝える
-                                notifyAndWait(r.isDone, r.myIndex);
+                                dbg.writeln("Send stream command");
                                 tx_streamer.send(nullBuffers, firstMD, 1);
+                                dbg.writeln("Restart transmit");
                         },
                         (TxRequestTypes!C.ClearCmdQueue) {
                             while(!txMsgQueue.emptyRequest)
