@@ -16,9 +16,9 @@ argparser.add_argument('--port', default=8888, type=int)
 argparser.add_argument('--onlyTx', default=0, type=int)
 argparser.add_argument('--onlyRx', default=0, type=int)
 argparser.add_argument('--ebn0', default=10, type=float)
-argparser.add_argument('--delaythr', default=1000, type=float)
-argparser.add_argument('--nsym', default=10, type=float)
-argparser.add_argument('--nrep', default=100, type=float)
+argparser.add_argument('--delaythr', default=1000, type=int)
+argparser.add_argument('--nsym', default=10, type=int)
+argparser.add_argument('--nrep', default=100, type=int)
 
 
 args = argparser.parse_args()
