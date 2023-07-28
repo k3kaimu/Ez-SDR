@@ -8,7 +8,7 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from matplotlib.widgets import Slider, Button
-import scipy.signal as spsignal
+from scipy import signal as spsignal
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-m', '--mod', default='bpsk')
@@ -152,7 +152,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, [nTXUSRP], [nRXUSRP]) as usrp:
         recvOriginal = recv.copy()
     
         if useRRC:
-            recv = scipy.signal.lfilter(rrcImpResp, 1, recv)
+            recv = spsignal.lfilter(rrcImpResp, 1, recv)
 
         nDelay = calc_delay(signals[0], recv[:nSamples])
         recv = recv[nDelay:nDelay+nSamples]
