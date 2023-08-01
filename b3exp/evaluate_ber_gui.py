@@ -19,6 +19,7 @@ argparser.add_argument('--ebn0', default=10, type=float)
 argparser.add_argument('--delaythr', default=1000, type=int)
 argparser.add_argument('--nsym', default=10, type=int)
 argparser.add_argument('--nrep', default=100, type=int)
+argparser.add_argument('--cnstl', default="[]")
 
 
 args = argparser.parse_args()
@@ -47,12 +48,34 @@ nCP = nFFT//4           # CPのサイズ
 bpsk_constellation = np.array([1+0j, -1+0j])
 qpsk_constellation = np.array([1+1j, -1+1j, -1-1j, 1-1j]) / np.sqrt(2)
 
+
+def getNBitsPerSym(cnstl):
+    return int(np.log2(len(cnstl)))
+
+
+def checkNonDuplicated(cnstl):
+    cnt = 0
+    for c1 in cnstl:
+        for c2 in cnstl:
+            if c1 == c2:
+                cnt += 1
+
+    return cnt == len(cnstl)
+
 if args.mod == "bpsk":
     constellation = bpsk_constellation
     nBitsPerSymbol = 1
-else:
+elif args.mod == "qpsk":
     constellation = qpsk_constellation
     nBitsPerSymbol = 2
+elif args.mod == "user":
+    constellation = eval(args.cnstl)
+    assert len(constellation).bit_count() == 1 and len(constellation) > 1, "The size of given len(cnstl) is not 2**n where n > 0"
+    assert checkNonDuplicated(constellation), "There are some duplicated constellation"
+    constellation /= np.sqrt(np.mean(np.abs(constellation)**2))
+    nBitsPerSymbol = getNBitsPerSym(constellation)
+else:
+    assert False, "Invalid parameter 'mod'"
 
 
 def calc_delay(tx, rx):
@@ -81,21 +104,14 @@ def demod_ofdm(sym):
     scs = np.hstack((scs[:,1:nSC//2+1], scs[:,nFFT-nSC//2:]))
     return scs.reshape(nSYM * nSC)
 
-def bpskToBits(signal):
-    detected = np.zeros((len(signal), 1), dtype=int)
 
-    detected[np.real(signal) < 0, 0] = 1
+def demod_nearest(signal, cnstl):
+    cnstl = np.asarray(cnstl)
+    def find_nearest(value):
+        return (np.abs(cnstl - value)).argmin()
 
-    return detected.flatten()
-
-
-def qpskToBits(signal):
-    detected = np.zeros((len(signal), 2), dtype=int)
-
-    detected[np.real(signal) < 0, 0] = 1
-    detected[np.imag(signal) < 0, 1] = 1
-
-    return detected.flatten()
+    Nbits = getNBitsPerSym(cnstl)
+    return np.unpackbits(np.array([find_nearest(v) for v in signal]).astype(np.uint8)).reshape([len(signal), 8])[:, -Nbits:].flatten()
 
 
 txGain = 0.1
@@ -106,25 +122,6 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
 
     fig = plt.figure()
     ax1 = fig.add_subplot(1, 1, 1)
-    # ax2 = fig.add_subplot(2, 2, 2)
-    # ax3 = fig.add_subplot(2, 1, 2)
-
-    # ax_phase = fig.add_axes([0.1, 0, 0.8, 0.03])
-    # phase_slider = Slider(
-    #     ax=ax_phase,
-    #     label='RX Phase (rad)',
-    #     valmin=-np.pi,
-    #     valmax=np.pi,
-    #     valinit=0,
-    # )
-    # ax_gain = fig.add_axes([0.1, 0.9, 0.8, 0.03])
-    # gain_slider = Slider(
-    #     ax=ax_gain,
-    #     label='TX Gain (dB)',
-    #     valmin=-100,
-    #     valmax=10,
-    #     valinit=-20,
-    # )
 
     iTrial = 0
     sumTotBits = 0
@@ -151,12 +148,16 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
         modulated = mod_ofdm(subcarriers) * txGain
         nModulated = len(modulated)
 
+        # チャネル推定のためのサブキャリアと信号
+        subcarriers_forEst = np.random.choice(bpsk_constellation, nSC*nTxSYM)
+        modulated_forEst = mod_ofdm(subcarriers_forEst) * txGain
+
         txSignal = []
 
         np.random.seed(iTrial)
         for iTx in range(nRep):
             noiseSignal = np.random.normal(loc=0, scale=np.sqrt(noiseSigma2/2), size=nModulated) + 1j*np.random.normal(loc=0, scale=np.sqrt(noiseSigma2/2), size=nModulated)
-            txSignal = np.hstack((txSignal, modulated, modulated + noiseSignal, np.zeros(nModulated)))
+            txSignal = np.hstack((txSignal, modulated_forEst, modulated + noiseSignal, np.zeros(nModulated)))
 
 
         nTxSignal = len(txSignal) // nRep
@@ -178,7 +179,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
             recv = usrp.receive(nTxSignal)[0]
 
             # 遅延時間推定
-            nDelay = calc_delay(modulated, recv[:nModulated])
+            nDelay = calc_delay(modulated_forEst, recv[:nModulated])
             recv = recv[nDelay:]
             recv_forEst = recv[:nModulated]
             recv_forDec = recv[nModulated:nModulated*2]
@@ -194,19 +195,21 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
 
             # チャネル推定
             channel_resp = [
-                np.mean((demodulated / subcarriers).reshape([nTxSYM, nSC]), axis=0),
+                np.mean((demodulated / subcarriers_forEst).reshape([nTxSYM, nSC]), axis=0),
             ]
 
             # 復調&等化
             demodulated = demod_ofdm(recv_forDec) / np.tile(channel_resp[0], nTxSYM)
             lastDem = demodulated.copy()
 
-            if args.mod == "bpsk":
-                txbits = bpskToBits(subcarriers)
-                detected = bpskToBits(demodulated)
-            else:
-                txbits = qpskToBits(subcarriers)
-                detected = qpskToBits(demodulated)
+            # if args.mod == "bpsk":
+            txbits = demod_nearest(subcarriers, constellation)
+            detected = demod_nearest(demodulated, constellation)
+                # txbits = bpskToBits(subcarriers)
+                # detected = bpskToBits(demodulated)
+            # else:
+                # txbits = qpskToBits(subcarriers)
+                # detected = qpskToBits(demodulated)
 
             print("Tx[:100]: ", txbits[:100])
             print("Rx[:100]: ", detected[:100])

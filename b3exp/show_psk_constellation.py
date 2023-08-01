@@ -20,6 +20,7 @@ argparser.add_argument('--ipaddr', default="127.0.0.1")
 argparser.add_argument('--port', default=8888, type=int)
 argparser.add_argument('--onlyTx', default=0, type=int)
 argparser.add_argument('--onlyRx', default=0, type=int)
+argparser.add_argument('--cnstl', default="[]")
 
 args = argparser.parse_args()
 
@@ -50,8 +51,14 @@ qpsk_constellation = np.array([1+1j, -1+1j, -1-1j, 1-1j]) / np.sqrt(2)
 
 if args.mod == "bpsk":
     constellation = bpsk_constellation
-else:
+elif args.mod == "qpsk":
     constellation = qpsk_constellation
+elif args.mod == "user":
+    constellation = eval(args.cnstl)
+    assert len(constellation).bit_count() == 1 and len(constellation) > 1, "The size of given len(cnstl) is not 2**n where n > 0"
+    constellation /= np.sqrt(np.mean(np.abs(constellation)**2))
+else:
+    assert False, "Invalid parameter 'mod'"
 
 
 def make_rrc_filter(Ntaps, Nos, beta):
