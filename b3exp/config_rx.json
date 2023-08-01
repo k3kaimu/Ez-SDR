@@ -3,7 +3,7 @@
     "rx": [
         {
             "args": "addr0=192.168.10.202",
-            "rate": 10e6,
+            "rate": 5e6,
             "freq": 2.45e9,
             "gain": 20,
             "clockref": "mimo",
