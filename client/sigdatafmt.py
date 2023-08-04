@@ -65,13 +65,22 @@ def getMinStep(rsignal):
     rsignal = np.abs(rsignal)
     return np.min(rsignal[rsignal != 0])
 
-def compress(signal):
-    scale = 32767
-    minStep = getMinStep(np.real(signal[:min(10000000, len(signal))]))
+def getMinError(rsignal, scale):
+    return np.min(np.abs(rsignal - ((rsignal * scale).astype(np.int16).astype(np.float32) / scale)))
 
-    # get min
-    if minStep < (1/32766) and minStep > (1/32768):
-        scale = 1/minStep
+def compress(signal, scale=-1):
+
+    if scale < 0:
+        scale = 32767
+        ps = np.real(signal[:min(10000000, len(signal))])
+        minStep = getMinStep(ps)
+        if minStep < (1/32766) and minStep > (1/32768):
+            scale = 1/minStep
+
+        e1 = getMinError(ps, 32767)
+        e2 = getMinError(ps, scale)
+        if e1 < e2:
+            scale = 32767
 
     data = np.hstack((np.real(signal), np.imag(signal))).astype(np.float32)
     data *= scale
@@ -83,9 +92,11 @@ def compress(signal):
     return zlib.compress(data)
 
 
-def decompress(data):
+def decompress(data, scale=-1):
     data = zlib.decompress(data)
-    scale = np.frombuffer(data[:4], np.float32)[0]
+    if scale < 0:
+        scale = np.frombuffer(data[:4], np.float32)[0]
+
     data = data[4:]
     bdata = bytearray(len(data))
     bdata[0::2] = data[:len(data)//2]
