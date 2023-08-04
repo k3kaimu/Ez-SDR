@@ -66,7 +66,7 @@ def getMinStep(rsignal):
     return np.min(rsignal[rsignal != 0])
 
 def getMaxError(rsignal, scale):
-    return np.max(np.abs(rsignal - ((rsignal * scale).astype(np.int16).astype(np.float32) / scale)))
+    return np.max(np.abs(rsignal - (np.rint(rsignal * scale).astype(np.int16).astype(np.float32) / scale)))
 
 def compress(signal, scale=-1):
 
