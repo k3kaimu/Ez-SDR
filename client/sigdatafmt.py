@@ -84,7 +84,7 @@ def compress(signal, scale=-1):
 
     data = np.hstack((np.real(signal), np.imag(signal))).astype(np.float32)
     data *= scale
-    data = data.astype(np.int16)
+    data = np.rint(data).astype(np.int16)
     data += 2**7
     data = data.tobytes()
     header = np.array([scale], dtype=np.float32).tobytes()
