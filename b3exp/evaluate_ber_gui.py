@@ -46,7 +46,7 @@ nFFT = nSC * nOS        # OFDM変調のFFTサイズ
 nCP = nFFT//4           # CPのサイズ
 
 bpsk_constellation = np.array([1+0j, -1+0j])
-qpsk_constellation = np.array([1+1j, -1+1j, -1-1j, 1-1j]) / np.sqrt(2)
+qpsk_constellation = np.array([1+1j, 1-1j, -1+1j, -1-1j]) / np.sqrt(2)
 
 
 def getNBitsPerSym(cnstl):
@@ -149,7 +149,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
         nModulated = len(modulated)
 
         # チャネル推定のためのサブキャリアと信号
-        subcarriers_forEst = np.random.choice(bpsk_constellation, nSC*nTxSYM)
+        subcarriers_forEst = np.random.choice(qpsk_constellation, nSC*nTxSYM)
         modulated_forEst = mod_ofdm(subcarriers_forEst) * txGain
 
         txSignal = []
