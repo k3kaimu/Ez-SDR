@@ -47,7 +47,7 @@ else:
     useRRC = False
 
 bpsk_constellation = np.array([1+0j, -1+0j])
-qpsk_constellation = np.array([1+1j, -1+1j, -1-1j, 1-1j]) / np.sqrt(2)
+qpsk_constellation = np.array([1+1j, 1-1j, -1+1j, -1-1j]) / np.sqrt(2)
 
 if args.mod == "bpsk":
     constellation = bpsk_constellation
