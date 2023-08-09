@@ -9,12 +9,14 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 from matplotlib.widgets import Slider, Button
 from scipy import signal as spsignal
+import filterlib
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-m', '--mod', default='bpsk')
 argparser.add_argument('-n', '--nos', default=8, type=int)
 argparser.add_argument('-b', '--beta', default=0.5, type=float)
 argparser.add_argument('-r', '--rrc', default=1, type=int)
+argparser.add_argument('--nfilt', default=10, type=int)
 argparser.add_argument('--seed', default=-1, type=int)
 argparser.add_argument('--ipaddr', default="127.0.0.1")
 argparser.add_argument('--port', default=8888, type=int)
@@ -39,7 +41,7 @@ nRXUSRP = 1 if bUseRx else 0
 
 nSamples = 2**10
 nOverSample = args.nos
-nRRCSamples = nOverSample*10
+nRRCSamples = nOverSample*args.nfilt
 
 if args.rrc > 0:
     useRRC = True
@@ -61,14 +63,16 @@ else:
     assert False, "Invalid parameter 'mod'"
 
 
-def make_rrc_filter(Ntaps, Nos, beta):
-    ts = np.linspace(-Ntaps/2, Ntaps/2-1, Ntaps)
-    ps = ts / Nos
-    hs = np.sin(np.pi * ps * (1 - beta)) + 4 * beta * ps * np.cos(np.pi * ps * (1 + beta))
-    hs = hs / Nos / (np.pi * ps * (1 - (4 * beta * ps)**2))
-    hs[Ntaps//2] = 1 / Nos * (1 + beta * (4 / np.pi - 1))
-    hs[np.abs(ts)==(Nos / 4 / beta)] = beta / Nos / np.sqrt(2) * ((1 + 2/np.pi) * np.sin(np.pi/(4*beta)) + (1 - 2/np.pi) * np.cos(np.pi/(4*beta)))
-    return hs
+def make_rrc_filter(Ntaps, Nos, beta, designRatio=128):
+
+    @np.vectorize
+    def rc_window(x):
+        if -beta/2 < x and x <= beta/2:
+            return np.cos(np.pi * x / beta)
+        else:
+            return 0.0
+        
+    return filterlib.make_root_nyquist_filter(rc_window, Ntaps, Nos, designRatio)
 
 
 def calc_delay(tx, rx):
@@ -182,7 +186,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, [nTXUSRP], [nRXUSRP]) as usrp:
         ax1.set_xlim([-RImax*1.1, RImax*1.1])
         ax1.set_ylim([-RImax*1.1, RImax*1.1])
 
-        ax2.plot(np.linspace(-0.5, 0.5, nSamples), 10 * np.log10(mean_psd))
+        ax2.plot(np.linspace(-0.5, 0.5, nSamples)*nOverSample, 10 * np.log10(mean_psd))
 
         # ax3.plot(np.arange(nSamples), np.real(signals[0]), label="TX:Re")
         # ax3.plot(np.arange(nSamples), np.imag(signals[0]), label="TX:Im")
