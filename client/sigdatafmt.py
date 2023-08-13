@@ -2,6 +2,8 @@ import socket
 import numpy as np
 import struct
 import zlib
+import soundfile
+import io
 
 # ソケットから信号を読む
 def readSignalFromSock(sock, size = None):
@@ -105,3 +107,46 @@ def decompress(data, scale=-1):
     data = data - 2**7
     data = data.astype(np.float32) / scale
     return data[:len(data)//2] + data[len(data)//2:] * 1j
+
+
+def compress_flac(signal, scale=-1):
+    if scale < 0:
+        scale = 32767
+        ps = np.real(signal[:min(10000000, len(signal))])
+        minStep = getMinStep(ps)
+        if minStep < (1/32766) and minStep > (1/32768):
+            scale = 1/minStep
+
+        e1 = getMaxError(ps, 32767)
+        e2 = getMaxError(ps, scale)
+        if e1 < e2:
+            scale = 32767
+
+    data = np.array([np.real(signal), np.imag(signal)]).astype(np.float32)
+    data *= scale
+    data = np.rint(data).astype(np.int16)
+
+    flac_file = io.BytesIO()
+    flac_file.name = "file.flac"
+    fmt = "FLAC"
+    stype = "PCM_16"
+    soundfile.write(flac_file, data.T, 44100, format=fmt, subtype=stype)
+    flac_file.seek(0)
+
+    header = np.array([scale], dtype=np.float32).tobytes()
+    return header + flac_file.read()
+
+def decompress_flac(data, scale=-1):
+    if scale < 0:
+        scale = np.frombuffer(data[:4], np.float32)[0]
+
+    data = data[4:]
+
+    flac_file = io.BytesIO()
+    flac_file.name = "file.flac"
+    flac_file.write(data)
+    flac_file.seek(0)
+    dst = soundfile.read(flac_file, dtype='int16')[0].T
+    dst = dst.astype(np.float32)
+    dst = dst[0] + dst[1]*1j
+    return dst / scale
