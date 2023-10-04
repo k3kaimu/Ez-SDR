@@ -16,6 +16,8 @@ argparser.add_argument('--port', default=8888, type=int)
 argparser.add_argument('--onlyTx', default=0, type=int)
 argparser.add_argument('--onlyRx', default=0, type=int)
 argparser.add_argument('--ebn0', default=10, type=float)
+argparser.add_argument('--amplitude', default=0.1, type=float)
+argparser.add_argument('--sigma2', default=-1, type=float)
 argparser.add_argument('--delaythr', default=1000, type=int)
 argparser.add_argument('--nsym', default=10, type=int)
 argparser.add_argument('--nrep', default=100, type=int)
@@ -114,8 +116,13 @@ def demod_nearest(signal, cnstl):
     return np.unpackbits(np.array([find_nearest(v) for v in signal]).astype(np.uint8)).reshape([len(signal), 8])[:, -Nbits:].flatten()
 
 
-txGain = 0.1
-noiseSigma2 = txGain**2 / 10**(args.ebn0/10) * (nFFT / nSC) / nBitsPerSymbol
+txGain = args.amplitude
+
+if args.sigma2 < 0:
+    # EbN0から計算
+    noiseSigma2 = txGain**2 / 10**(args.ebn0/10) * (nFFT / nSC) / nBitsPerSymbol
+else:
+    noiseSigma2 = args.sigma2 * (nFFT / nSC)
 
 
 with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
