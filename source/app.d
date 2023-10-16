@@ -103,8 +103,8 @@ void mainImpl(C)(JSONValue[string] settings){
         settingUSRPGeneral(e, settings["xcvr"][i].object);
         settingTransmitDevice(e, settings["xcvr"][i]["tx"].object);
         settingReceiveDevice(e, settings["xcvr"][i]["rx"].object);
-        txChannelList ~= settings["xcvr"]["tx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
-        rxChannelList ~= settings["xcvr"]["rx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
+        txChannelList ~= settings["xcvr"][i]["tx"]["channels"].array.map!"cast(immutable)a.get!size_t".array();
+        rxChannelList ~= settings["xcvr"][i]["rx"]["channels"].array.map!"cast(immutable)a.get!size_t".array();
         txMsgQueues ~= new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
         rxMsgQueues ~= new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
     }
@@ -258,14 +258,26 @@ JSONValue[string] convertSettingJSONFromV1ToV2(JSONValue[string] oldSettings)
 
 JSONValue[string] normalizeSettingJSON(JSONValue[string] settings)
 {
+    void fixChannel(ref JSONValue[string] obj) {
+        if("channels" in obj && obj["channels"].type == JSONType.string) {
+            obj["channels"] = obj["channels"].get!string.splitter(',').map!(a => JSONValue(a.to!size_t)).array();
+        }
+    }
+
+    if("xcvr" in settings) {
+        foreach(ref e; settings["xcvr"].array)
+            foreach(trx; ["tx", "rx"]) {
+                if(trx in e)
+                    fixChannel(e[trx].object);
+            }
+    }
+
     foreach(trx; ["tx", "rx"]) {
         if(trx !in settings)
             continue;
         
         foreach(ref e; settings[trx].array) {
-            if("channels" in e && e["channels"].type == JSONType.string) {
-                e["channels"] = e["channels"].get!string.splitter(',').map!(a => JSONValue(a.to!size_t)).array();
-            }
+            fixChannel(e.object);
         }
     }
 
