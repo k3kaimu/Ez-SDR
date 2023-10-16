@@ -110,7 +110,7 @@ void mainImpl(C)(JSONValue[string] settings){
     }
 
     foreach(i, ref e; txUSRPs) {
-        settingUSRPGeneral(e, settings["xcvr"][i].object);
+        settingUSRPGeneral(e, settings["tx"][i].object);
         settingTransmitDevice(e, settings["tx"][i].object);
         txChannelList ~= settings["tx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
         txMsgQueues ~= new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
@@ -119,7 +119,7 @@ void mainImpl(C)(JSONValue[string] settings){
     foreach(i, ref e; rxUSRPs) {
         settingUSRPGeneral(e, settings["rx"][i].object);
         settingReceiveDevice(e, settings["rx"][i].object);
-        txChannelList ~= settings["rx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
+        rxChannelList ~= settings["rx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
         rxMsgQueues ~= new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
     }
 
@@ -178,16 +178,18 @@ void mainImpl(C)(JSONValue[string] settings){
     }
 
     foreach(i, ref usrp; txUSRPs) {
+        immutable offset = xcvrUSRPs.length;
         immutable bool timesync = ("timesync" in settings["tx"][i].object) ? settings["tx"][i]["timesync"].boolean : false;
         immutable double settling =  ("settling" in settings["tx"][i].object) ? settings["tx"][i]["settling"].floating : 1;
-        txThreads ~= makeThread!(transmit_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, txChannelList[i], cpufmt, otwfmt, timesync, settling, settings["tx"][i].object, txMsgQueues[i].makeExecuter);
+        txThreads ~= makeThread!(transmit_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, txChannelList[i + offset], cpufmt, otwfmt, timesync, settling, settings["tx"][i].object, txMsgQueues[i + offset].makeExecuter);
     }
 
     foreach(i, ref usrp; rxUSRPs) {
+        immutable offset = xcvrUSRPs.length;
         immutable timesync = ("timesync" in settings["rx"][i].object) ? settings["rx"][i]["timesync"].boolean : false;
         immutable double settling =  ("settling" in settings["rx"][i].object) ? settings["rx"][i]["settling"].floating : 1;
         immutable size_t recvAlignSize = ("alignsize" in settings["rx"][i].object) ? settings["rx"][i]["alignsize"].integer : 4096;
-        rxThreads ~= makeThread!(receive_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, rxChannelList[i], cpufmt, otwfmt, timesync, settling, recvAlignSize, settings["rx"][i].object, rxMsgQueues[i].makeExecuter);
+        rxThreads ~= makeThread!(receive_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, rxChannelList[i + offset], cpufmt, otwfmt, timesync, settling, recvAlignSize, settings["rx"][i].object, rxMsgQueues[i + offset].makeExecuter);
     }
 
     foreach(e; txThreads) e.start();
