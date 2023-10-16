@@ -9,6 +9,7 @@ module binif;
 // import core.stdc.stdio;
 // import core.stdc.string;
 import core.thread;
+import core.atomic;
 
 import std.algorithm;
 import std.socket;
@@ -42,6 +43,19 @@ enum CommandID : ubyte
     receiveNBRes = 0x67,        // 'g'
     rxPowerThr = 0x70,          // 'p'
     clearCmdQueue = 0x71,       // 'q'
+    txStopStreaming = 0x81,     //
+    txStartStreaming = 0x82,    //
+    rxStopStreaming = 0x83,     //
+    rxStartStreaming = 0x84,    //
+    txSetParam = 0x85,          //
+    // rxSetParam = 0x86,          //
+}
+
+
+enum ParamID : ubyte
+{
+    gain = 0x01,
+    freq = 0x02,
 }
 
 
@@ -300,6 +314,83 @@ void eventIOLoop(C, Alloc)(
                                         rxMsgQueue[i].pushRequest(rxccq);
                                     }
                                     break;
+
+                                case CommandID.txStopStreaming:
+                                    dbg.writefln("txStopStreaming");
+                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("TX: Transmitter Index = %s", tidx);
+                                    TxRequest!C txreq = TxRequestTypes!C.StopStreaming(null);
+                                    txMsgQueue[tidx].pushRequest(txreq);
+                                    break;
+                                
+                                case CommandID.txStartStreaming:
+                                    dbg.writefln("txStartStreaming");
+                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("TX: Transmitter Index = %s", tidx);
+                                    TxRequest!C txreq = TxRequestTypes!C.StartStreaming();
+                                    txMsgQueue[tidx].pushRequest(txreq);
+                                    break;
+
+                                case CommandID.rxStopStreaming:
+                                    dbg.writefln("rxStopStreaming");
+                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Receiver Index = %s", ridx);
+                                    RxRequest!C txreq = RxRequestTypes!C.StopStreaming(null);
+                                    rxMsgQueue[ridx].pushRequest(txreq);
+                                    break;
+                                
+                                case CommandID.rxStartStreaming:
+                                    dbg.writefln("rxStartStreaming");
+                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("RX: Receiver Index = %s", ridx);
+                                    RxRequest!C txreq = RxRequestTypes!C.StartStreaming();
+                                    rxMsgQueue[ridx].pushRequest(txreq);
+                                    break;
+
+                                case CommandID.txSetParam:
+                                    dbg.writefln("txSetParam");
+                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
+                                    dbg.writefln("TX: Transmitter Index = %s", tidx);
+                                    immutable ParamID type = client.readEnum!ParamID.enforceNotNull;
+                                    immutable double param = client.rawReadValue!double.enforceNotNull;
+                                    dbg.writefln("TX: type = %s, param = %s", type, param);
+
+                                    string stype;
+                                    final switch(type) {
+                                        case ParamID.gain:
+                                            stype = "gain";
+                                            break;
+                                        case ParamID.freq:
+                                            stype = "freq";
+                                            break;
+                                    }
+
+                                    shared(double)[] paramArray = alloc.makeArray!(shared(double))(nTXUSRPs[tidx]);
+                                    paramArray[] = param;
+                                    shared(bool)* isDone = alloc.make!(shared(bool))(),
+                                                  isError = alloc.make!(shared(bool))();
+                                    scope(exit) {
+                                        alloc.dispose(cast(double[])paramArray);
+                                        alloc.dispose(isDone);
+                                        alloc.dispose(isError);
+                                    }
+
+                                    TxRequest!C txreq = TxRequestTypes!C.SetParam(stype, paramArray, isDone, isError);
+                                    txMsgQueue[tidx].pushRequest(txreq);
+
+                                    // 結果が返ってくるまで待つ
+                                    immutable bool waitResult = waitDone(*isDone, null, stop_signal_called);
+                                    if(!waitResult || atomicLoad(*isError)) {
+                                        // 待機が中断されたか，エラーフラグが立っているならクライアントに返す値をnanにする
+                                        foreach(ref e; paramArray)
+                                            e = typeof(e).nan;
+                                    }
+
+                                    // クライアントに結果を返す
+                                    client.rawWriteValue!uint(cast(uint)nTXUSRPs[tidx]);
+                                    foreach(e; paramArray)
+                                        client.rawWriteValue!double(e);
+                                    break;
                             }
                         } else {
                             continue Lconnect;
@@ -313,7 +404,8 @@ void eventIOLoop(C, Alloc)(
                                 (cast()reqres.res).match!(
                                     (TxResponseTypes!C.TransmitDone g) {
                                         alloc.disposeMultidimensionalArray(g.buffer);
-                                    }
+                                    },
+
                                 )();
                             }
                         }

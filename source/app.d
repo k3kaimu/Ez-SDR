@@ -88,23 +88,38 @@ void mainImpl(C)(JSONValue[string] settings){
     else if(is(C == short[2]))
         enforce(cpufmt == "sc16");
 
-    USRP[] txUSRPs, rxUSRPs;
+    USRP[] xcvrUSRPs, txUSRPs, rxUSRPs;
+    xcvrUSRPs.length = ("xcvr" in settings) ? settings["xcvr"].array.length : 0;
     txUSRPs.length = ("tx" in settings) ? settings["tx"].array.length : 0;
     rxUSRPs.length = ("rx" in settings) ? settings["rx"].array.length : 0;
 
-    immutable(size_t)[][] txChannelList = ("tx" in settings) ? settings["tx"].array.map!`a["channels"].array.map!"cast(immutable)a.get!size_t".array()`.array() : null;
-    immutable(size_t)[][] rxChannelList = ("rx" in settings) ? settings["rx"].array.map!`a["channels"].array.map!"cast(immutable)a.get!size_t".array()`.array() : null;
-
+    // immutable(size_t)[][] txChannelList = ("tx" in settings) ? settings["tx"].array.map!`a["channels"].array.map!"cast(immutable)a.get!size_t".array()`.array() : null;
+    // immutable(size_t)[][] rxChannelList = ("rx" in settings) ? settings["rx"].array.map!`a["channels"].array.map!"cast(immutable)a.get!size_t".array()`.array() : null;
+    immutable(size_t)[][] txChannelList, rxChannelList;
     shared(UniqueMsgQueue!(TxRequest!C, TxResponse!C))[] txMsgQueues;
     shared(UniqueMsgQueue!(RxRequest!C, RxResponse!C))[] rxMsgQueues;
 
+    foreach(i, ref e; xcvrUSRPs) {
+        settingUSRPGeneral(e, settings["xcvr"][i].object);
+        settingTransmitDevice(e, settings["xcvr"][i]["tx"].object);
+        settingReceiveDevice(e, settings["xcvr"][i]["rx"].object);
+        txChannelList ~= settings["xcvr"]["tx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
+        rxChannelList ~= settings["xcvr"]["rx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
+        txMsgQueues ~= new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
+        rxMsgQueues ~= new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
+    }
+
     foreach(i, ref e; txUSRPs) {
-        settingTransmitUSRP(e, settings["tx"][i].object);
+        settingUSRPGeneral(e, settings["xcvr"][i].object);
+        settingTransmitDevice(e, settings["tx"][i].object);
+        txChannelList ~= settings["tx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
         txMsgQueues ~= new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
     }
 
     foreach(i, ref e; rxUSRPs) {
-        settingReceiveUSRP(e, settings["rx"][i].object);
+        settingUSRPGeneral(e, settings["rx"][i].object);
+        settingReceiveDevice(e, settings["rx"][i].object);
+        txChannelList ~= settings["rx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
         rxMsgQueues ~= new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
     }
 
@@ -153,15 +168,21 @@ void mainImpl(C)(JSONValue[string] settings){
     }
 
     Thread[] txThreads;
+    Thread[] rxThreads;
+    foreach(i, ref usrp; xcvrUSRPs) {
+        immutable bool timesync = ("timesync" in settings["xcvr"][i].object) ? settings["xcvr"][i]["timesync"].boolean : false;
+        immutable double settling =  ("settling" in settings["xcvr"][i].object) ? settings["xcvr"][i]["settling"].floating : 1;
+        immutable size_t recvAlignSize = ("alignsize" in settings["xcvr"][i].object) ? settings["xcvr"][i]["alignsize"].integer : 4096;
+        txThreads ~= makeThread!(transmit_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, txChannelList[i], cpufmt, otwfmt, timesync, settling, settings["xcvr"][i]["tx"].object, txMsgQueues[i].makeExecuter, Yes.isStopped);
+        rxThreads ~= makeThread!(receive_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, rxChannelList[i], cpufmt, otwfmt, timesync, settling, recvAlignSize, settings["xcvr"][i]["rx"].object, rxMsgQueues[i].makeExecuter, No.isStopped);
+    }
+
     foreach(i, ref usrp; txUSRPs) {
         immutable bool timesync = ("timesync" in settings["tx"][i].object) ? settings["tx"][i]["timesync"].boolean : false;
         immutable double settling =  ("settling" in settings["tx"][i].object) ? settings["tx"][i]["settling"].floating : 1;
         txThreads ~= makeThread!(transmit_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, txChannelList[i], cpufmt, otwfmt, timesync, settling, settings["tx"][i].object, txMsgQueues[i].makeExecuter);
     }
 
-    foreach(e; txThreads) e.start();
-
-    Thread[] rxThreads;
     foreach(i, ref usrp; rxUSRPs) {
         immutable timesync = ("timesync" in settings["rx"][i].object) ? settings["rx"][i]["timesync"].boolean : false;
         immutable double settling =  ("settling" in settings["rx"][i].object) ? settings["rx"][i]["settling"].floating : 1;
@@ -169,6 +190,7 @@ void mainImpl(C)(JSONValue[string] settings){
         rxThreads ~= makeThread!(receive_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, rxChannelList[i], cpufmt, otwfmt, timesync, settling, recvAlignSize, settings["rx"][i].object, rxMsgQueues[i].makeExecuter);
     }
 
+    foreach(e; txThreads) e.start();
     foreach(e; rxThreads) e.start();
 
     // run TCP/IP loop
@@ -248,4 +270,129 @@ JSONValue[string] normalizeSettingJSON(JSONValue[string] settings)
     }
 
     return settings;
+}
+
+
+void settingUSRPGeneral(ref USRP usrp, JSONValue[string] settings)
+{
+    enforce("args" in settings, "Please specify the argument for USRP.");
+    writefln("Creating the transmit usrp device with: %s...", settings["args"].str);
+    usrp = USRP(settings["args"].str);
+
+    // Set time source
+    if("timeref" in settings) usrp.timeSource = settings["timeref"].str;
+
+    //Lock mboard clocks
+    if("clockref" in settings) usrp.clockSource = settings["clockref"].str;
+}
+
+
+void settingTransmitDevice(ref USRP usrp, JSONValue[string] settings)
+{
+    // check channel settings
+    immutable chNums = settings["channels"].array.map!"a.get!size_t".array();
+    foreach(e; chNums) enforce(e < usrp.txNumChannels, "Invalid TX channel(s) specified.");
+
+    //always select the subdevice first, the channel mapping affects the other settings
+    if("subdev" in settings) usrp.txSubdevSpec = settings["subdev"].str;
+
+    //set the transmit sample rate
+    immutable tx_rate = enforce("rate" in settings, "Please specify the transmit sample rate.").floating;
+    writefln("Setting TX Rate: %f Msps...", tx_rate/1e6);
+    usrp.txRate = tx_rate;
+    writefln("Actual TX Rate: %f Msps...", usrp.txRate/1e6);
+
+    //set the transmit center frequency
+    auto pfreq = enforce("freq" in settings, "Please specify the transmit center frequency.");
+    foreach(i, channel; chNums){
+        if (chNums.length > 1) {
+            writefln("Configuring TX Channel %s", channel);
+        }
+
+        immutable tx_freq = ((*pfreq).type == JSONType.array) ? (*pfreq)[i].floating : (*pfreq).floating;
+        bool tx_int_n = false;
+        if("int_n" in settings)
+            tx_int_n = (settings["int_n"].type == JSONType.array) ? settings["int_n"][i].boolean : settings["int_n"].boolean;
+
+        writefln("Setting TX Freq: %f MHz...", tx_freq/1e6);
+        TuneRequest tx_tune_request = TuneRequest(tx_freq);
+        if(tx_int_n) tx_tune_request.args = "mode_n=integer";
+        usrp.tuneTxFreq(tx_tune_request, channel);
+        writefln("Actual TX Freq: %f MHz...", usrp.getTxFreq(channel)/1e6);
+
+        //set the rf gain
+        if(auto p = "gain" in settings) {
+            immutable tx_gain = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting TX Gain: %f dB...", tx_gain);
+            usrp.setTxGain(tx_gain, channel);
+            writefln("Actual TX Gain: %f dB...", usrp.getTxGain(channel));
+        }
+
+        //set the analog frontend filter bandwidth
+        if (auto p = "bw" in settings){
+            immutable tx_bw = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting TX Bandwidth: %f MHz...", tx_bw);
+            usrp.setTxBandwidth(tx_bw, channel);
+            writefln("Actual TX Bandwidth: %f MHz...", usrp.getTxBandwidth(channel));
+        }
+
+        //set the antenna
+        if (auto p = "ant" in settings) usrp.setTxAntenna(p.str, channel);
+    }
+}
+
+
+void settingReceiveDevice(ref USRP usrp, JSONValue[string] settings)
+{
+    // check channel settings
+    immutable chNums = settings["channels"].array.map!"a.get!size_t".array();
+    foreach(e; chNums) enforce(e < usrp.rxNumChannels, "Invalid RX channel(s) specified.");
+
+    //always select the subdevice first, the channel mapping affects the other settings
+    if("subdev" in settings) usrp.rxSubdevSpec = settings["subdev"].str;
+
+    //set the receive sample rate
+    immutable rx_rate = enforce("rate" in settings, "Please specify the receiver sample rate.").get!double;
+    writefln("Setting RX Rate: %f Msps...", rx_rate/1e6);
+    usrp.rxRate = rx_rate;
+    writefln("Actual RX Rate: %f Msps...", usrp.rxRate/1e6);
+
+    //set the receiver center frequency
+    auto pfreq = enforce("freq" in settings, "Please specify the receiver center frequency.");
+    foreach(i, channel; chNums) {
+        if(chNums.length > 1) {
+            writeln("Configuring RX Channel ", channel);
+        }
+
+        immutable rx_freq = ((*pfreq).type == JSONType.array) ? (*pfreq)[i].get!double : (*pfreq).get!double;
+        bool rx_int_n = false;
+        if("int_n" in settings)
+            rx_int_n = (settings["int_n"].type == JSONType.array) ? settings["int_n"][i].boolean : settings["int_n"].boolean;
+
+        writefln("Setting RX Freq: %f MHz...", rx_freq/1e6);
+        TuneRequest rx_tune_request = TuneRequest(rx_freq);
+        if(rx_int_n) rx_tune_request.args = "mode_n=integer";
+        usrp.tuneRxFreq(rx_tune_request, channel);
+        writefln("Actual RX Freq: %f MHz...", usrp.getRxFreq(channel)/1e6);
+
+        //set the receive rf gain
+        if(auto p = "gain" in settings) {
+            immutable rx_gain = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting RX Gain: %f dB...", rx_gain);
+            usrp.setRxGain(rx_gain, channel);
+            writefln("Actual RX Gain: %f dB...", usrp.getRxGain(channel));
+        }
+
+        //set the receive analog frontend filter bandwidth
+        if(auto p = "bw" in settings) {
+            immutable rx_bw = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
+            writefln("Setting RX Bandwidth: %f MHz...", rx_bw/1e6);
+            usrp.setRxBandwidth(rx_bw, channel);
+            writefln("Actual RX Bandwidth: %f MHz...", usrp.getRxBandwidth(channel)/1e6);
+        }
+
+        if(auto p = "ant" in settings) {
+            usrp.setRxAntenna(p.str, channel);
+        }
+    }
 }

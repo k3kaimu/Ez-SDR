@@ -1,5 +1,6 @@
 module utils;
 
+import core.thread;
 import std.stdio;
 
 template debugMsg(string tag)
@@ -38,19 +39,40 @@ template debugMsg(string tag)
 }
 
 
-void notifyAndWait(shared(bool)[] flags, size_t myIndex)
+bool notifyAndWait(shared(bool)[] flags, size_t myIndex, Fiber ctxSwitch, ref shared(bool) killswitch)
 {
     import core.atomic;
 
     atomicStore(flags[myIndex], true);
 
     // 他のスレッドがすべて準備完了するまでwhileで待つ
-    while(1) {
+    while(!atomicLoad(killswitch)) {
         bool check = true;
         foreach(ref b; flags)
             check = check && atomicLoad(b);
 
         if(check)
-            break;
+            return true;
+
+        if(ctxSwitch !is null)
+            ctxSwitch.yield();
     }
+
+    return false;
+}
+
+
+bool waitDone(ref shared(bool) flag, Fiber ctxSwitch, ref shared(bool) killswitch)
+{
+    import core.atomic;
+
+    while(!atomicLoad(killswitch)) {
+        if(atomicLoad(flag))
+            return true;
+
+        if(ctxSwitch !is null)
+            ctxSwitch.yield();
+    }
+
+    return false;
 }

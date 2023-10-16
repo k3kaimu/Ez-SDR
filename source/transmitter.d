@@ -1,6 +1,7 @@
 module transmitter;
 
 import core.thread;
+import core.atomic;
 
 import std.algorithm;
 import std.array;
@@ -40,6 +41,24 @@ struct TxRequestTypes(C)
 
 
     static struct ClearCmdQueue {}
+
+
+    static struct StopStreaming
+    {
+        shared(bool)* isDone;
+    }
+
+
+    static struct StartStreaming {}
+
+
+    static struct SetParam
+    {
+        string type;
+        shared(double)[] param;
+        shared(bool)* isDone;
+        shared(bool)* isError;
+    }
 }
 
 
@@ -52,8 +71,17 @@ struct TxResponseTypes(C)
 }
 
 
-alias TxRequest(C) = SumType!(TxRequestTypes!C.Transmit, TxRequestTypes!C.SyncToPPS, TxRequestTypes!C.ClearCmdQueue);
-alias TxResponse(C) = SumType!(TxResponseTypes!C.TransmitDone);
+alias TxRequest(C) = SumType!(
+    TxRequestTypes!C.Transmit,
+    TxRequestTypes!C.SyncToPPS,
+    TxRequestTypes!C.ClearCmdQueue,
+    TxRequestTypes!C.StopStreaming,
+    TxRequestTypes!C.StartStreaming,
+    TxRequestTypes!C.SetParam);
+
+alias TxResponse(C) = SumType!(
+    TxResponseTypes!C.TransmitDone,
+);
 
 
 void transmit_worker(C, Alloc)(
@@ -67,6 +95,9 @@ void transmit_worker(C, Alloc)(
     float settling_time,
     JSONValue[string] settings,
     UniqueMsgQueue!(TxRequest!C, TxResponse!C).Executer txMsgQueue,
+    Flag!"isStopped" isStoppedInit = No.isStopped,
+    Fiber ctxSwitch = null,
+    Flag!"isForcedCtxSwitch" isForcedCtxSwitch = No.isForcedCtxSwitch,
 ){
     alias dbg = debugMsg!"transmit_worker";
 
@@ -110,6 +141,9 @@ void transmit_worker(C, Alloc)(
         reqInfo.txReq = typeof(reqInfo.txReq).init;
     }
 
+    bool isStopped = isStoppedInit;
+
+    if(!isStopped) {
     // PPSのsettling_time秒後に送信
     if(time_sync)
         usrp.setTimeUnknownPPS(0.seconds);
@@ -117,6 +151,7 @@ void transmit_worker(C, Alloc)(
         usrp.setTimeNow(0.seconds);
 
     tx_streamer.send(nullBuffers, firstMD, 1);
+    }
 
     const(C)[][128] _tmpbuffers;
     Nullable!VUHDException transmitAllBuffer(const(C)[][] buffers) @nogc
@@ -142,6 +177,9 @@ void transmit_worker(C, Alloc)(
         //send data until the signal handler gets called
         while(!stop_signal_called){
             {
+                if((isForcedCtxSwitch || isStopped) && ctxSwitch !is null)
+                    ctxSwitch.yield();
+
                 bool b = false;
                 scope(exit) {
                     if(b == false) {
@@ -173,7 +211,7 @@ void transmit_worker(C, Alloc)(
                                 scope(exit) {
                                     if(r.myIndex == 0) {
                                         // 他のスレッドが終了するまで待つ
-                                        notifyAndWait(r.isDone, r.myIndex);
+                                        notifyAndWait(r.isDone, r.myIndex, ctxSwitch, stop_signal_called);
                                         alloc.dispose(cast(void[])r.isReady);
                                         alloc.dispose(cast(void[])r.isDone);
                                     } else {
@@ -182,26 +220,94 @@ void transmit_worker(C, Alloc)(
                                     }
                                 }
 
-                                // 現在送信中のストリームを終了
-                                tx_streamer.send(nullBuffers, endMD, 0.1);
+                            if(isStopped) {
+                                // 停止中なので何もしない
+                                atomicStore(r.isReady[r.myIndex], true);
+                                atomicStore(r.isDone[r.myIndex], true);
+                                return;
+                            }
 
-                                dbg.writeln("Ready sync and wait other threads...");
-                                // 自分は準備完了したことを他のスレッドに伝える
-                                notifyAndWait(r.isReady, r.myIndex);
+                            // 現在送信中のストリームを終了
+                            tx_streamer.send(nullBuffers, endMD, 0.1);
 
-                                // PPSのsettling_time秒後に送信
-                                if(time_sync)
-                                    usrp.setTimeUnknownPPS(0.seconds);
-                                else
-                                    usrp.setTimeNow(0.seconds);
+                            dbg.writeln("Ready sync and wait other threads...");
+                            // 自分は準備完了したことを他のスレッドに伝える
+                            if(!notifyAndWait(r.isReady, r.myIndex, ctxSwitch, stop_signal_called)) return;
 
-                                dbg.writeln("Send stream command");
-                                tx_streamer.send(nullBuffers, firstMD, 1);
-                                dbg.writeln("Restart transmit");
+                            // PPSのsettling_time秒後に送信
+                            if(time_sync)
+                                usrp.setTimeUnknownPPS(0.seconds);
+                            else
+                                usrp.setTimeNow(0.seconds);
+
+                            dbg.writeln("Send stream command");
+                            tx_streamer.send(nullBuffers, firstMD, 1);
+                            dbg.writeln("Restart transmit");
                         },
                         (TxRequestTypes!C.ClearCmdQueue) {
                             while(!txMsgQueue.emptyRequest)
                                 txMsgQueue.popRequest();
+                        },
+                        (TxRequestTypes!C.StopStreaming r) {
+                            import core.atomic;
+                            scope(exit) {
+                                // 完了報告
+                                if(r.isDone !is null) atomicStore(*(r.isDone), true);
+                            }
+
+                            if(isStopped)
+                                return;
+
+                            //send a mini EOB packet
+                            tx_streamer.send(nullBuffers, endMD, 0.1);
+                            isStopped = true;
+                        },
+                        (TxRequestTypes!C.StartStreaming r) {
+                            if(!isStopped)
+                                return;
+                            
+                            tx_streamer.send(nullBuffers, firstMD, 1);
+                            isStopped = false;
+                        },
+                        (TxRequestTypes!C.SetParam r) {
+                            scope(exit) {
+                                // 正常に終了していない場合はisDoneがfalseなのでエラーフラグを立てて通知する
+                                if(!atomicLoad(*(r.isDone))) {
+                                    atomicStore(*(r.isDone), true);
+                                    atomicStore(*(r.isError), true);
+                                }
+                            }
+
+                            switch(r.type) {
+                                case "gain":
+                                    foreach(i, chidx; tx_channel_nums) {
+                                        usrp.setTxGain(r.param[i], chidx);
+                                        r.param[i] = usrp.getTxGain(chidx);
+                                    }
+                                    break;
+
+                                case "freq":
+                                    foreach(i, chidx; tx_channel_nums) {
+                                        bool tx_int_n = false;
+                                        if("int_n" in settings)
+                                            tx_int_n = (settings["int_n"].type == JSONType.array) ? settings["int_n"][i].boolean : settings["int_n"].boolean;
+
+                                        TuneRequest tx_tune_request = TuneRequest(r.param[i]);
+                                        if(tx_int_n) tx_tune_request.args = "mode_n=integer";
+                                        usrp.tuneTxFreq(tx_tune_request, chidx);
+                                        r.param[i] = usrp.getTxFreq(chidx);
+                                    }
+                                    break;
+
+                                default:
+                                    dbg.writefln("Unexpected parameter type: %s", r.type);
+                                    foreach(ref e; r.param)
+                                        e = typeof(e).nan;
+
+                                    break;
+                            }
+
+                            atomicStore(*(r.isDone), true);
                         }
                     )();
                     writeln("POP");
@@ -209,7 +315,7 @@ void transmit_worker(C, Alloc)(
                 b = true;
             }
 
-            {
+            if(!isStopped){
                 bool b = false;
                 scope(exit) {
                     if(b == false) {
@@ -228,75 +334,11 @@ void transmit_worker(C, Alloc)(
         }
     }();
 
+    if(!isStopped) {
     //send a mini EOB packet
     tx_streamer.send(nullBuffers, endMD, 0.1);
+    }
 
     if(error)
         throw error.makeException();
-}
-
-
-
-void settingTransmitUSRP(ref USRP usrp, JSONValue[string] settings)
-{
-    enforce("args" in settings, "Please specify the argument for USRP.");
-    writefln("Creating the transmit usrp device with: %s...", settings["args"].str);
-    usrp = USRP(settings["args"].str);
-
-    // check channel settings
-    immutable chNums = settings["channels"].array.map!"a.get!size_t".array();
-    foreach(e; chNums) enforce(e < usrp.txNumChannels, "Invalid TX channel(s) specified.");
-
-    // Set time source
-    if("timeref" in settings) usrp.timeSource = settings["timeref"].str;
-
-    //Lock mboard clocks
-    if("clockref" in settings) usrp.clockSource = settings["clockref"].str;
-
-    //always select the subdevice first, the channel mapping affects the other settings
-    if("subdev" in settings) usrp.txSubdevSpec = settings["subdev"].str;
-
-    //set the transmit sample rate
-    immutable tx_rate = enforce("rate" in settings, "Please specify the transmit sample rate.").floating;
-    writefln("Setting TX Rate: %f Msps...", tx_rate/1e6);
-    usrp.txRate = tx_rate;
-    writefln("Actual TX Rate: %f Msps...", usrp.txRate/1e6);
-
-    //set the transmit center frequency
-    auto pfreq = enforce("freq" in settings, "Please specify the transmit center frequency.");
-    foreach(i, channel; chNums){
-        if (chNums.length > 1) {
-            writefln("Configuring TX Channel %s", channel);
-        }
-
-        immutable tx_freq = ((*pfreq).type == JSONType.array) ? (*pfreq)[i].floating : (*pfreq).floating;
-        bool tx_int_n = false;
-        if("int_n" in settings)
-            tx_int_n = (settings["int_n"].type == JSONType.array) ? settings["int_n"][i].boolean : settings["int_n"].boolean;
-
-        writefln("Setting TX Freq: %f MHz...", tx_freq/1e6);
-        TuneRequest tx_tune_request = TuneRequest(tx_freq);
-        if(tx_int_n) tx_tune_request.args = "mode_n=integer";
-        usrp.tuneTxFreq(tx_tune_request, channel);
-        writefln("Actual TX Freq: %f MHz...", usrp.getTxFreq(channel)/1e6);
-
-        //set the rf gain
-        if(auto p = "gain" in settings) {
-            immutable tx_gain = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
-            writefln("Setting TX Gain: %f dB...", tx_gain);
-            usrp.setTxGain(tx_gain, channel);
-            writefln("Actual TX Gain: %f dB...", usrp.getTxGain(channel));
-        }
-
-        //set the analog frontend filter bandwidth
-        if (auto p = "bw" in settings){
-            immutable tx_bw = ((*p).type == JSONType.array) ? (*p)[i].get!double : (*p).get!double;
-            writefln("Setting TX Bandwidth: %f MHz...", tx_bw);
-            usrp.setTxBandwidth(tx_bw, channel);
-            writefln("Actual TX Bandwidth: %f MHz...", usrp.getTxBandwidth(channel));
-        }
-
-        //set the antenna
-        if (auto p = "ant" in settings) usrp.setTxAntenna(p.str, channel);
-    }
 }

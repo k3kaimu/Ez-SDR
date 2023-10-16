@@ -1,0 +1,46 @@
+{
+    "version": 2,
+    "xcvr": [
+        {
+            "args": "addr0=192.168.10.201",
+            "timesync": true,
+            "timeref": "external",
+            "clockref": "external",
+            "tx": {
+                "rate": 10e6,
+                "freq": 2.45e9,
+                "gain": 0,
+                "channels": "0",
+                "ant": "TX/RX"
+            },
+            "rx": {
+                "rate": 10e6,
+                "freq": 2.45e9,
+                "gain": 0,
+                "channels": "0",
+                "ant": "TX/RX"
+            }
+        },
+        {
+            "args": "addr0=192.168.10.202",
+            "timesync": true,
+            "timeref": "external",
+            "clockref": "external",
+            "tx": {
+                "rate": 10e6,
+                "freq": 2.45e9,
+                "gain": 0,
+                "channels": "0",
+                "ant": "TX/RX"
+            },
+            "rx": {
+                "rate": 10e6,
+                "freq": 2.45e9,
+                "gain": 0,
+                "channels": "0",
+                "ant": "TX/RX"
+            }
+        }
+    ],
+    "port": 8888
+}
