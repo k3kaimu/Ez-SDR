@@ -105,15 +105,15 @@ void eventIOLoop(C, Alloc)(
     {
         bool doneRecv = false;
         do {
-            if(!isBlocking && rxMsgQueue[0].emptyResponse)
+            if(!isBlocking && rxMsgQueue[ridx].emptyResponse)
                 break;
 
             dbg.writefln("RX: Wait...");
-            while(rxMsgQueue[0].emptyResponse) {
+            while(rxMsgQueue[ridx].emptyResponse) {
                 Thread.sleep(10.msecs);
             }
 
-            auto reqres = cast()rxMsgQueue[0].popResponse();
+            auto reqres = cast()rxMsgQueue[ridx].popResponse();
             (cast()reqres.res).match!(
                 (RxResponseTypes!C.Receive r) {
                     dbg.writefln("RX: Coming!");
@@ -123,7 +123,7 @@ void eventIOLoop(C, Alloc)(
                         client.rawWriteValue!uint(cast(uint )r.buffer[0].length);
                     }
 
-                    foreach(i; 0 .. nRXUSRPs[0])
+                    foreach(i; 0 .. nRXUSRPs[ridx])
                         enforce(client.rawWriteArray(r.buffer[i]));
 
                     alloc.disposeMultidimensionalArray(r.buffer);
