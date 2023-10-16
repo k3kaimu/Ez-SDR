@@ -2,43 +2,43 @@
     "version": 2,
     "xcvr": [
         {
-            "args": "addr0=192.168.10.201",
+            "args": "addr0=192.168.10.211",
             "timesync": true,
             "timeref": "external",
             "clockref": "external",
             "tx": {
                 "rate": 10e6,
-                "freq": 2.45e9,
-                "gain": 0,
+                "freq": 2.40e9,
+                "gain": 30,
                 "channels": "0",
-                "ant": "TX/RX"
+                "ant": "J1"
             },
             "rx": {
                 "rate": 10e6,
-                "freq": 2.45e9,
-                "gain": 0,
+                "freq": 2.40e9,
+                "gain": 30,
                 "channels": "0",
-                "ant": "TX/RX"
+                "ant": "J1"
             }
         },
         {
-            "args": "addr0=192.168.10.202",
+            "args": "addr0=192.168.10.212",
             "timesync": true,
             "timeref": "external",
             "clockref": "external",
             "tx": {
                 "rate": 10e6,
-                "freq": 2.45e9,
-                "gain": 0,
+                "freq": 2.50e9,
+                "gain": 30,
                 "channels": "0",
-                "ant": "TX/RX"
+                "ant": "J1"
             },
             "rx": {
                 "rate": 10e6,
-                "freq": 2.45e9,
-                "gain": 0,
+                "freq": 2.50e9,
+                "gain": 30,
                 "channels": "0",
-                "ant": "TX/RX"
+                "ant": "J1"
             }
         }
     ],
