@@ -4,7 +4,6 @@ import scipy
 from collections import namedtuple
 import sigdatafmt
 
-
 class SimpleClient:
     def __init__(self, ipaddr, port, nTXUSRPs, nRXUSRPs):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -134,6 +133,22 @@ class SimpleClient:
 
     def clearCmdQueue(self):
         self.sock.sendall(b'q')
+
+    def stopTxStreaming(self, idx):
+        self.sock.sendall(b'\x81')
+        sigdatafmt.writeInt32ToSock(self.sock, idx)
+    
+    def startTxStreaming(self, idx):
+        self.sock.sendall(b'\x82')
+        sigdatafmt.writeInt32ToSock(self.sock, idx)
+    
+    def stopRxStreaming(self, idx):
+        self.sock.sendall(b'\x83')
+        sigdatafmt.writeInt32ToSock(self.sock, idx)
+    
+    def startRxStreaming(self, idx):
+        self.sock.sendall(b'\x84')
+        sigdatafmt.writeInt32ToSock(self.sock, idx)
 
 
 class SimpleMockClient:
