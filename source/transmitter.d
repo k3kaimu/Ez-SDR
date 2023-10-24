@@ -209,14 +209,14 @@ void transmit_worker(C, Alloc)(
                         (TxRequestTypes!C.SyncToPPS r) {
                                 import core.atomic;
                                 scope(exit) {
+                                    atomicStore(r.isReady[r.myIndex], true);
+                                    atomicStore(r.isDone[r.myIndex], true);
+
                                     if(r.myIndex == 0) {
                                         // 他のスレッドが終了するまで待つ
                                         notifyAndWait(r.isDone, r.myIndex, ctxSwitch, stop_signal_called);
                                         alloc.dispose(cast(void[])r.isReady);
                                         alloc.dispose(cast(void[])r.isDone);
-                                    } else {
-                                        // 自分は設定完了したことを他のスレッドに伝える
-                                        atomicStore(r.isDone[r.myIndex], true);
                                     }
                                 }
 

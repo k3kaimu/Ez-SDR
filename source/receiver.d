@@ -274,6 +274,13 @@ void receive_worker(C, Alloc)(
                             }
                         }
 
+                        if(isStopped) {
+                            // 停止中なので何もしない
+                            atomicStore(r.isReady[r.myIndex], true);
+                            atomicStore(r.isDone[r.myIndex], true);
+                            return;
+                        }
+
                         // shutdown receiver
                         rx_stream.issue(StreamCommand.stopContinuous);
 
