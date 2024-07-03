@@ -3,6 +3,10 @@ import numpy as np
 import scipy
 from collections import namedtuple
 import sigdatafmt
+import matplotlib.pyplot as plt
+import multiprocessing as mp
+
+
 
 class SimpleClient:
     def __init__(self, ipaddr, port, nTXUSRPs, nRXUSRPs):
@@ -222,3 +226,99 @@ class SimpleMockClient:
 
     def sync(self):
         self.sampleIndex = 0
+
+
+
+class SimpleClientWithTimeSeriesPlot(SimpleClient):
+    def __init__(self, ipaddr, port, nTXUSRPs, nRXUSRPs):
+        super().__init__(ipaddr, port, nTXUSRPs, nRXUSRPs)
+        self.txprocesslist = []
+        self.txsenderlist = []
+        for i, n in enumerate(self.nTXUSRPs):
+            prx, ptx = mp.Pipe(duplex=False)
+            pplot = mp.Process(target=plotTimeSeries, args=[prx, f"TX{i}"])
+            self.txprocesslist.append(pplot)
+            self.txsenderlist.append(ptx)
+
+        self.rxprocesslist = []
+        self.rxsenderlist = []
+        for i, n in enumerate(self.nRXUSRPs):
+            prx, ptx = mp.Pipe(duplex=False)
+            pplot = mp.Process(target=plotTimeSeries, args=[prx, f"RX{i}"])
+            self.rxprocesslist.append(pplot)
+            self.rxsenderlist.append(ptx)
+
+
+    def __enter__(self):
+        super().__enter__()
+        for p in [*self.txprocesslist, *self.rxprocesslist]:
+            p.start()
+
+        return self
+    
+
+    def __exit__(self, *args):
+        super().__exit__()
+        for p in [*self.txsenderlist, *self.rxsenderlist]:
+            p.send([])
+
+
+    def transmit(self, signals, **kwargs):
+        super().transmit(signals, **kwargs)
+        tidx = kwargs.get("tidx", 0)
+        self.txsenderlist[tidx].send(signals)
+
+
+    def receive(self, nsamples, **kwargs):
+        ridx = kwargs.get("ridx", 0)
+        ret = super().receive(nsamples, **kwargs)
+        if ret is not None:
+            self.rxsenderlist[ridx].send(ret)
+        
+        return ret
+    
+    def receiveNBResponse(self, **kwargs):
+        ridx = kwargs.get("ridx", 0)
+        ret = super().receiveNBResponse(**kwargs)
+        if ret[0]:
+            self.rxsenderlist[ridx].send(ret[1])
+        
+        return ret
+
+    def receiveNBResponseToFn(self, fn, bufferSize=0, **kwargs):
+        ridx = kwargs.get("ridx", 0)
+        rxdata = [np.array([]) for _ in range(self.nRXUSRPs[ridx])]
+
+        def proxyfunc(i, j, data):
+            rxdata = np.hstack(rxdata[i], data)
+            fn(i, j, data)
+        
+        ret = super().receiveNBResponseToFn(proxyfunc, bufferSize, **kwargs)
+        if ret:
+            self.rxsenderlist[ridx].send(rxdata)
+
+        return ret
+
+
+
+
+def plotTimeSeries(p, name):
+    plt.ion()
+    plt.figure(num=name)
+    while True:
+        if p.poll():
+            data = p.recv()
+
+            # データ長が0なら終了する
+            if len(data) == 0:
+                break
+
+            # データをプロットする
+            plt.clf()
+            for i in range(len(data)):
+                plt.plot(np.arange(len(data[i])), np.real(data[i]), label=f"Re,{i}")
+                plt.plot(np.arange(len(data[i])), np.imag(data[i]), label=f"Im,{i}")
+            plt.legend()
+            plt.draw()
+
+        plt.pause(0.05)
