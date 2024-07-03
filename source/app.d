@@ -54,6 +54,7 @@ void main(string[] args)
 {
     string config_json;
     short tcpPort = -1;
+    bool flagRetry = false;
 
     // コマンドライン引数指定されたjsonファイルを読み込む
     auto helpInformation1 = getopt(
@@ -61,21 +62,39 @@ void main(string[] args)
         std.getopt.config.passThrough,
         "config_json|c", "read settings from json", &config_json,
         "port", "TCP port", &tcpPort,
+        "retry", "retry", &flagRetry,
     );
 
     writeln("[multiusrp] Read config json: ", config_json);
 
     import std.file : read;
     JSONValue[string] settings = parseJSON(cast(const(char)[])read(config_json)).object;
-    if("version" !in settings)
-        settings = convertSettingJSONFromV1ToV2(settings);
 
-    settings = normalizeSettingJSON(settings);
+    bool hasUHDException = false;
+    bool isUpdatedConfig = false;
+    do {
+        try {
+            if("version" !in settings)
+                settings = convertSettingJSONFromV1ToV2(settings);
 
-    if(tcpPort != -1)
-        settings["port"] = tcpPort;
+            settings = normalizeSettingJSON(settings);
 
-    mainImpl!(Complex!float)(settings);
+            if(tcpPort != -1)
+                settings["port"] = tcpPort;
+
+            mainImpl!(Complex!float)(settings);
+        }
+        catch(UHDException ex) {
+            writeln(ex);
+            hasUHDException = true;
+            writeln("Retry...");
+        }
+        catch(RestartWithConfigData ex) {
+            settings = parseJSON(ex.configJSON).object;
+            isUpdatedConfig = true;
+            writeln("Restart with updated config JSON data...");
+        }
+    } while(isUpdatedConfig || (flagRetry && hasUHDException) );
 }
 
 
@@ -135,6 +154,9 @@ void mainImpl(C)(JSONValue[string] settings){
     writeln("START");
 
     GC.disable();
+    scope(exit) {
+        GC.enable();
+    }
 
     auto event_dg = delegate(){
         scope(exit) {
@@ -169,6 +191,12 @@ void mainImpl(C)(JSONValue[string] settings){
 
     Thread[] txThreads;
     Thread[] rxThreads;
+    scope(exit) {
+        stop_signal_called = true;
+        foreach(e; txThreads) e.join();
+        foreach(e; rxThreads) e.join();
+    }
+
     foreach(i, ref usrp; xcvrUSRPs) {
         immutable bool timesync = ("timesync" in settings["xcvr"][i].object) ? settings["xcvr"][i]["timesync"].boolean : false;
         immutable double settling =  ("settling" in settings["xcvr"][i].object) ? settings["xcvr"][i]["settling"].floating : 1;
@@ -197,15 +225,6 @@ void mainImpl(C)(JSONValue[string] settings){
 
     // run TCP/IP loop
     event_dg();
-    stop_signal_called = true;
-
-    //clean up
-    foreach(e; txThreads) e.join();
-    foreach(e; rxThreads) e.join();
-
-    GC.enable();
-    GC.collect();
-    writeln("\nDone!\n");
 }
 
 
