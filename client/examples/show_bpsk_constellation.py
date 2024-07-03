@@ -1,3 +1,6 @@
+import sys
+sys.path.append("..")
+
 import multiusrp
 import numpy as np
 import time
