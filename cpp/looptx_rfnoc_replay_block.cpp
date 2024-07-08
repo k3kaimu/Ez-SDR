@@ -50,9 +50,7 @@ struct DeviceHandler;
 
 
 DeviceHandler* setupDevice(
-    char const* configJSON,
-    char const* cpu_format,
-    char const* wire_format
+    char const* configJSON
 )
 {
     nlohmann::json config = nlohmann::json::parse(configJSON);
@@ -70,6 +68,8 @@ DeviceHandler* setupDevice(
     double bw = config.value("bw", -1.0);
     std::string clockref = config.value("clockref", "");
     std::string timeref = config.value("timeref", "");
+    auto cpu_format = "fc32";
+    auto wire_format = "sc16";
 
     Device* dev = new Device;
     dev->config = config;
@@ -347,27 +347,6 @@ void stopTransmit(DeviceHandler* handler)
     Device* dev = reinterpret_cast<Device*>(handler);
 
     dev->replay_ctrl->stop(dev->replay_chan);
-}
-
-
-
-void test1()
-{
-    DeviceHandler* dst = setupDevice("{                      \
-            \"args\": \"addr0=192.168.10.34\",              \
-            \"timesync\": true,                             \
-            \"timeref\": \"external\",                      \
-            \"clockref\": \"external\",                     \
-            \"rate\": 10e6,                                 \
-            \"freq\": 2.4e9,                                \
-            \"gain\": 30,                                   \
-            \"channels\": \"0\",                            \
-            \"subdev\": \"A:0\",                            \
-            \"ant\": \"TX/RX\"                              \
-        }",
-            "fc32", "sc16");
-    
-    destroyDevice(dst);
 }
 
 
