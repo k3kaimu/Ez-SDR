@@ -99,6 +99,8 @@ void transmit_worker(C, Alloc)(
     Fiber ctxSwitch = null,
     Flag!"isForcedCtxSwitch" isForcedCtxSwitch = No.isForcedCtxSwitch,
 ){
+    Thread.getThis.priority = Thread.PRIORITY_MAX;
+
     alias dbg = debugMsg!"transmit_worker";
 
     scope(exit) {

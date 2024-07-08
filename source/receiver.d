@@ -112,6 +112,8 @@ void receive_worker(C, Alloc)(
     Flag!"isForcedCtxSwitch" isForcedCtxSwitch = No.isForcedCtxSwitch,
 )
 {
+    Thread.getThis.priority = Thread.PRIORITY_MAX;
+
     alias dbg = debugMsg!"receive_worker";
 
     scope(exit) {
