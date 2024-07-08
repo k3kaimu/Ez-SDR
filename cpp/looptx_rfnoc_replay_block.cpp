@@ -11,8 +11,9 @@
 #include <uhd/utils/math.hpp>
 #include <string>
 #include <nlohmann/json.hpp>
+#include <chrono>
 
-
+using namespace std::chrono_literals;
 
 namespace looptx_rfnoc_replay_block
 {
@@ -21,8 +22,27 @@ namespace looptx_rfnoc_replay_block
 struct Device
 {
     nlohmann::json config;
+    std::string args;
+    std::string tx_args;
+    uint32_t radio_id;
+    uint32_t radio_chan;
+    uint32_t replay_id;
+    uint32_t replay_chan;
+    double freq;
+    double rate;
+    double gain;
+    std::string ant;
+    double bw;
+    std::string clockref;
+    std::string timeref;
+
     uhd::rfnoc::rfnoc_graph::sptr graph;
     uhd::tx_streamer::sptr streamer;
+    uhd::rfnoc::radio_control::sptr radio_ctrl;
+    uhd::rfnoc::replay_block_control::sptr replay_ctrl;
+
+    uint32_t replay_buff_addr;
+    uint32_t replay_buff_size;
 };
 
 
@@ -53,6 +73,19 @@ DeviceHandler* setupDevice(
 
     Device* dev = new Device;
     dev->config = config;
+    dev->args = args;
+    dev->tx_args = tx_args;
+    dev->radio_id = radio_id;
+    dev->radio_chan = radio_chan;
+    dev->replay_id = replay_id;
+    dev->replay_chan = replay_chan;
+    dev->freq = freq;
+    dev->rate = rate;
+    dev->gain = gain;
+    dev->ant = ant;
+    dev->bw = bw;
+    dev->clockref = clockref;
+    dev->timeref = timeref;
 
     std::cout << "Creating the RFNoC graph with args: " << args << "..." << std::endl;
     auto graph = uhd::rfnoc::rfnoc_graph::make(args);
@@ -61,6 +94,7 @@ DeviceHandler* setupDevice(
     // Create handle for radio object
     uhd::rfnoc::block_id_t radio_ctrl_id(0, "Radio", radio_id);
     auto radio_ctrl = graph->get_block<uhd::rfnoc::radio_control>(radio_ctrl_id);
+    dev->radio_ctrl = radio_ctrl;
 
     // Check if the replay block exists on this device
     uhd::rfnoc::block_id_t replay_ctrl_id(0, "Replay", replay_id);
@@ -69,6 +103,7 @@ DeviceHandler* setupDevice(
         return nullptr;
     }
     auto replay_ctrl = graph->get_block<uhd::rfnoc::replay_block_control>(replay_ctrl_id);
+    dev->replay_ctrl = replay_ctrl;
 
     // Connect replay to radio
     auto edges = uhd::rfnoc::connect_through_blocks(graph, replay_ctrl_id, replay_chan, radio_ctrl_id, radio_chan);
@@ -203,6 +238,115 @@ void destroyDevice(DeviceHandler*& handler)
     Device* dev = reinterpret_cast<Device*>(handler);
     delete dev;
     handler = nullptr;
+}
+
+
+uint64_t setTransmitSignal(DeviceHandler* handler, void** signals, uint64_t sample_size, uint64_t num_samples, uint64_t num_stream)
+{
+    if(num_stream != 1) {
+        std::cerr << "The parameter 'num_stream' must be 1" << std::endl;
+        return 0;
+    }
+
+    Device* dev = reinterpret_cast<Device*>(handler);
+    const size_t replay_word_size = dev->replay_ctrl->get_word_size(); // Size of words used by replay block
+
+    // Calculate the number of 64-bit words and samples to replay
+    size_t words_to_replay = (num_samples * sample_size) / replay_word_size;
+    size_t samples_to_replay = num_samples;
+
+    /************************************************************************
+     * Configure replay block
+     ***********************************************************************/
+    // Configure a buffer in the on-board memory at address 0 that's equal in
+    // size to the file we want to play back (rounded down to a multiple of
+    // 64-bit words). Note that it is allowed to playback a different size or
+    // location from what was recorded.
+    uint32_t replay_buff_addr = 0;
+    uint32_t replay_buff_size = samples_to_replay * sample_size;
+    dev->replay_ctrl->record(replay_buff_addr, replay_buff_size, dev->replay_chan);
+    dev->replay_buff_addr = replay_buff_addr;
+    dev->replay_buff_size = replay_buff_size;
+
+    // Display replay configuration
+    std::cout << "Replay file size:     " << replay_buff_size << " bytes (" << words_to_replay
+         << " qwords, " << samples_to_replay << " samples)" << std::endl;
+
+    std::cout << "Record base address:  0x" << std::hex
+         << dev->replay_ctrl->get_record_offset(dev->replay_chan) << std::dec << std::endl;
+    std::cout << "Record buffer size:   " << dev->replay_ctrl->get_record_size(dev->replay_chan)
+         << " bytes" << std::endl;
+    std::cout << "Record fullness:      " << dev->replay_ctrl->get_record_fullness(dev->replay_chan)
+         << " bytes" << std::endl
+         << std::endl;
+
+    // Restart record buffer repeatedly until no new data appears on the Replay
+    // block's input. This will flush any data that was buffered on the input.
+    uint32_t fullness;
+    std::cout << "Emptying record buffer..." << std::endl;
+    do {
+        dev->replay_ctrl->record_restart(dev->replay_chan);
+
+        // Make sure the record buffer doesn't start to fill again
+        auto start_time = std::chrono::steady_clock::now();
+        do {
+            fullness = dev->replay_ctrl->get_record_fullness(dev->replay_chan);
+            if (fullness != 0)
+                break;
+        } while (start_time + 250ms > std::chrono::steady_clock::now());
+    } while (fullness);
+    std::cout << "Record fullness:      " << dev->replay_ctrl->get_record_fullness(dev->replay_chan)
+         << " bytes" << std::endl
+         << std::endl;
+
+    /************************************************************************
+     * Send data to replay (== record the data)
+     ***********************************************************************/
+    std::cout << "Sending data to be recorded..." << std::endl;
+    uhd::tx_metadata_t tx_md;
+    tx_md.start_of_burst = true;
+    tx_md.end_of_burst   = true;
+    // We use a very big timeout here, any network buffering issue etc. is not
+    // a problem for this application, and we want to upload all the data in one
+    // send() call.
+    size_t num_tx_samps = dev->streamer->send(signals[0], samples_to_replay, tx_md, std::max(5.0, samples_to_replay/dev->rate*100));
+    if (num_tx_samps != samples_to_replay) {
+        std::cout << "ERROR: Unable to send " << samples_to_replay << " samples (sent "
+             << num_tx_samps << ")" << std::endl;
+        return 0;
+    }
+
+    /************************************************************************
+     * Wait for data to be stored in on-board memory
+     ***********************************************************************/
+    std::cout << "Waiting for recording to complete..." << std::endl;
+    while (dev->replay_ctrl->get_record_fullness(dev->replay_chan) < replay_buff_size) {
+        std::this_thread::sleep_for(50ms);
+    }
+    std::cout << "Record fullness:      " << dev->replay_ctrl->get_record_fullness(dev->replay_chan)
+         << " bytes" << std::endl
+         << std::endl;
+
+    return dev->replay_ctrl->get_record_fullness(dev->replay_chan) / sample_size;
+}
+
+
+
+void startTransmit(DeviceHandler* handler)
+{
+    Device* dev = reinterpret_cast<Device*>(handler);
+
+    const bool repeat = true;
+    uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
+    dev->replay_ctrl->play(dev->replay_buff_addr, dev->replay_buff_size, dev->replay_chan, time_spec, repeat);
+}
+
+
+void stopTransmit(DeviceHandler* handler)
+{
+    Device* dev = reinterpret_cast<Device*>(handler);
+
+    dev->replay_ctrl->stop(dev->replay_chan);
 }
 
 
