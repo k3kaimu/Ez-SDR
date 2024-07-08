@@ -46,10 +46,13 @@ struct Device
 };
 
 
-struct DeviceHandler;
+struct DeviceHandler
+{
+    Device* dev;
+};
 
 
-DeviceHandler* setupDevice(
+DeviceHandler setupDevice(
     char const* configJSON
 )
 {
@@ -100,7 +103,7 @@ DeviceHandler* setupDevice(
     uhd::rfnoc::block_id_t replay_ctrl_id(0, "Replay", replay_id);
     if (!graph->has_block(replay_ctrl_id)) {
         std::cout << "Unable to find block \"" << replay_ctrl_id << "\"" << std::endl;
-        return nullptr;
+        return DeviceHandler{nullptr};
     }
     auto replay_ctrl = graph->get_block<uhd::rfnoc::replay_block_control>(replay_ctrl_id);
     dev->replay_ctrl = replay_ctrl;
@@ -172,7 +175,7 @@ DeviceHandler* setupDevice(
     // Set the center frequency
     if (freq < 0) {
         std::cerr << "Please specify the center frequency with 'freq'" << std::endl;
-        return nullptr;
+        return DeviceHandler{nullptr};
     }
 
     std::cout << std::fixed;
@@ -229,26 +232,22 @@ DeviceHandler* setupDevice(
         radio_ctrl->set_tx_antenna(ant, radio_chan);
     }
 
-    return reinterpret_cast<DeviceHandler*>(dev);
+    DeviceHandler handler = {dev};
+    return handler;
 }
 
 
-void destroyDevice(DeviceHandler*& handler)
+void destroyDevice(DeviceHandler& handler)
 {
-    Device* dev = reinterpret_cast<Device*>(handler);
+    Device* dev = handler.dev;
     delete dev;
-    handler = nullptr;
+    handler.dev = nullptr;
 }
 
 
-uint64_t setTransmitSignal(DeviceHandler* handler, void** signals, uint64_t sample_size, uint64_t num_samples, uint64_t num_stream)
+uint64_t setTransmitSignal(DeviceHandler handler, void** signals, uint64_t sample_size, uint64_t num_samples)
 {
-    if(num_stream != 1) {
-        std::cerr << "The parameter 'num_stream' must be 1" << std::endl;
-        return 0;
-    }
-
-    Device* dev = reinterpret_cast<Device*>(handler);
+    Device* dev = handler.dev;
     const size_t replay_word_size = dev->replay_ctrl->get_word_size(); // Size of words used by replay block
 
     // Calculate the number of 64-bit words and samples to replay
@@ -332,9 +331,9 @@ uint64_t setTransmitSignal(DeviceHandler* handler, void** signals, uint64_t samp
 
 
 
-void startTransmit(DeviceHandler* handler)
+void startTransmit(DeviceHandler handler)
 {
-    Device* dev = reinterpret_cast<Device*>(handler);
+    Device* dev = handler.dev;
 
     const bool repeat = true;
     uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
@@ -342,9 +341,9 @@ void startTransmit(DeviceHandler* handler)
 }
 
 
-void stopTransmit(DeviceHandler* handler)
+void stopTransmit(DeviceHandler handler)
 {
-    Device* dev = reinterpret_cast<Device*>(handler);
+    Device* dev = handler.dev;
 
     dev->replay_ctrl->stop(dev->replay_chan);
 }
