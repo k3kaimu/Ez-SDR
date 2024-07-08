@@ -11,13 +11,13 @@
 		"lock-free": "~>0.1.2",
 		"automem": "~>0.6.9"
 	},
-	"preBuildCommands-ldc": [
+	"preBuildCommands": [
         "clang++ -c cpp/looptx_rfnoc_replay_block.cpp",
     ],
 	"sourceFiles": [
-		"cpp/looptx_rfnoc_replay_block.o"
+		"looptx_rfnoc_replay_block.o"
 	],
-	"libs-ldc":[
+	"libs":[
 		"stdc++"
 	]
 }
