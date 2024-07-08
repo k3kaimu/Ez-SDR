@@ -245,7 +245,7 @@ void destroyDevice(DeviceHandler& handler)
 }
 
 
-uint64_t setTransmitSignal(DeviceHandler handler, void** signals, uint64_t sample_size, uint64_t num_samples)
+uint64_t setTransmitSignal(DeviceHandler handler, void const* const* signals, uint64_t sample_size, uint64_t num_samples)
 {
     Device* dev = handler.dev;
     const size_t replay_word_size = dev->replay_ctrl->get_word_size(); // Size of words used by replay block
@@ -346,6 +346,12 @@ void stopTransmit(DeviceHandler handler)
     Device* dev = handler.dev;
 
     dev->replay_ctrl->stop(dev->replay_chan);
+}
+
+
+void setParam(DeviceHandler handler, char const* key, char const* jsonvalue)
+{
+    assert(0);
 }
 
 

@@ -17,7 +17,7 @@ extern(C++, "looptx_rfnoc_replay_block")
     void setTransmitSignal(DeviceHandler handler, const void** signals, ulong sample_size, ulong num_samples);
     void startTransmit(DeviceHandler handler);
     void stopTransmit(DeviceHandler handler);
-    void setParam(const(char)* key, const(char)* jsonvalue);
+    void setParam(DeviceHandler handler, const(char)* key, const(char)* jsonvalue);
 }
 
 
@@ -54,7 +54,7 @@ class UHDLoopTransmitterFromDRAM : LoopTransmitter!(Complex!float), Synchronizab
     void setLoopTransmitSignal(const Complex!float[][] signals)
     {
         const(void*)[1] arr = [signals[0].ptr];
-        setTransmitSignal(this.handler, arr, 4, signals[0].length, 1);
+        setTransmitSignal(this.handler, arr.ptr, 4, signals[0].length);
     }
 
 
@@ -66,7 +66,7 @@ class UHDLoopTransmitterFromDRAM : LoopTransmitter!(Complex!float), Synchronizab
 
     void stopLoopTransmit()
     {
-        .stopLoopTransmit(this.handler);
+        .stopTransmit(this.handler);
     }
 
 
