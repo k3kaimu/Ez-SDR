@@ -85,70 +85,10 @@ void eventIOLoop(C, Alloc)(
     ref shared bool stop_signal_called,
     ushort port,
     ref Alloc alloc,
-    size_t[] nTXUSRPs,
-    size_t[] nRXUSRPs,
-    string cpufmt,
-    UniqueMsgQueue!(TxRequest!C, TxResponse!C).Commander[] txMsgQueue,
-    UniqueMsgQueue!(RxRequest!C, RxResponse!C).Commander[] rxMsgQueue,
+    IController[string] ctrls,
 )
 {
     alias dbg = debugMsg!"eventIOLoop";
-
-
-    size_t pushReceiveRequest(Socket client)
-    {
-        immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-        dbg.writefln("RX: Receiver Index = %s", ridx);
-
-        immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
-        dbg.writefln("RX: numSamples = %s", numSamples);
-
-        C[][] buffer = alloc.makeMultidimensionalArray!C(nRXUSRPs[ridx], numSamples);
-        RxRequest!C req = RxRequestTypes!C.Receive(buffer);
-
-        dbg.writefln("RX: Push Request");
-        rxMsgQueue[ridx].pushRequest(req);
-
-        return ridx;
-    }
-
-
-    void popReceiveResponse(Socket client, size_t ridx, Flag!"isBlocking" isBlocking)
-    {
-        bool doneRecv = false;
-        do {
-            if(!isBlocking && rxMsgQueue[ridx].emptyResponse)
-                break;
-
-            dbg.writefln("RX: Wait...");
-            while(rxMsgQueue[ridx].emptyResponse) {
-                Thread.sleep(10.msecs);
-            }
-
-            auto reqres = cast()rxMsgQueue[ridx].popResponse();
-            (cast()reqres.res).match!(
-                (RxResponseTypes!C.Receive r) {
-                    dbg.writefln("RX: Coming!");
-
-                    if(!isBlocking) {
-                        // ブロッキングじゃないリクエストに対しては，まずは成功したことを通知するために信号の長さを送る
-                        client.rawWriteValue!uint(cast(uint )r.buffer[0].length);
-                    }
-
-                    foreach(i; 0 .. nRXUSRPs[ridx])
-                        enforce(client.rawWriteArray(r.buffer[i]));
-
-                    alloc.disposeMultidimensionalArray(r.buffer);
-                    doneRecv = true;
-                }
-            )();
-        } while(!doneRecv && isBlocking);
-
-        if(!doneRecv && !isBlocking) {
-            client.rawWriteValue!uint(0);
-        }
-    }
-
 
     size_t tryCount = 0;
     while(!stop_signal_called && tryCount < 10)
@@ -176,250 +116,33 @@ void eventIOLoop(C, Alloc)(
             Lconnect: while(!stop_signal_called) {
                 try {
                     writeln("PLEASE COMMAND");
-                    // auto cid = stdin.readCommandID();
+
                     auto client = socket.accept();
                     writeln("CONNECTED");
 
                     while(!stop_signal_called && client.isAlive) {
-                        // binaryDump(client, stop_signal_called);
-                        auto cid = client.readCommandID();
-                        if(!cid.isNull) {
-                            writeln(cid.get);
-                            final switch(cid.get) {
-                                case CommandID.shutdown:
-                                    stop_signal_called = true;
-                                    return;
+                        size_t taglen = client.rawReadValue!ushort();
+                        if(taglen.isNull || taglen == 0) continue Lconnect;
+                        char[] tag = cast(char[]) alloc.allocate(taglen);
+                        scope(exit) alloc.deallocate(tag);
+                        string tag = client.rawReadString();
+                        if(tag.isNull) continue Lconnect;
 
-                                case CommandID.receive:
-                                    size_t ridx = pushReceiveRequest(client);
-                                    popReceiveResponse(client, ridx, Yes.isBlocking);
-                                    break;
+                        ulong msglen = client.rawReadValue!ulong();
+                        if(msglen.isNull) continue Lconnect;
 
-                                case CommandID.receiveNBReq:
-                                    pushReceiveRequest(client);
-                                    break;
-                                
-                                case CommandID.receiveNBRes:
-                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Receiver Index = %s", ridx);
-                                    popReceiveResponse(client, ridx, No.isBlocking);
-                                    break;
+                        void[] msgbuf = alloc.allocate(msglen);
+                        scope(exit) alloc.deallocate(msgbuf);
+                        client.rawReadBuffer(msgbuf);
 
-                                case CommandID.transmit:
-                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Transmitter Index = %s", tidx);
-                                    immutable size_t numSamples = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln!"TX: %s samples"(numSamples);
-
-                                    C[][] buffer = alloc.makeMultidimensionalArray!C(nTXUSRPs[tidx], numSamples);
-                                    foreach(i; 0 .. nTXUSRPs[tidx]) {
-                                        enforce(client.rawReadArray(buffer[i]));
-                                        dbg.writefln!"TX: Read Done %s, len = %s"(i, buffer[i].length);
-                                        dbg.writefln!"\tFirst 5 elements: %s"(buffer[i][0 .. min(5, $)]);
-                                        dbg.writefln!"\tLast 5 elements: %s"(buffer[i][$ < 5 ? 0 : $-5 .. $]);
-                                    }
-
-                                    dbg.writefln("TX: Push MsgQueue");
-
-                                    // C[][] buffer = client.rawReadArray().enforceNotNull;
-                                    TxRequest!C req = TxRequestTypes!C.Transmit(buffer);
-                                    txMsgQueue[tidx].pushRequest(req);
-                                    break;
-
-                                case CommandID.changeRxAlignSize:
-                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Receiver Index = %s", ridx);
-                                    immutable size_t newAlign = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln!"changeRxAlignSize: %s samples"(newAlign);
-
-                                    RxRequest!C req = RxRequestTypes!C.ChangeAlignSize(newAlign);
-                                    rxMsgQueue[ridx].pushRequest(req);
-                                    break;
-
-                                case CommandID.skipRx:
-                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Receiver Index = %s", ridx);
-                                    immutable size_t delaySamples = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln!"skipRx: %s samples"(delaySamples);
-
-                                    RxRequest!C req = RxRequestTypes!C.Skip(delaySamples);
-                                    rxMsgQueue[ridx].pushRequest(req);
-                                    break;
-
-                                case CommandID.syncToPPS:
-                                    dbg.writeln("syncToPPS");
-
-                                    // 送受信で準備できたかを相互チェックするための配列
-                                    auto isReady = alloc.makeArray!(shared(bool))(nTXUSRPs.length + nRXUSRPs.length);
-                                    auto isDone = alloc.makeArray!(shared(bool))(nTXUSRPs.length + nRXUSRPs.length);
-
-                                    foreach(i; 0 .. nTXUSRPs.length) {
-                                        TxRequest!C txreq = TxRequestTypes!C.SyncToPPS(i, isReady, isDone);
-                                        txMsgQueue[i].pushRequest(txreq);
-                                    }
-
-                                    foreach(i; 0 .. nRXUSRPs.length) {
-                                        RxRequest!C rxreq = RxRequestTypes!C.SyncToPPS(i + nTXUSRPs.length, isReady, isDone);
-                                        rxMsgQueue[i].pushRequest(rxreq);
-                                    }
-                                    break;
-
-                                case CommandID.checkSetting:
-                                    dbg.writeln("checkSetting");
-                                    client.rawWriteValue!uint(cast(uint)nTXUSRPs.length);
-                                    foreach(e; nTXUSRPs) client.rawWriteValue!uint(cast(uint) e);
-                                    client.rawWriteValue!uint(cast(uint)nRXUSRPs.length);
-                                    foreach(e; nRXUSRPs) client.rawWriteValue!uint(cast(uint) e);
-
-                                    char[16] fmtstr;
-                                    fmtstr[] = 0x00;
-                                    fmtstr[0 .. cpufmt.length] = cpufmt[];
-                                    client.rawWriteValue!(char[16])(fmtstr);
-                                    break;
-
-                                case CommandID.checkVersion:
-                                    dbg.writeln("checkVersion");
-                                    client.rawWriteValue!uint(interfaceVersion);
-                                    break;
-
-                                case CommandID.rxPowerThr:
-                                    dbg.writefln("powerThr");
-                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Receiver Index = %s", ridx);
-                                    float peak = client.rawReadValue!float().enforceNotNull;
-                                    float mean = client.rawReadValue!float().enforceNotNull;
-                                    dbg.writefln!"%s, %s"(peak, mean);
-
-                                    RxRequest!C filterReq;
-                                    if(peak > 0 && mean > 0) {
-                                        filterReq = makeFilterRequest!(C, (a, b, sigs){
-                                            // 平均電力を算出するために全信号の合計電力を計算する
-                                            float sumPower = 0;
-                                            foreach(sig; sigs)
-                                                foreach(e; sig) {
-                                                    auto p = sqAbs(e);
-                                                    if(p > peak) return true;     // ピーク電力がpeakを超えたのでfilterを通過
-                                                    sumPower += p;
-                                                }
-
-                                            // 平均電力がmeanを超えたか
-                                            if(sumPower / sigs.length / sigs[0].length > mean)
-                                                return true;
-                                            else
-                                                return false;
-                                        })(peak, mean);
-                                    } else {
-                                        filterReq = RxRequestTypes!C.ApplyFilter(null);
-                                    }
-
-                                    rxMsgQueue[ridx].pushRequest(filterReq);
-                                    break;
-
-                                case CommandID.clearCmdQueue:
-                                    dbg.writefln("clearCmdQueue");
-                                    foreach(i; 0 .. nTXUSRPs.length) {
-                                        TxRequest!C txccq = TxRequestTypes!C.ClearCmdQueue();
-                                        txMsgQueue[i].pushRequest(txccq);
-                                    }
-                                    foreach(i; 0 .. nRXUSRPs.length) {
-                                        RxRequest!C rxccq = RxRequestTypes!C.ClearCmdQueue();
-                                        rxMsgQueue[i].pushRequest(rxccq);
-                                    }
-                                    break;
-
-                                case CommandID.txStopStreaming:
-                                    dbg.writefln("txStopStreaming");
-                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("TX: Transmitter Index = %s", tidx);
-                                    TxRequest!C txreq = TxRequestTypes!C.StopStreaming(null);
-                                    txMsgQueue[tidx].pushRequest(txreq);
-                                    break;
-                                
-                                case CommandID.txStartStreaming:
-                                    dbg.writefln("txStartStreaming");
-                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("TX: Transmitter Index = %s", tidx);
-                                    TxRequest!C txreq = TxRequestTypes!C.StartStreaming();
-                                    txMsgQueue[tidx].pushRequest(txreq);
-                                    break;
-
-                                case CommandID.rxStopStreaming:
-                                    dbg.writefln("rxStopStreaming");
-                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Receiver Index = %s", ridx);
-                                    RxRequest!C txreq = RxRequestTypes!C.StopStreaming(null);
-                                    rxMsgQueue[ridx].pushRequest(txreq);
-                                    break;
-                                
-                                case CommandID.rxStartStreaming:
-                                    dbg.writefln("rxStartStreaming");
-                                    immutable size_t ridx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("RX: Receiver Index = %s", ridx);
-                                    RxRequest!C txreq = RxRequestTypes!C.StartStreaming();
-                                    rxMsgQueue[ridx].pushRequest(txreq);
-                                    break;
-
-                                case CommandID.txSetParam:
-                                    dbg.writefln("txSetParam");
-                                    immutable size_t tidx = client.rawReadValue!uint.enforceNotNull;
-                                    dbg.writefln("TX: Transmitter Index = %s", tidx);
-                                    immutable ParamID type = client.readEnum!ParamID.enforceNotNull;
-                                    immutable double param = client.rawReadValue!double.enforceNotNull;
-                                    dbg.writefln("TX: type = %s, param = %s", type, param);
-
-                                    string stype;
-                                    final switch(type) {
-                                        case ParamID.gain:
-                                            stype = "gain";
-                                            break;
-                                        case ParamID.freq:
-                                            stype = "freq";
-                                            break;
-                                    }
-
-                                    shared(double)[] paramArray = alloc.makeArray!(shared(double))(nTXUSRPs[tidx]);
-                                    paramArray[] = param;
-                                    shared(bool)* isDone = alloc.make!(shared(bool))(),
-                                                  isError = alloc.make!(shared(bool))();
-                                    scope(exit) {
-                                        alloc.dispose(cast(double[])paramArray);
-                                        alloc.dispose(isDone);
-                                        alloc.dispose(isError);
-                                    }
-
-                                    TxRequest!C txreq = TxRequestTypes!C.SetParam(stype, paramArray, isDone, isError);
-                                    txMsgQueue[tidx].pushRequest(txreq);
-
-                                    // 結果が返ってくるまで待つ
-                                    immutable bool waitResult = waitDone(*isDone, null, stop_signal_called);
-                                    if(!waitResult || atomicLoad(*isError)) {
-                                        // 待機が中断されたか，エラーフラグが立っているならクライアントに返す値をnanにする
-                                        foreach(ref e; paramArray)
-                                            e = typeof(e).nan;
-                                    }
-
-                                    // クライアントに結果を返す
-                                    client.rawWriteValue!uint(cast(uint)nTXUSRPs[tidx]);
-                                    foreach(e; paramArray)
-                                        client.rawWriteValue!double(e);
-                                    break;
-                            }
+                        if(tag == "@") {
+                            foreach(t, c; ctrls)
+                                c.processMessage(socket, msgbuf);
                         } else {
-                            continue Lconnect;
-                        }
-
-
-                        foreach(ref q; txMsgQueue) {
-                            while(!q.emptyResponse) {
-                                auto reqres = q.popResponse();
-
-                                (cast()reqres.res).match!(
-                                    (TxResponseTypes!C.TransmitDone g) {
-                                        alloc.disposeMultidimensionalArray(g.buffer);
-                                    },
-
-                                )();
-                            }
+                            if(auto c = tag in ctrls)
+                                c.processMessage(socket, msgbuf);
+                            else
+                                writefln("[WARNIGN] cannot find tag '%s'", tag);
                         }
                     }
                 } catch(Exception ex) {
@@ -552,6 +275,17 @@ if(!hasIndirections!T)
 }
 
 
+Nullable!string rawReadString(Socket sock, size_t len)
+{
+    char[] buf = new char[len];
+    bool done = rawReadArray(sock, buf);
+    if(done)
+        return nullable(cast(string)buf);
+    else
+        return Nullable!string.init;
+}
+
+
 bool rawWriteValue(T)(Socket sock, T value)
 if(!hasIndirections!T)
 {
@@ -608,159 +342,3 @@ void binaryDump(Socket sock, ref shared bool stop_signal_called)
         stdout.flush();
     }
 }
-
-
-/+
-void socketLoop(Alloc)(
-        ref shared(bool) stop_signal_called,
-        short port,
-        ref Alloc alloc,
-        // ref shared RWQueue!(const(shared(Complex!float[])[])) txsupplier,
-        // ref shared RWQueue!(const(shared(Complex!float[])[])) txdustreporter,
-        // ref shared RWQueue!(const(shared(Complex!float[])[])) rxsupplier,
-        // ref shared RWQueue!(const(shared(Complex!float[])[])) rxreporter,
-        // ref shared MsgQueue!(shared(RxRequest)*, shared(RxResponse)*) txMsgQueue,
-        ref shared MsgQueue!(shared(RxRequest)*, shared(RxResponse)*) rxMsgQueue,
-)
-{
-    /+
-    // ソケットアドレス構造体
-    sockaddr_in sockAddr, clientAddr;
-    memset(&sockAddr, 0, sockAddr.sizeof);
-    memset(&clientAddr, 0, clientAddr.sizeof);
-
-    socklen_t socklen = clientAddr.sizeof;
-
-    // インターネットドメインのTCPソケットを作成
-    auto sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1) {
-        writefln("failed to socket");
-        return;
-    }
-    scope(exit) {
-        close(sockfd);
-    }
-
-    {
-        // ノンブロッキング化
-        int val1 = 1;
-        if(ioctl(sockfd, FIONBIO, &val1) == -1) {
-            writefln("failed to ioctl");
-            return;
-        }
-    }
-
-    // ソケットアドレス構造体を設定
-    sockAddr.sin_family = AF_INET;          // インターネットドメイン(IPv4)
-    sockAddr.sin_addr.s_addr = INADDR_ANY;  // 全てのアドレスからの接続を受け入れる(=0.0.0.0)
-    sockAddr.sin_port = htons(port);  // 接続を待ち受けるポート
-
-    // 上記設定をソケットに紐づける
-    if(bind(sockfd, cast(const(sockaddr)*)&sockAddr, sockAddr.sizeof) == -1) {
-        printf("failed to bind\n");
-        return;
-    }
-
-    // ソケットに接続待ちを設定する。10はバックログ、同時に何個迄接続要求を受け付けるか。
-    if (listen(sockfd, 10) == -1) {
-        printf("failed to listen\n");
-        return;
-    }
-
-
-    Flag!"disconnected" listenTCP(int fd)
-    {
-        auto cmdType = readFromSock!ubyte(fd);
-        if(cmdType.isNull) {
-            return Yes.disconnected;
-        }
-
-        writeln("cmdType = %s", cmdType.get);
-
-        auto msgSize = readFromSock!uint(fd);
-        if(msgSize.isNull) {
-            return Yes.disconnected;
-        }
-
-        printf("buf_len = %d\n", msgSize.get * 4);
-
-        auto buf = alloc.makeArray!(short[2])(msgSize.get);
-
-        // データ本体の受信
-        if(!readArrayFromSock(fd, buf)) {
-            return Yes.disconnected;
-        }
-
-        import std.stdio;
-        writefln("received data:%s", buf);
-
-        if(! sendToSock!uint(fd, cast(uint)buf.length))
-            return Yes.disconnected;
-
-        if(! sendArrayToSock(fd, buf))
-            return Yes.disconnected;
-
-        return No.disconnected;
-    }
-
-    // クライアントのfile descripter
-    int fd_client = -1;
-    scope(exit) {
-        if(fd_client != -1) {
-            close(fd_client);
-            fd_client = -1;
-        }
-    }
-
-    // 無限ループのサーバー処理
-    while(! stop_signal_called) {
-        // printf("accept wating...\n");
-        // // 接続受付処理。接続が来るまで無限に待つ。recvのタイムアウト設定時はそれによる。シグナル来ても切れるけど。
-        // auto fd_other = accept(sockfd, cast(sockaddr*)&clientAddr, &socklen);
-        // if (fd_other == -1) {
-        //     printf("failed to accept\n");
-        //     continue;
-        // }
-        // scope(exit) {
-        //     close(fd_other);
-        //     fd_other = -1;
-        // }
-
-        if(fd_client == -1) {
-            // 接続が来ているか確認
-            fd_client = accept(sockfd, cast(sockaddr*)&clientAddr, &socklen);
-            if(fd_client != -1)
-                printf("connected!");
-        }
-
-        if(fd_client != -1 && numAvailableBytes(fd_client)) {
-
-        }
-
-        // 接続受付
-        {
-            auto fd_other = accept(sockfd, cast(sockaddr*)&clientAddr, &socklen);
-            printf("connected!");
-
-            if(fd_other != -1) {
-                scope(exit) {
-                    printf("Shutdown connection\n");
-                    close(fd_other);
-                }
-                while(listenTCP(fd_other) == No.disconnected) {};
-            }
-        }
-
-        // コマンドイベント処理
-        {
-            while(!rxMsgQueue.emptyResponse) {
-                auto resp = rxMsgQueue.popResponse();
-                printf("POP from rxMsgQueue\n");
-            }
-        }
-
-        printf("SLEEP");
-        Thread.sleep(100.msecs);
-    }+/
-}
-+/
