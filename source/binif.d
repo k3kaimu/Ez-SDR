@@ -23,47 +23,6 @@ import std.sumtype;
 
 import utils;
 import msgqueue;
-import transmitter : TxRequest, TxResponse, TxRequestTypes, TxResponseTypes;
-import receiver : RxRequest, RxResponse, RxRequestTypes, RxResponseTypes;
-
-
-enum uint interfaceVersion = 2;
-
-enum CommandID : ubyte
-{
-    shutdown = 0x51,            // 'Q'
-    receive = 0x52,             // 'R'
-    transmit = 0x54,            // 'T'
-    changeRxAlignSize = 0x41,   // 'A'
-    skipRx = 0x44,              // 'D'
-    syncToPPS = 0x53,           // 'S',
-    checkSetting = 0x43,        // 'C'
-    checkVersion = 0x56,        // 'V'
-    receiveNBReq = 0x72,        // 'r'
-    receiveNBRes = 0x67,        // 'g'
-    rxPowerThr = 0x70,          // 'p'
-    clearCmdQueue = 0x71,       // 'q'
-    txStopStreaming = 0x81,     //
-    txStartStreaming = 0x82,    //
-    rxStopStreaming = 0x83,     //
-    rxStartStreaming = 0x84,    //
-    txSetParam = 0x85,          //
-    // rxSetParam = 0x86,          //
-}
-
-
-enum ParamID : ubyte
-{
-    gain = 0x01,
-    freq = 0x02,
-}
-
-
-// 
-RxRequestTypes!C.ApplyFilter makeFilterRequest(C, alias fn, T...)(T args)
-{
-    return RxRequestTypes!C.ApplyFilter((C[][] signal) => fn(args, signal));
-}
 
 
 class RestartWithConfigData : Exception
@@ -163,55 +122,6 @@ T enforceNotNull(T)(Nullable!T value)
     enforce(!value.isNull, "value is null");
     return value.get;
 }
-
-
-/+
-private
-Nullable!CommandID readCommandID(File file) {
-    ubyte[1] buf;
-    if(file.rawRead(buf[]).length != 1)
-        return typeof(return).init;
-    else {
-        switch(buf[0]) {
-            import std.traits : EnumMembers;
-            static foreach(m; EnumMembers!CommandID)
-                case m: return typeof(return)(m);
-            
-            default:
-                return typeof(return).init;
-        }
-    }
-}
-
-
-private
-Nullable!T rawReadValue(T)(File file) {
-    T[1] buf;
-    if(file.rawRead(buf[]).length != 1)
-        return typeof(return).init;
-    else
-        return typeof(return)(buf[0]);
-}
-
-
-private
-Nullable!(T[]) rawReadArray(T)(File file, T[] buffer) {
-    if(file.rawRead(buffer[]).length != buffer.length)
-        return typeof(return).init;
-    else
-        return typeof(return)(buffer);
-}
-+/
-
-
-/+
-size_t numAvailableBytes(int sockfd) @nogc
-{
-    int count;
-    ioctl(fd, FIONREAD, &count);
-    return count;
-}
-+/
 
 
 size_t rawReadBuffer(Socket sock, scope void[] buffer)
