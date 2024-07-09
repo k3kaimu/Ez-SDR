@@ -18,11 +18,14 @@ extern(C++, "looptx_rfnoc_replay_block")
     void startTransmit(DeviceHandler handler);
     void stopTransmit(DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key, const(char)* jsonvalue);
+    void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
+    void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
+    void setNextCommandTime(DeviceHandler handler, long fullsecs, double fracsecs);
 }
 
 
 
-class UHDLoopTransmitterFromDRAM : LoopTransmitter!(Complex!float), Synchronizable, Reconfigurable
+class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchronizable, IReconfigurable
 {
     this() {}
 
@@ -73,5 +76,26 @@ class UHDLoopTransmitterFromDRAM : LoopTransmitter!(Complex!float), Synchronizab
     void performLoopTransmit() {}
 
 
+    void setTimeNextPPS(DeviceTime t)
+    {
+        .setTimeNextPPS(this.handler, t.fullsecs, t.fracsecs);
+    }
+
+
+    DeviceTime getTimeLastPPS()
+    {
+        DeviceTime t;
+        .getTimeLastPPS(this.handler, t.fullsecs, t.fracsecs);
+        return t;
+    }
+
+
+    void setNextCommandTime(DeviceTime t)
+    {
+        .setNextCommandTime(this.handler, t.fullsecs, t.fracsecs);
+    }
+
+
+  private:
     DeviceHandler handler;
 }

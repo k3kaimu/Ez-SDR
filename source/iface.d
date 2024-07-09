@@ -3,7 +3,7 @@ module iface;
 import core.lifetime : forward;
 import std.json;
 
-interface Device
+interface IDevice
 {
     void construct();
     void destruct();
@@ -13,19 +13,28 @@ interface Device
 }
 
 
-interface Synchronizable
+struct DeviceTime
 {
-    void sync();
+    long fullsecs;
+    double fracsecs;
 }
 
 
-interface Reconfigurable
+interface IPPSSynchronizable
+{
+    void setTimeNextPPS(DeviceTime);
+    DeviceTime getTimeLastPPS();
+    void setNextCommandTime(DeviceTime);
+}
+
+
+interface IReconfigurable
 {
     void setParam(string key, JSONValue value);
 }
 
 
-interface BurstTransmitter(C) : Device
+interface IBurstTransmitter(C) : IDevice
 {
     void beginBurstTransmit();
     void endBurstTransmit();
@@ -34,7 +43,7 @@ interface BurstTransmitter(C) : Device
 }
 
 
-interface ContinuousReceiver(C) : Device
+interface IContinuousReceiver(C) : IDevice
 {
     void startContinuousReceive();
     void stopContinuousReceive();
@@ -43,7 +52,7 @@ interface ContinuousReceiver(C) : Device
 }
 
 
-interface LoopTransmitter(C) : Device
+interface ILoopTransmitter(C) : IDevice
 {
     void setLoopTransmitSignal(const C[][]);
     void startLoopTransmit();
@@ -53,7 +62,7 @@ interface LoopTransmitter(C) : Device
 
 
 class LoopTransmitterByBurst(Base) : Base
-if(is(Base : BurstTransmitter))
+if(is(Base : IBurstTransmitter))
 {
     this(T...)(auto ref T args)
     {
