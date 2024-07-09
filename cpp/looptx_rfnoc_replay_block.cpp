@@ -43,6 +43,9 @@ struct Device
 
     uint32_t replay_buff_addr;
     uint32_t replay_buff_size;
+
+    bool has_time_spec;
+    uhd::time_spec_t time_spec;
 };
 
 
@@ -337,7 +340,12 @@ void startTransmit(DeviceHandler handler)
 
     const bool repeat = true;
     uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
+    if(dev->has_time_spec)
+        time_spec = dev->time_spec;
+
     dev->replay_ctrl->play(dev->replay_buff_addr, dev->replay_buff_size, dev->replay_chan, time_spec, repeat);
+
+    dev->has_time_spec = false;
 }
 
 
@@ -355,11 +363,62 @@ void setParam(DeviceHandler handler, char const* key, char const* jsonvalue)
 }
 
 
+void setTimeNextPPS(DeviceHandler handler, int64_t fullsecs, double fracsecs)
+{
+    Device* dev = handler.dev;
+
+    for (size_t i = 0; i < dev->graph->get_num_mboards(); ++i) {
+        dev->graph->get_mb_controller(i)->get_timekeeper(0)->set_time_next_pps(uhd::time_spec_t(fullsecs, fracsecs));
+    }
 }
 
 
+void getTimeLastPPS(DeviceHandler handler, int64_t& fullsecs, double& fracsecs)
+{
+    Device* dev = handler.dev;
+    uhd::time_spec_t time = dev->graph->get_mb_controller(0)->get_timekeeper(0)->get_time_last_pps();
+
+    fullsecs = time.get_full_secs();
+    fracsecs = time.get_frac_secs();
+}
+
+
+void setNextCommandTime(DeviceHandler handler, int64_t fullsecs, double fracsecs)
+{
+    Device* dev = handler.dev;
+    dev->has_time_spec = true;
+    dev->time_spec = uhd::time_spec_t(fullsecs, fracsecs);
+}
+
+}
+
+
+// # include <bits/stdc++.h>
+
 // int main()
 // {
-//     looptx_rfnoc_replay_block::test1();
+//     auto device = looptx_rfnoc_replay_block::setupDevice("{\"args\": \"addr=192.168.41.31\", \"freq\": 2.45e9, \"gain\":10, \"rate\": 200e6 }");
+
+
+        
+//     double SAMPLE_RATE = 200.0e6;
+//     double FREQUENCY   = 500.0e3;
+//     double NUM_SAMPLES = 16000;
+//     double AMPLITUDE   = 0.5;
+
+//     std::vector<std::complex<short>> signal(NUM_SAMPLES);
+//     for(size_t i = 0; i < NUM_SAMPLES; ++i) {
+//         short I = (short)(( (1<<15) -1) * AMPLITUDE * std::cos(i / (SAMPLE_RATE / FREQUENCY) * 2 * M_PI));
+//         short Q = (short)(( (1<<15) -1) * AMPLITUDE * std::sin(i / (SAMPLE_RATE / FREQUENCY) * 2 * M_PI));
+//         signal[i] = std::complex<short>(I, Q);
+//     }
+
+
+//     void* buf_ptr = &(signal[0]);
+//     setTransmitSignal(device, &buf_ptr, 4, NUM_SAMPLES);
+//     startTransmit(device);
+//     std::this_thread::sleep_for(std::chrono::minutes(5));
+//     stopTransmit(device);
+//     looptx_rfnoc_replay_block::destroyDevice(device);
 //     return 0;
 // }
