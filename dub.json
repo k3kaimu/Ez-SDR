@@ -12,7 +12,7 @@
 		"automem": "~>0.6.9"
 	},
 	"preBuildCommands": [
-        "clang++ -c cpp/looptx_rfnoc_replay_block.cpp",
+        "clang++ -c cpp/usrp_uhd/looptx_rfnoc_replay_block.cpp",
     ],
 	"sourceFiles": [
 		"looptx_rfnoc_replay_block.o"
