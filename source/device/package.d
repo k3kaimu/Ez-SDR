@@ -1,7 +1,8 @@
-module iface;
+module device;
 
 import core.lifetime : forward;
 import std.json;
+
 
 interface IDevice
 {
