@@ -1,0 +1,32 @@
+{
+    "version": 3,
+    "devices": {
+        "TX0": {
+            "type": "LoopTX:USRP_TX",
+            "args": "addr0=192.168.44.34,send_frame_size=9000",
+            "timesync": true,
+            "__comment__timeref": "external",
+            "__comment__clockref": "external",
+            "rate": 200e6,
+            "freq": 2.4e9,
+            "gain": 30,
+            "channels": "0",
+            "subdev": "A:0",
+            "ant": "TX/RX"
+        },
+        "RX0": {
+            "type": "LoopRX:USRP_RX",
+            "args": "addr0=192.168.44.34,recv_frame_size=9000",
+            "timesync": true,
+            "__comment__timeref": "external",
+            "__comment__clockref": "external",
+            "rate": 200e6,
+            "freq": 2.4e9,
+            "gain": 30,
+            "channels": "0",
+            "subdev": "A:0",
+            "ant": "RX2"
+        }
+    },
+    "port": 8888
+}
