@@ -1,9 +1,11 @@
 module device.uhd_loop_tx_dram;
 
-import iface;
+import core.thread;
 import std.complex;
 import std.json;
 import std.string;
+
+import device;
 
 extern(C++, "looptx_rfnoc_replay_block")
 {
@@ -48,13 +50,13 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
 
     void sync() { assert(0, "please implement"); }
 
-    void setParam(string key, JSONValue value)
+    void setParam(const char[] key, const char[] value)
     {
-        .setParam(this.handler, key.toStringz(), value.toString().toStringz());
+        .setParam(this.handler, key.toStringz, value.toStringz);
     }
 
 
-    void setLoopTransmitSignal(const Complex!float[][] signals)
+    void setLoopTransmitSignal(scope const Complex!float[][] signals)
     {
         const(void*)[1] arr = [signals[0].ptr];
         setTransmitSignal(this.handler, arr.ptr, 4, signals[0].length);
@@ -73,7 +75,10 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
     }
 
 
-    void performLoopTransmit() {}
+    void performLoopTransmit()
+    {
+        Thread.sleep(10.msecs);
+    }
 
 
     void setTimeNextPPS(DeviceTime t)

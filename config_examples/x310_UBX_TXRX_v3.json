@@ -1,8 +1,8 @@
 {
     "version": 3,
     "devices": {
-        "TX0": {
-            "type": "LoopTX:USRP_TX",
+        "USRP_TX0": {
+            "type": "USRP_TX",
             "args": "addr0=192.168.44.34,send_frame_size=9000",
             "timesync": true,
             "__comment__timeref": "external",
@@ -14,8 +14,8 @@
             "subdev": "A:0",
             "ant": "TX/RX"
         },
-        "RX0": {
-            "type": "LoopRX:USRP_RX",
+        "USRP_RX0": {
+            "type": "USRP_RX",
             "args": "addr0=192.168.44.34,recv_frame_size=9000",
             "timesync": true,
             "__comment__timeref": "external",
@@ -26,6 +26,16 @@
             "channels": "0",
             "subdev": "A:0",
             "ant": "RX2"
+        }
+    },
+    "controllers": {
+        "TX0": {
+            "type": "LoopTX",
+            "devices": ["USRP_TX0"]
+        },
+        "RX0": {
+            "type": "LoopRX",
+            "devices": ["USRP_RX0"]
         }
     },
     "port": 8888

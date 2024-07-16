@@ -23,6 +23,7 @@ import std.sumtype;
 
 import utils;
 import msgqueue;
+import controller;
 
 
 class RestartWithConfigData : Exception
@@ -80,26 +81,25 @@ void eventIOLoop(C, Alloc)(
                     writeln("CONNECTED");
 
                     while(!stop_signal_called && client.isAlive) {
-                        size_t taglen = client.rawReadValue!ushort();
+                        auto taglen = client.rawReadValue!ushort();
                         if(taglen.isNull || taglen == 0) continue Lconnect;
-                        char[] tag = cast(char[]) alloc.allocate(taglen);
+                        char[] tag = cast(char[]) alloc.allocate(taglen.get);
                         scope(exit) alloc.deallocate(tag);
-                        string tag = client.rawReadString();
-                        if(tag.isNull) continue Lconnect;
+                        if(client.rawReadBuffer(tag) != taglen) continue Lconnect;
 
-                        ulong msglen = client.rawReadValue!ulong();
+                        auto msglen = client.rawReadValue!ulong();
                         if(msglen.isNull) continue Lconnect;
 
-                        void[] msgbuf = alloc.allocate(msglen);
+                        void[] msgbuf = alloc.allocate(msglen.get);
                         scope(exit) alloc.deallocate(msgbuf);
-                        client.rawReadBuffer(msgbuf);
+                        if(client.rawReadBuffer(msgbuf) != msglen) continue Lconnect;
 
                         if(tag == "@") {
                             foreach(t, c; ctrls)
-                                c.processMessage(socket, msgbuf);
+                                c.processMessage(msgbuf, (scope void[] buf){ client.rawWriteBuffer(buf); });
                         } else {
                             if(auto c = tag in ctrls)
-                                c.processMessage(socket, msgbuf);
+                                c.processMessage(msgbuf, (scope void[] buf){ client.rawWriteBuffer(buf); });
                             else
                                 writefln("[WARNIGN] cannot find tag '%s'", tag);
                         }
@@ -220,7 +220,7 @@ if(!hasIndirections!T)
 }
 
 
-alias readCommandID = readEnum!CommandID;
+// alias readCommandID = readEnum!CommandID;
 
 private
 Nullable!Enum readEnum(Enum)(Socket sock)

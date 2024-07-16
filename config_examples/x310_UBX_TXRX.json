@@ -2,11 +2,11 @@
     "version": 2,
     "tx": [
         {
-            "args": "addr0=192.168.10.34",
+            "args": "addr0=192.168.41.31,send_frame_size=9000",
             "timesync": true,
             "__comment__timeref": "external",
             "__comment__clockref": "external",
-            "rate": 10e6,
+            "rate": 20e6,
             "freq": 2.4e9,
             "gain": 30,
             "channels": "0",
@@ -16,11 +16,11 @@
     ],
     "rx": [
         {
-            "args": "addr0=192.168.10.34",
+            "args": "addr0=192.168.41.31,recv_frame_size=9000",
             "timesync": true,
             "__comment__timeref": "external",
             "__comment__clockref": "external",
-            "rate": 10e6,
+            "rate": 20e6,
             "freq": 2.4e9,
             "gain": 30,
             "channels": "0",

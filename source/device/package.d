@@ -2,7 +2,8 @@ module device;
 
 import core.lifetime : forward;
 import std.json;
-
+import std.experimental.allocator.mallocator;
+import std.experimental.allocator;
 
 interface IDevice
 {
@@ -16,8 +17,23 @@ interface IDevice
 
 struct DeviceTime
 {
+    this(double time)
+    {
+        this.fullsecs = cast(long)time;
+        this.fracsecs = time - this.fullsecs;
+    }
+
     long fullsecs;
     double fracsecs;
+}
+
+unittest
+{
+    assert(DeviceTime(3.0).fullsecs == 3);
+    assert(DeviceTime(3.0).fracsecs == 0);
+
+    assert(DeviceTime(3.1).fullsecs == 3);
+    assert(DeviceTime(3.1).fracsecs == 0.1);
 }
 
 
@@ -31,7 +47,7 @@ interface IPPSSynchronizable
 
 interface IReconfigurable
 {
-    void setParam(string key, JSONValue value);
+    void setParam(const char[] key, const char[] value);
 }
 
 
@@ -39,8 +55,8 @@ interface IBurstTransmitter(C) : IDevice
 {
     void beginBurstTransmit();
     void endBurstTransmit();
-    void burstTransmit(const C[][]);
-    void singleTransmit(const C[][]);
+    void burstTransmit(scope const C[][]);
+    void singleTransmit(scope const C[][]);
 }
 
 
@@ -48,40 +64,42 @@ interface IContinuousReceiver(C) : IDevice
 {
     void startContinuousReceive();
     void stopContinuousReceive();
-    size_t continuousReceive(C[][]);
-    void singleReceive(C[][]);
+    void singleReceive(scope C[][]);
+    void setAlignSize(size_t alignsize);
 }
 
 
 interface ILoopTransmitter(C) : IDevice
 {
-    void setLoopTransmitSignal(const C[][]);
+    void setLoopTransmitSignal(scope const C[][]);
     void startLoopTransmit();
     void stopLoopTransmit();
     void performLoopTransmit();
 }
 
 
-class LoopTransmitterByBurst(Base) : Base
-if(is(Base : IBurstTransmitter))
+mixin template LoopByBurst(C, size_t maxSlot = 32)
 {
-    this(T...)(auto ref T args)
+    // setup()後に呼び出してください
+    void setupLoopByBurst()
     {
-        super(forward!args);
+        _alloc = Mallocator.instance;
     }
 
 
-    void setup(JSONValue[string] configJSON)
-    {
-        super.setup(configJSON);
-        _signals.length = this.numTxStream();
+    void setLoopTransmitSignal(scope const C[][] signals)
+    in {
+        assert(signals.length == this.numTxStream);
     }
+    do {
+        foreach(i; 0 .. signals.length) {
+            if(_loopSignals[i].length != 0) {
+                _alloc.dispose(_loopSignals[i]);
+                _loopSignals[i] = null;
+            }
 
-
-    void setLoopTransmitSignal(const C[][] signal) {
-        foreach(i, ref e; _signals) {
-            e.length = _signals[i].length;
-            e[] = _signals[i];
+            _loopSignals[i] = _alloc.makeArray!C(signals[i].length);
+            _loopSignals[i][] = signals[i][];
         }
     }
 
@@ -100,10 +118,23 @@ if(is(Base : IBurstTransmitter))
 
     void performLoopTransmit()
     {
-        this.burstTransmit(_signals);
+        this.burstTransmit(_loopSignals);
     }
 
-
   private:
-    C[][] _signals;
+    C[maxSlot][] _loopSignals;
+    shared(Mallocator) _alloc;
+}
+
+
+IDevice newDevice(string type)
+{
+    switch(type) {
+        case "USRP_TX":
+            return null;
+        default:
+            return null;
+    }
+
+    // return null;
 }
