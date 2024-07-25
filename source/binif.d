@@ -94,7 +94,7 @@ void eventIOLoop(C, Alloc)(
                         scope(exit) alloc.deallocate(msgbuf);
                         if(client.rawReadBuffer(msgbuf) != msglen) continue Lconnect;
 
-                        if(tag == "@") {
+                        if(tag == "@all") {
                             foreach(t, c; ctrls)
                                 c.processMessage(msgbuf, (scope void[] buf){ client.rawWriteBuffer(buf); });
                         } else {

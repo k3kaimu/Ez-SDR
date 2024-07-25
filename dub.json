@@ -1,5 +1,5 @@
 {
-	"name": "multiusrp",
+	"name": "ezsdr",
 	"authors": [
 		"Kazuki Komatsu"
 	],
@@ -12,10 +12,12 @@
 		"automem": "~>0.6.9"
 	},
 	"preBuildCommands": [
-        "clang++ -std=c++20 -c cpp/usrp_uhd/looptx_rfnoc_replay_block.cpp",
+        "clang++ -std=c++20 -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
+		"clang++ -std=c++20 -c cpp/uhd_usrp/tx_burst.cpp",
     ],
 	"sourceFiles": [
-		"looptx_rfnoc_replay_block.o"
+		"looptx_rfnoc_replay_block.o",
+		"tx_burst.o",
 	],
 	"libs":[
 		"stdc++"

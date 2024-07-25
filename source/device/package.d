@@ -47,7 +47,7 @@ interface IPPSSynchronizable
 
 interface IReconfigurable
 {
-    void setParam(const char[] key, const char[] value);
+    void setParam(const(char)[] key, const(char)[] value);
 }
 
 
@@ -56,7 +56,6 @@ interface IBurstTransmitter(C) : IDevice
     void beginBurstTransmit();
     void endBurstTransmit();
     void burstTransmit(scope const C[][]);
-    void singleTransmit(scope const C[][]);
 }
 
 
@@ -80,6 +79,9 @@ interface ILoopTransmitter(C) : IDevice
 
 mixin template LoopByBurst(C, size_t maxSlot = 32)
 {
+    import std.experimental.allocator.mallocator;
+    import std.experimental.allocator;
+
     // setup()後に呼び出してください
     void setupLoopByBurst()
     {
@@ -122,7 +124,7 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     }
 
   private:
-    C[maxSlot][] _loopSignals;
+    C[][maxSlot] _loopSignals;
     shared(Mallocator) _alloc;
 }
 
