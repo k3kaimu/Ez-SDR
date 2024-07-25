@@ -77,7 +77,7 @@ class LoopTXController(C) : IController
     {
         auto alloc = Mallocator.instance;
         alias dbg = debugMsg!"LoopTXController";
-        dbg.writefln("msgtype = %X, msglen = %s [bytes]", msgbin[0], msgbin.length);
+        dbg.writefln("msgtype = 0x%X, msglen = %s [bytes]", msgbin[0], msgbin.length);
 
         auto reader = BinaryReader(msgbin);
         if(reader.length < 1)
@@ -91,6 +91,7 @@ class LoopTXController(C) : IController
                 foreach(j; 0 .. d.numTxStream()) {
                     if(!reader.canRead!size_t) { dbg.writefln("Cannot read %s-th signal length", cntStream); return; }
                     immutable siglen = reader.read!size_t;
+                    dbg.writefln("siglen = %s", siglen);
 
                     if(!reader.canReadArray!C(siglen)) { dbg.writefln("Cannot read %s-th signal (len = %s)", cntStream, siglen); return; }
                     const(C)[] sig = reader.readArray!C(siglen);

@@ -22,15 +22,25 @@ def readSignalFromSock(sock, size = None):
     data = data[::2] + data[1::2] * 1j;
     return data;
 
+
+def valueToBytes(val, dtype):
+    return np.array([val], dtype=dtype).tobytes()
+
+def arrayToBytes(arr, dtype):
+    return np.array(arr, dtype=dtype).tobytes()
+
 # ソケットからInt32の値を読む
 def readInt32FromSock(sock):
     return int.from_bytes(sock.recv(4), 'little');
 
 # ソケットにInt32の値を書き込む
 def writeInt32ToSock(sock, value):
-    data = np.array([value], dtype=np.uint32).tobytes()
-    sock.sendall(data)
+    writeIntToSock(sock, value, np.uint32)
 
+# ソケットにIntの値を書き込む
+def writeIntToSock(sock, value, dtype):
+    data = np.array([value], dtype=dtype).tobytes()
+    sock.sendall(data)
 
 # ソケットに信号を書き込む
 def writeSignalToSock(sock, signal, withHeader = True):
@@ -62,6 +72,10 @@ def writeFloat32ToSock(sock, value):
     data = np.array([value], dtype=np.float32).tobytes()
     sock.sendall(data)
 
+def writeStringToSock(sock, str):
+    bs = str.encode(encoding="utf-8")
+    writeIntToSock(sock, len(bs), np.uint16)
+    sock.sendall(bs)
 
 def getMinStep(rsignal):
     rsignal = np.abs(rsignal)

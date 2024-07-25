@@ -110,7 +110,7 @@ struct BinaryReader
 
     const(E)[] readArray(E)(size_t n)
     {
-        const(E)[] dst = cast(const(E)[])cast(void[])(buffer[0 .. E.sizeof]);
+        const(E)[] dst = cast(const(E)[])cast(void[])(buffer[0 .. E.sizeof * n]);
         buffer = buffer[E.sizeof * n .. $];
         return dst;
     }

@@ -83,23 +83,27 @@ void eventIOLoop(C, Alloc)(
                     while(!stop_signal_called && client.isAlive) {
                         auto taglen = client.rawReadValue!ushort();
                         if(taglen.isNull || taglen == 0) continue Lconnect;
+                        dbg.writefln("taglen = %s", taglen.get);
+
                         char[] tag = cast(char[]) alloc.allocate(taglen.get);
                         scope(exit) alloc.deallocate(tag);
                         if(client.rawReadBuffer(tag) != taglen) continue Lconnect;
+                        dbg.writefln("tag = %s", taglen.get);
 
                         auto msglen = client.rawReadValue!ulong();
                         if(msglen.isNull) continue Lconnect;
+                        dbg.writefln("msglen = %s", msglen.get);
 
-                        void[] msgbuf = alloc.allocate(msglen.get);
+                        ubyte[] msgbuf = cast(ubyte[])alloc.allocate(msglen.get);
                         scope(exit) alloc.deallocate(msgbuf);
                         if(client.rawReadBuffer(msgbuf) != msglen) continue Lconnect;
 
                         if(tag == "@all") {
                             foreach(t, c; ctrls)
-                                c.processMessage(msgbuf, (scope void[] buf){ client.rawWriteBuffer(buf); });
+                                c.processMessage(msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
                         } else {
                             if(auto c = tag in ctrls)
-                                c.processMessage(msgbuf, (scope void[] buf){ client.rawWriteBuffer(buf); });
+                                c.processMessage(msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
                             else
                                 writefln("[WARNIGN] cannot find tag '%s'", tag);
                         }

@@ -132,8 +132,9 @@ void mainImpl(C)(JSONValue[string] settings){
     }
 
     // Deviceの構築
-    foreach(string tag, deviceSettings; settings["devices"]) {
-        writefln("Create and setup the device '%s'...", tag);
+    foreach(string tag, JSONValue deviceSettings; settings["devices"].object) {
+        import std.stdio;
+        writefln("Create and setup the device '%s' with %s", tag, deviceSettings);
 
         auto newdev = newDevice(deviceSettings["type"].str);
         newdev.construct();
@@ -142,7 +143,7 @@ void mainImpl(C)(JSONValue[string] settings){
     }
 
     // Controllerの構築
-    foreach(string tag, ctrlSettings; settings["controllers"]) {
+    foreach(string tag, ctrlSettings; settings["controllers"].object) {
         writefln("Create and setup the controller '%s'...", tag);
 
         auto newctrl = newController(ctrlSettings["type"].str);
