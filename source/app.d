@@ -40,7 +40,7 @@ import core.memory;
 
 import core.stdc.stdlib;
 
-import binif;
+import tcp_iface;
 import transmitter;
 import receiver;
 import msgqueue;

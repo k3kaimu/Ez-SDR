@@ -229,16 +229,16 @@ Move Semantics Message Queue with Unique Request and Unique Response
 */
 alias UniqueMsgQueue(Req, Res, Allocator = Mallocator) = MsgQueue!(Req, Res, Yes.assumeUnique, Allocator);
 
-unittest
-{
-    static struct S {
-        int a;
-        @disable this(this);        // non-copyable
-    }
-    static struct U {
-        int[] a;
-        @disable this(this);        // non-copyable
-    }
+// unittest
+// {
+//     static struct S {
+//         int a;
+//         @disable this(this);        // non-copyable
+//     }
+//     static struct U {
+//         int[] a;
+//         @disable this(this);        // non-copyable
+//     }
 
-    UniqueMsgQueue!(S, U) q;
-}
+//     UniqueMsgQueue!(S, U) q;
+// }

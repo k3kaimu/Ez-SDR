@@ -5,7 +5,6 @@ import std.socket;
 import std.json;
 
 import device;
-import controller.looptx;
 
 
 interface IController
@@ -13,12 +12,15 @@ interface IController
     void setup(IDevice[], JSONValue[string]);
     void spawnDeviceThreads();
     void killDeviceThreads();
-    void processMessage(scope void[] msgbuf, void delegate(scope void[]) responseWriter);
+
+    void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) responseWriter);
 }
 
 
 IController newController(string type)
 {
+    import controller.looptx;
+
     switch(type) {
         case "LoopTX":
             return new LoopTXController!(Complex!float)();

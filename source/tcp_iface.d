@@ -1,4 +1,4 @@
-module binif;
+module tcp_iface;
 
 // import core.sys.posix.netinet.in_;
 // import core.sys.posix.sys.ioctl;

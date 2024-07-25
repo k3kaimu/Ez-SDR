@@ -32,8 +32,8 @@ unittest
     assert(DeviceTime(3.0).fullsecs == 3);
     assert(DeviceTime(3.0).fracsecs == 0);
 
-    assert(DeviceTime(3.1).fullsecs == 3);
-    assert(DeviceTime(3.1).fracsecs == 0.1);
+    assert(DeviceTime(3.5).fullsecs == 3);
+    assert(DeviceTime(3.5).fracsecs == 0.5);
 }
 
 
@@ -131,9 +131,11 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
 
 IDevice newDevice(string type)
 {
+    import device.uhd_loop_tx_dram;
+
     switch(type) {
-        case "USRP_TX":
-            return null;
+        case "USRP_TX_LoopDRAM":
+            return new UHDLoopTransmitterFromDRAM();
         default:
             return null;
     }

@@ -105,5 +105,5 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IReconfigurable, IBurstTran
 
 unittest
 {
-    UHD_USRPBurstTX!(Complex!float) a;
+    UHD_USRPBurstTX a;
 }

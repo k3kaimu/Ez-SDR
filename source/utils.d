@@ -76,3 +76,42 @@ bool waitDone(ref shared(bool) flag, Fiber ctxSwitch, ref shared(bool) killswitc
 
     return false;
 }
+
+
+struct BinaryReader
+{
+    const(ubyte)[] buffer;
+
+    size_t length()
+    {
+        return buffer.length;
+    }
+
+
+    bool canRead(T)()
+    {
+        return buffer.length >= T.sizeof;
+    }
+
+
+    bool canReadArray(E)(size_t n)
+    {
+        return buffer.length >= E.sizeof * n;
+    }
+
+
+    T read(T)()
+    {
+        T dst = (cast(T[])cast(void[])(buffer[0 .. T.sizeof]))[0];
+        buffer = buffer[T.sizeof .. $];
+        return dst;
+    }
+
+
+    const(E)[] readArray(E)(size_t n)
+    {
+        const(E)[] dst = cast(const(E)[])cast(void[])(buffer[0 .. E.sizeof]);
+        buffer = buffer[E.sizeof * n .. $];
+        return dst;
+    }
+}
