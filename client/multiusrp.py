@@ -29,16 +29,26 @@ class ClientV3:
         if self.ipaddr is not None:
             self.sock.connect((self.ipaddr, self.port))
 
+    def sendMsg(self, target, msg):
+        sigdatafmt.writeStringToSock(self.sock, target)
+        sigdatafmt.writeIntToSock(self.sock, len(msg), np.uint64)
+        self.sock.sendall(msg)
+
+    def startController(self, target):
+        msg = sigdatafmt.valueToBytes(0b00001000, np.uint8)
+        msg += target.encode(encoding="utf-8")
+        self.sendMsg("@server", msg)
+
+    def stopController(self, target):
+        msg = sigdatafmt.valueToBytes(0b00001001, np.uint8)
+        msg += target.encode(encoding="utf-8")
+        self.sendMsg("@server", msg)
+
 
 class LoopTransmitter:
     def __init__(self, client, target):
         self.client = client
         self.target = target
-
-    def _sendMsg(self, msg):
-        sigdatafmt.writeStringToSock(self.client.sock, self.target)
-        sigdatafmt.writeIntToSock(self.client.sock, len(msg), np.uint64)
-        self.client.sock.sendall(msg)
 
     def setTransmitSignal(self, signals):
         msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
@@ -46,11 +56,15 @@ class LoopTransmitter:
             msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
             msg += sigdatafmt.arrayToBytes(signals, np.complex64)
         
-        self._sendMsg(msg)
+        self.client.sendMsg(msg)
     
     def startTransmit(self):
         msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
-        self._sendMsg(msg)
+        self.client.sendMsg(msg)
+
+    def stopTransmit(self):
+        msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
+        self.client.sendMsg(msg)
     
     def transmit(self, signals):
         self.setTransmitSignal(signals)
