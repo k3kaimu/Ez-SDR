@@ -27,14 +27,15 @@ RUN <<EOF
     make -j${JOBS}
     make test
     make install
-    echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib' >> /root/entrypoint_shellenv.sh
+    echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib' >> /root/.bashrc
 EOF
 
 RUN <<EOF                                    
     cd /
     mkdir -p /dlang && wget https://dlang.org/install.sh -O /dlang/install.sh
     chmod +x /dlang/install.sh
-    /dlang/install.sh install -p /dlang ldc-1.31.0
+    /dlang/install.sh install -p /dlang ldc-1.39.0
+    echo 'source /dlang/ldc-1.39.0/activate' >> /root/.bashrc
 EOF
 
 # RUN <<EOF
