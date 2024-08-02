@@ -27,7 +27,7 @@ extern(C++, "looptx_rfnoc_replay_block")
 
 
 
-class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchronizable, IReconfigurable
+class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchronizable
 {
     this() {}
 
@@ -50,10 +50,13 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
 
     void sync() { assert(0, "please implement"); }
 
-    void setParam(const char[] key, const char[] value)
+    void setParam(const(char)[] key, const(char)[] value)
     {
         .setParam(this.handler, key.toStringz, value.toStringz);
     }
+
+
+    const(char)[] getParam(const(char)[] key) { assert(0, "this is not implemented."); return null; }
 
 
     void setLoopTransmitSignal(scope const Complex!float[][] signals)

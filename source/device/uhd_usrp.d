@@ -27,7 +27,7 @@ extern(C++, "uhd_usrp_tx_burst")
 }
 
 
-class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IReconfigurable, IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
+class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
 {
     this(){}
 
@@ -46,6 +46,15 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IReconfigurable, IBurstTran
 
     size_t numTxStream() { return .numTxStream(this.handler); }
     size_t numRxStream() { return 0; }
+
+
+    void setParam(const(char)[] key, const(char)[] value)
+    {
+        assert(0, "this is not implemented.");
+    }
+
+
+    const(char)[] getParam(const(char)[] key) { assert(0, "this is not implemented."); return null; }
 
 
     void setTimeNextPPS(DeviceTime t)
@@ -87,12 +96,6 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IReconfigurable, IBurstTran
             _tmp[i] = cast(const(void)*)signals[i].ptr;
 
         .burstTransmit(this.handler, _tmp.ptr, (Complex!float).sizeof, signals[0].length);
-    }
-
-
-    void setParam(const(char)[] key, const(char)[] value)
-    {
-
     }
 
 

@@ -5,6 +5,7 @@ import std.json;
 import std.experimental.allocator.mallocator;
 import std.experimental.allocator;
 
+
 interface IDevice
 {
     void construct();
@@ -12,6 +13,9 @@ interface IDevice
     void setup(JSONValue[string] configJSON);
     size_t numTxStream();
     size_t numRxStream();
+
+    void setParam(const(char)[] key, const(char)[] value);
+    const(char)[] getParam(const(char)[] key);
 }
 
 
@@ -42,12 +46,6 @@ interface IPPSSynchronizable
     void setTimeNextPPS(DeviceTime);
     DeviceTime getTimeLastPPS();
     void setNextCommandTime(DeviceTime);
-}
-
-
-interface IReconfigurable
-{
-    void setParam(const(char)[] key, const(char)[] value);
 }
 
 
