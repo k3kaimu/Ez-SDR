@@ -44,8 +44,8 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!
     }
 
 
-    size_t numTxStream() { return .numTxStream(this.handler); }
-    size_t numRxStream() { return 0; }
+    synchronized size_t numTxStreamImpl() { return .numTxStream(cast()this.handler); }
+    size_t numRxStreamImpl() shared { return 0; }
 
 
     void setParam(const(char)[] key, const(char)[] value)

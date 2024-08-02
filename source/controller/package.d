@@ -45,11 +45,11 @@ IController newController(string type)
 
 interface IControllerThread
 {
-    bool hasDevice(IDevice d);
-    void kill();
-    void pause();
-    void resume();
-    void callOnThis(void delegate(IControllerThread) dg);
+    bool hasDevice(IDevice d) shared;
+    void kill() shared;
+    void pause() shared;
+    void resume() shared;
+    void callOnThis(void delegate(IControllerThread) dg) shared;
 }
 
 
@@ -119,44 +119,45 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
 
 
     DeviceType[] deviceList() { return _devs; }
+    shared(DeviceType)[] deviceList() shared { return _devs; }
 
 
     void registerDevice(DeviceType dev)
     {
-        _devs ~= dev;
+        _devs ~= cast()dev;
     }
 
 
-    bool hasDevice(IDevice d)
+    bool hasDevice(IDevice d) shared
     {
         foreach(e; _devs) {
-            if(e is d) return true;
+            if(e is cast(shared)d) return true;
         }
 
         return false;
     }
 
 
-    void kill()
+    void kill() shared
     {
         *_killSwitch = true;
     }
 
 
-    void pause()
+    void pause() shared
     {
-        _resumeEvent.reset();
+        (cast(Event*)_resumeEvent).reset();
         _queue.pushRequest(Message.Types(Message.Pause()));
     }
 
 
-    void resume()
+    void resume() shared
     {
-        _resumeEvent.setIfInitialized();
+        (cast(Event*)_resumeEvent).setIfInitialized();
     }
 
 
-    void callOnThis(void delegate(IControllerThread) dg)
+    void callOnThis(void delegate(IControllerThread) dg) shared
     {
         _queue.pushRequest(Message.Types(Message.CallOnThis(dg)));
     }
@@ -180,11 +181,11 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 
     void registerThread(CtrlThread thread)
     {
-        _threads ~= thread;
+        _threads ~= cast(shared)thread;
     }
 
 
-    CtrlThread[] threadList()
+    shared(CtrlThread)[] threadList()
     {
         return _threads;
     }
@@ -216,7 +217,7 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) responseWriter);
 
 
-    void applyToDeviceSync(IDevice dev, void delegate() dg)
+    void applyToDeviceSync(IDevice dev, scope void delegate() dg)
     {
         // 関連するすべてのDeviceThreadを一度止める
         bool[] stopList = new bool[](_threads.length);
@@ -248,5 +249,5 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     }
 
   private:
-    CtrlThread[] _threads;
+    shared(CtrlThread)[] _threads;
 }

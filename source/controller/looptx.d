@@ -125,7 +125,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     }
 
 
-    void setTransmitSignal(scope const(C)[][] signals)
+    void setTransmitSignal(scope const(C)[][] signals) shared
     {
         Requests.SetTransmitSignal req;
         req.buffer = alloc.makeArray!(C[])(signals.length);
@@ -138,13 +138,13 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     }
 
 
-    void startLoopTransmit()
+    void startLoopTransmit() shared
     {
         _queue.pushRequest(Requests.Types(Requests.StartLoopTransmit()));
     }
 
 
-    void stopLoopTransmit()
+    void stopLoopTransmit() shared
     {
         _queue.pushRequest(Requests.Types(Requests.StopLoopTransmit()));
     }
@@ -180,7 +180,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
     void setup(IDevice[] devs, JSONValue[string] settings)
     {
         foreach(i, e; devs) {
-            _devs ~= enforce(cast(ILoopTransmitter!C) e, "The device#%s is not a ILoopTransmitter.".format(i));
+            _devs ~= cast(shared)enforce(cast(ILoopTransmitter!C) e, "The device#%s is not a ILoopTransmitter.".format(i));
         }
 
         if("singleThread" in settings && settings["singleThread"].get!bool)
@@ -194,14 +194,14 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
         if(_singleThread) {
             auto thread = new LoopTXControllerThread!C();
             foreach(d; _devs)
-                thread.registerDevice(d);
+                thread.registerDevice(cast()d);
 
             this.registerThread(thread);
             thread.start();
         } else {
             foreach(d; _devs) {
                 auto thread = new LoopTXControllerThread!C();
-                thread.registerDevice(d);
+                thread.registerDevice(cast()d);
 
                 this.registerThread(thread);
                 thread.start();
@@ -277,7 +277,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
 
 
   private:
-    ILoopTransmitter!C[] _devs;
+    shared(ILoopTransmitter!C)[] _devs;
     bool _singleThread = false;
 }
 
@@ -300,8 +300,8 @@ unittest
         void construct() { state = "init"; }
         void destruct() { state = "finished"; }
         void setup(JSONValue[string] configJSON) {}
-        size_t numTxStream() { return _numTxStream; }
-        size_t numRxStream() { return 0; }
+        size_t numTxStreamImpl() shared { return _numTxStream; }
+        size_t numRxStreamImpl() shared { return 0; }
         void setLoopTransmitSignal(scope const C[][] signal) {
             _buffer = null;
             foreach(e; signal)

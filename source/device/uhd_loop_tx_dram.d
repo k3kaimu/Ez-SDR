@@ -45,8 +45,8 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
     }
 
 
-    size_t numTxStream() { return 1; }
-    size_t numRxStream() { return 0; }
+    size_t numTxStreamImpl() shared { return 1; }
+    size_t numRxStreamImpl() shared { return 0; }
 
     void sync() { assert(0, "please implement"); }
 

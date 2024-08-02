@@ -11,8 +11,32 @@ interface IDevice
     void construct();
     void destruct();
     void setup(JSONValue[string] configJSON);
-    size_t numTxStream();
-    size_t numRxStream();
+    size_t numTxStreamImpl() shared;
+    size_t numRxStreamImpl() shared;
+
+
+    final size_t numTxStream()
+    {
+        return (cast(shared)this).numTxStreamImpl();
+    }
+
+
+    final size_t numTxStream() shared
+    {
+        return this.numTxStreamImpl();
+    }
+
+
+    final size_t numRxStream() shared
+    {
+        return this.numRxStreamImpl();
+    }
+
+
+    final size_t numRxStream()
+    {
+        return (cast(shared)this).numRxStreamImpl();
+    }
 
     void setParam(const(char)[] key, const(char)[] value);
     const(char)[] getParam(const(char)[] key);
