@@ -47,7 +47,6 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     override
     void onRunTick()
     {
-        // writeln("OnRunTick");
         while(!_queue.emptyRequest()) {
             auto req = _queue.popRequest();
 
@@ -80,8 +79,6 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
                 }
             )();
         }
-
-        // writeln("OnRunTick2: ", isStreaming);
 
         if(isStreaming) {
             foreach(d; this.deviceList)
