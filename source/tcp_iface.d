@@ -101,6 +101,21 @@ void eventIOLoop(C, Alloc)(
                         if(tag == "@all") {
                             foreach(t, c; ctrls)
                                 c.processMessage(msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
+                        } else if(tag == "@server") {
+                            if(msglen == 0) continue;
+                            switch(msgbuf[0]) {
+                            case 0b00001000:    // すべてのコントローラーを動かす
+                                foreach(t, c; ctrls)
+                                    c.resumeDeviceThreads();
+                                break;
+                            case 0b00001001:    // すべてのコントローラーを止める
+                                foreach(t, c; ctrls)
+                                    c.pauseDeviceThreads();
+                                break;
+                            default:
+                                dbg.writefln("msgtype = %s is not supported.", msgbuf[0]);
+                                break;
+                            }
                         } else {
                             if(auto c = tag in ctrls)
                                 c.processMessage(msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
