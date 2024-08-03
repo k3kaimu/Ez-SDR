@@ -45,15 +45,32 @@ IController newController(string type)
 
 interface IControllerThread
 {
+    /// スレッドの動作状態
     enum State { RUN, PAUSE, FINISH }
 
+    /// スレッドを返します
+    Thread getThread();
+
+    /// スレッドを実行します
     void start();
+
+    /// このスレッドの動作状態を返します
     State state() shared;
+
+    /// このスレッドがデバイスを操作しているかどうかを返します
     bool hasDevice(IDevice d) shared;
+
+    /// このスレッドを破棄する
     void kill() shared;
+
+    /// このスレッドの操作を一時停止する
     void pause() shared;
+
+    /// このスレッドの動作を再開する
     void resume() shared;
-    void callOnThis(void delegate(IControllerThread) dg) shared;
+
+    /// 動作中のこのスレッド上でデリゲートを呼び出す
+    void invoke(void delegate() dg) shared;
 }
 
 
@@ -68,9 +85,9 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     static struct Message
     {
         static struct Pause {}
-        static struct CallOnThis { void delegate(shared(IControllerThread)) dg; }
+        static struct Invoke { void delegate() dg; }
 
-        alias Types = SumType!(Pause, CallOnThis);
+        alias Types = SumType!(Pause, Invoke);
         alias Queue = UniqueRequestQueue!Types;
     }
 
@@ -84,6 +101,9 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
 
         _thread = new Thread(() { (cast(shared)this).run(); });
     }
+
+
+    Thread getThread() { return _thread; }
 
 
     void start(bool defaultRun = true)
@@ -118,8 +138,8 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
                         this.onResume();
                         _state = State.RUN;
                     },
-                    (Message.CallOnThis r) {
-                        r.dg(this);
+                    (Message.Invoke r) {
+                        r.dg();
                     }
                 );
             }
@@ -181,9 +201,9 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     }
 
 
-    void callOnThis(void delegate(shared(IControllerThread)) dg) shared
+    void invoke(void delegate() dg) shared
     {
-        _queue.pushRequest(Message.Types(Message.CallOnThis(dg)));
+        _queue.pushRequest(Message.Types(Message.Invoke(dg)));
     }
 
 
@@ -276,22 +296,14 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     }
 
 
-    void applyToDeviceAsync(IDevice dev, void delegate(shared(IControllerThread)) sharedDg)
-    {
-        foreach(i; 0 .. _threads.length) {
-            if(_threads[i].hasDevice(dev)) {
-                // 一番最初に見つかったスレッドに処理を移譲する
-                _threads[i].callOnThis(sharedDg);
-            }
-        }
-    }
-
   private:
     shared(CtrlThread)[] _threads;
 }
 
 unittest
 {
+    import std.stdio;
+
     class TestDevice : IDevice
     {
         string state;
@@ -343,15 +355,15 @@ unittest
     assert(ctrl.threadList.length == 2);
     assert(ctrl.threadList[0].hasDevice(dev));
     assert(!ctrl.threadList[1].hasDevice(dev));
-    Thread.sleep(10.msecs);
+    Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
     assert(ctrl.threadList[1].state == IControllerThread.State.PAUSE);
     ctrl.pauseDeviceThreads();
-    Thread.sleep(10.msecs);
+    Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.PAUSE);
     assert(ctrl.threadList[1].state == IControllerThread.State.PAUSE);
     ctrl.resumeDeviceThreads();
-    Thread.sleep(10.msecs);
+    Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
     assert(ctrl.threadList[1].state == IControllerThread.State.RUN);
 
@@ -362,18 +374,20 @@ unittest
         executed = true;
     });
     assert(executed);
+    Thread.sleep(1.msecs);
+    assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
 
     executed = false;
-    ctrl.applyToDeviceAsync(dev, (thread){
-        assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
-        assert(ctrl.threadList[1].state == IControllerThread.State.RUN);
+    auto thread0 = ctrl.threadList[0];
+    thread0.invoke({
+        assert(thread0.state == IControllerThread.State.RUN);
         executed = true;
     });
-    Thread.sleep(10.msecs);
+    Thread.sleep(1.msecs);
     assert(executed);
 
     ctrl.killDeviceThreads();
-    Thread.sleep(10.msecs);
+    Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.FINISH);
-    assert(ctrl.threadList[1].state == IControllerThread.State.FINISH);
+    assert(ctrl.threadList[1].state == IControllerThread.State.FINISH);;
 }
