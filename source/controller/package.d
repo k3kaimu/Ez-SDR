@@ -63,7 +63,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
     static struct Message
     {
         static struct Pause {}
-        static struct CallOnThis { void delegate(IControllerThread) dg; }
+        static struct CallOnThis { void delegate(shared(IControllerThread)) dg; }
 
         alias Types = SumType!(Pause, CallOnThis);
         alias Queue = UniqueRequestQueue!Types;
@@ -72,30 +72,27 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
 
     this()
     {
-        _killSwitch = new shared(bool);
-        *_killSwitch = false;
-
-        _resumeEvent = new Event;
+        _killSwitch = false;
         _resumeEvent.initialize(true, true);
 
         _queue = new Message.Queue;
 
-        super(&run);
+        super(() { (cast(shared)this).run(); });
     }
 
 
-    void run()
+    synchronized void run()
     {
         this.onInit();
-        _resumeEvent.wait();
+        (cast()_resumeEvent).wait();
         this.onStart();
-        while(!*_killSwitch) {
+        while(!_killSwitch) {
             while(!_queue.emptyRequest()) {
                 auto req = _queue.popRequest();
                 req.match!(
                     (Message.Pause) {
                         this.onPause();
-                        _resumeEvent.wait();
+                        (cast()_resumeEvent).wait();
                         this.onResume();
                     },
                     (Message.CallOnThis r) {
@@ -110,21 +107,21 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
     }
 
 
-    abstract void onInit();
-    abstract void onRunTick();
-    abstract void onStart();
-    abstract void onFinish();
-    abstract void onPause();
-    abstract void onResume();
+    abstract void onInit() shared;
+    abstract void onRunTick() shared;
+    abstract void onStart() shared;
+    abstract void onFinish() shared;
+    abstract void onPause() shared;
+    abstract void onResume() shared;
 
 
-    DeviceType[] deviceList() { return _devs; }
+    shared(DeviceType)[] deviceList() { return _devs; }
     shared(DeviceType)[] deviceList() shared { return _devs; }
 
 
-    void registerDevice(DeviceType dev)
+    void registerDevice(shared DeviceType dev)
     {
-        _devs ~= cast()dev;
+        _devs ~= dev;
     }
 
 
@@ -140,34 +137,34 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
 
     void kill() shared
     {
-        *_killSwitch = true;
+        _killSwitch = true;
     }
 
 
     void pause() shared
     {
-        (cast(Event*)_resumeEvent).reset();
+        (cast()_resumeEvent).reset();
         _queue.pushRequest(Message.Types(Message.Pause()));
     }
 
 
     void resume() shared
     {
-        (cast(Event*)_resumeEvent).setIfInitialized();
+        (cast()_resumeEvent).setIfInitialized();
     }
 
 
-    void callOnThis(void delegate(IControllerThread) dg) shared
+    void callOnThis(void delegate(shared(IControllerThread)) dg) shared
     {
         _queue.pushRequest(Message.Types(Message.CallOnThis(dg)));
     }
 
 
-    private:
-    shared(bool)* _killSwitch;
-    Event* _resumeEvent;
+  private:
+    bool _killSwitch;
+    Event _resumeEvent;
     shared(Message.Queue) _queue;
-    DeviceType[] _devs;
+    shared(DeviceType)[] _devs;
 }
 
 
@@ -238,7 +235,7 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     }
 
 
-    void applyToDeviceAsync(IDevice dev, void delegate(IControllerThread) sharedDg)
+    void applyToDeviceAsync(IDevice dev, void delegate(shared(IControllerThread)) sharedDg)
     {
         foreach(i; 0 .. _threads.length) {
             if(_threads[i].hasDevice(dev)) {

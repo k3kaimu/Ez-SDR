@@ -38,8 +38,8 @@ interface IDevice
         return (cast(shared)this).numRxStreamImpl();
     }
 
-    void setParam(const(char)[] key, const(char)[] value);
-    const(char)[] getParam(const(char)[] key);
+    void setParam(const(char)[] key, const(char)[] value) shared;
+    const(char)[] getParam(const(char)[] key) shared;
 }
 
 
@@ -67,35 +67,35 @@ unittest
 
 interface IPPSSynchronizable
 {
-    void setTimeNextPPS(DeviceTime);
-    DeviceTime getTimeLastPPS();
-    void setNextCommandTime(DeviceTime);
+    void setTimeNextPPS(DeviceTime) shared;
+    DeviceTime getTimeLastPPS() shared;
+    void setNextCommandTime(DeviceTime) shared;
 }
 
 
 interface IBurstTransmitter(C) : IDevice
 {
-    void beginBurstTransmit();
-    void endBurstTransmit();
-    void burstTransmit(scope const C[][]);
+    void beginBurstTransmit() shared;
+    void endBurstTransmit() shared;
+    void burstTransmit(scope const C[][]) shared;
 }
 
 
 interface IContinuousReceiver(C) : IDevice
 {
-    void startContinuousReceive();
-    void stopContinuousReceive();
-    void singleReceive(scope C[][]);
-    void setAlignSize(size_t alignsize);
+    void startContinuousReceive() shared;
+    void stopContinuousReceive() shared;
+    void singleReceive(scope C[][]) shared;
+    void setAlignSize(size_t alignsize) shared;
 }
 
 
 interface ILoopTransmitter(C) : IDevice
 {
-    void setLoopTransmitSignal(scope const C[][]);
-    void startLoopTransmit();
-    void stopLoopTransmit();
-    void performLoopTransmit();
+    void setLoopTransmitSignal(scope const C[][]) shared;
+    void startLoopTransmit() shared;
+    void stopLoopTransmit() shared;
+    void performLoopTransmit() shared;
 }
 
 
@@ -104,13 +104,10 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     import std.experimental.allocator.mallocator;
     import std.experimental.allocator;
 
-    // setup()後に呼び出してください
-    void setupLoopByBurst()
-    {
-        _alloc = Mallocator.instance;
-    }
+    alias _alloc = Mallocator.instance;
 
 
+    synchronized
     void setLoopTransmitSignal(scope const C[][] signals)
     in {
         assert(signals.length == this.numTxStream);
@@ -118,36 +115,35 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     do {
         foreach(i; 0 .. signals.length) {
             if(_loopSignals[i].length != 0) {
-                _alloc.dispose(_loopSignals[i]);
+                _alloc.dispose(cast(void[])_loopSignals[i]);
                 _loopSignals[i] = null;
             }
 
-            _loopSignals[i] = _alloc.makeArray!C(signals[i].length);
+            _loopSignals[i] = cast(shared)_alloc.makeArray!C(signals[i].length);
             _loopSignals[i][] = signals[i][];
         }
     }
 
 
-    void startLoopTransmit()
+    void startLoopTransmit() shared
     {
         this.beginBurstTransmit();
     }
 
 
-    void stopLoopTransmit()
+    void stopLoopTransmit() shared
     {
         this.endBurstTransmit();
     }
 
 
-    void performLoopTransmit()
+    void performLoopTransmit() shared
     {
-        this.burstTransmit(_loopSignals);
+        this.burstTransmit(cast(C[][])(_loopSignals[]));
     }
 
   private:
     C[][maxSlot] _loopSignals;
-    shared(Mallocator) _alloc;
 }
 
 

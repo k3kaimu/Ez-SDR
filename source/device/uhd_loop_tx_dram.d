@@ -50,57 +50,65 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
 
     void sync() { assert(0, "please implement"); }
 
+    synchronized
     void setParam(const(char)[] key, const(char)[] value)
     {
-        .setParam(this.handler, key.toStringz, value.toStringz);
+        .setParam(cast()this.handler, key.toStringz, value.toStringz);
     }
 
 
+    synchronized
     const(char)[] getParam(const(char)[] key) { assert(0, "this is not implemented."); return null; }
 
 
+    synchronized
     void setLoopTransmitSignal(scope const Complex!float[][] signals)
     {
         const(void*)[1] arr = [signals[0].ptr];
-        setTransmitSignal(this.handler, arr.ptr, 4, signals[0].length);
+        setTransmitSignal(cast()this.handler, arr.ptr, 4, signals[0].length);
     }
 
 
+    synchronized
     void startLoopTransmit()
     {
-        .startTransmit(this.handler);
+        .startTransmit(cast()this.handler);
     }
 
 
+    synchronized
     void stopLoopTransmit()
     {
-        .stopTransmit(this.handler);
+        .stopTransmit(cast()this.handler);
     }
 
 
-    void performLoopTransmit()
+    void performLoopTransmit() shared
     {
         Thread.sleep(10.msecs);
     }
 
 
+    synchronized
     void setTimeNextPPS(DeviceTime t)
     {
-        .setTimeNextPPS(this.handler, t.fullsecs, t.fracsecs);
+        .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
     }
 
 
+    synchronized
     DeviceTime getTimeLastPPS()
     {
         DeviceTime t;
-        .getTimeLastPPS(this.handler, t.fullsecs, t.fracsecs);
+        .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
         return t;
     }
 
 
+    synchronized
     void setNextCommandTime(DeviceTime t)
     {
-        .setNextCommandTime(this.handler, t.fullsecs, t.fracsecs);
+        .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
     }
 
 

@@ -33,6 +33,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
+    synchronized
     void onInit()
     {
         isStreaming = false;
@@ -41,10 +42,12 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
+    synchronized
     void onStart() { }
 
 
     override
+    synchronized
     void onRunTick()
     {
         while(!_queue.emptyRequest()) {
@@ -88,6 +91,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
+    synchronized
     void onFinish()
     {
         if(isStreaming) {
@@ -100,6 +104,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
+    synchronized
     void onPause()
     {
         if(isStreaming) {
@@ -113,6 +118,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
+    synchronized
     void onResume()
     {
         if(isPaused) {
@@ -194,14 +200,14 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
         if(_singleThread) {
             auto thread = new LoopTXControllerThread!C();
             foreach(d; _devs)
-                thread.registerDevice(cast()d);
+                thread.registerDevice(d);
 
             this.registerThread(thread);
             thread.start();
         } else {
             foreach(d; _devs) {
                 auto thread = new LoopTXControllerThread!C();
-                thread.registerDevice(cast()d);
+                thread.registerDevice(d);
 
                 this.registerThread(thread);
                 thread.start();
@@ -302,16 +308,16 @@ unittest
         void setup(JSONValue[string] configJSON) {}
         size_t numTxStreamImpl() shared { return _numTxStream; }
         size_t numRxStreamImpl() shared { return 0; }
-        void setLoopTransmitSignal(scope const C[][] signal) {
+        synchronized void setLoopTransmitSignal(scope const C[][] signal) {
             _buffer = null;
             foreach(e; signal)
-                _buffer ~= e.dup;
+                _buffer ~= cast(shared)e.dup;
         }
-        void startLoopTransmit() { state = "start"; }
-        void stopLoopTransmit() { state = "stop"; }
-        void performLoopTransmit() { ++cntPerf; Thread.sleep(10.msecs); }
-        void setParam(const(char)[] key, const(char)[] value) {}
-        const(char)[] getParam(const(char)[] key) { return null; }
+        synchronized void startLoopTransmit() { state = "start"; }
+        synchronized void stopLoopTransmit() { state = "stop"; }
+        synchronized void performLoopTransmit() { cntPerf = cntPerf + 1; Thread.sleep(10.msecs); }
+        synchronized void setParam(const(char)[] key, const(char)[] value) {}
+        synchronized const(char)[] getParam(const(char)[] key) { return null; }
     }
 
     auto ctrl = new LoopTXController!C();

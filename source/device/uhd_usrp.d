@@ -48,54 +48,62 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!
     size_t numRxStreamImpl() shared { return 0; }
 
 
+    synchronized
     void setParam(const(char)[] key, const(char)[] value)
     {
         assert(0, "this is not implemented.");
     }
 
 
+    synchronized
     const(char)[] getParam(const(char)[] key) { assert(0, "this is not implemented."); return null; }
 
 
+    synchronized
     void setTimeNextPPS(DeviceTime t)
     {
-        .setTimeNextPPS(this.handler, t.fullsecs, t.fracsecs);
+        .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
     }
 
 
+    synchronized
     DeviceTime getTimeLastPPS()
     {
         DeviceTime t;
-        .getTimeLastPPS(this.handler, t.fullsecs, t.fracsecs);
+        .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
         return t;
     }
 
 
+    synchronized
     void setNextCommandTime(DeviceTime t)
     {
-        .setNextCommandTime(this.handler, t.fullsecs, t.fracsecs);
+        .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
     }
 
 
+    synchronized
     void beginBurstTransmit()
     {
-        .beginBurstTransmit(this.handler);
+        .beginBurstTransmit(cast()this.handler);
     }
 
 
+    synchronized
     void endBurstTransmit()
     {
-        .endBurstTransmit(this.handler);
+        .endBurstTransmit(cast()this.handler);
     }
 
 
+    synchronized
     void burstTransmit(scope const Complex!float[][] signals)
     {
         const(void)*[128] _tmp;
         foreach(i; 0 .. signals.length)
             _tmp[i] = cast(const(void)*)signals[i].ptr;
 
-        .burstTransmit(this.handler, _tmp.ptr, (Complex!float).sizeof, signals[0].length);
+        .burstTransmit(cast()this.handler, _tmp.ptr, (Complex!float).sizeof, signals[0].length);
     }
 
 
