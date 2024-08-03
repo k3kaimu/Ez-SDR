@@ -45,6 +45,7 @@ IController newController(string type)
 
 interface IControllerThread
 {
+    void start();
     bool hasDevice(IDevice d) shared;
     void kill() shared;
     void pause() shared;
@@ -54,7 +55,7 @@ interface IControllerThread
 
 
 
-class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
+class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
 {
     import std.sumtype;
     import msgqueue;
@@ -77,7 +78,13 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
 
         _queue = new Message.Queue;
 
-        super(() { (cast(shared)this).run(); });
+        _thread = new Thread(() { (cast(shared)this).run(); });
+    }
+
+
+    void start()
+    {
+        _thread.start();
     }
 
 
@@ -161,6 +168,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : Thread, IControllerThread
 
 
   private:
+    Thread _thread;
     bool _killSwitch;
     Event _resumeEvent;
     shared(Message.Queue) _queue;
