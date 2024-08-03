@@ -20,9 +20,6 @@ interface IController
     void resumeDeviceThreads();
 
     void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) responseWriter);
-
-    // void applyToDeviceSync(IDevice dev, void delegate(IDevice dev));
-    // void applyToDeviceAsync(IDevice, dev, void delegate(IDevice dev));
 }
 
 
