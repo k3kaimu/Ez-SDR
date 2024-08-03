@@ -45,7 +45,10 @@ IController newController(string type)
 
 interface IControllerThread
 {
+    enum State { RUN, PAUSE, FINISH }
+
     void start();
+    State state() shared;
     bool hasDevice(IDevice d) shared;
     void kill() shared;
     void pause() shared;
@@ -60,6 +63,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     import std.sumtype;
     import msgqueue;
     import core.sync.event;
+    import core.atomic;
 
     static struct Message
     {
@@ -82,8 +86,13 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     }
 
 
-    void start()
+    void start(bool defaultRun = true)
     {
+        if(defaultRun)
+            _resumeEvent.setIfInitialized();
+        else
+            _resumeEvent.reset();
+
         _thread.start();
     }
 
@@ -91,16 +100,23 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     synchronized void run()
     {
         this.onInit();
+        _state = State.PAUSE;
+
         (cast()_resumeEvent).wait();
+
         this.onStart();
+        _state = State.RUN;
+
         while(!_killSwitch) {
             while(!_queue.emptyRequest()) {
                 auto req = _queue.popRequest();
                 req.match!(
                     (Message.Pause) {
                         this.onPause();
+                        _state = State.PAUSE;
                         (cast()_resumeEvent).wait();
                         this.onResume();
+                        _state = State.RUN;
                     },
                     (Message.CallOnThis r) {
                         r.dg(this);
@@ -111,7 +127,11 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
             this.onRunTick();
         }
         this.onFinish();
+        _state = State.FINISH;
     }
+
+
+    State state() shared { return atomicLoad(_state); }
 
 
     abstract void onInit() shared;
@@ -173,11 +193,15 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     Event _resumeEvent;
     shared(Message.Queue) _queue;
     shared(DeviceType)[] _devs;
+    State _state;
 }
 
 
 class ControllerImpl(CtrlThread : IControllerThread) : IController
 {
+    import std.experimental.allocator.mallocator;
+    import std.experimental.allocator;
+
     this() {}
 
     abstract
@@ -224,13 +248,22 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 
     void applyToDeviceSync(IDevice dev, scope void delegate() dg)
     {
+        alias alloc = Mallocator.instance;
+        bool[] stopList = alloc.makeArray!bool(_threads.length);
+        scope(exit) alloc.dispose(stopList);
+
         // 関連するすべてのDeviceThreadを一度止める
-        bool[] stopList = new bool[](_threads.length);
         foreach(i; 0 .. _threads.length) {
+            // 止めたスレッドをマーキングする
             stopList[i] = _threads[i].hasDevice(dev);
             if(stopList[i])
                 _threads[i].pause();
         }
+
+        // すべてのスレッドが停止するまで待つ
+        foreach(i, t; _threads)
+            if(stopList[i])
+                while(t.state != IControllerThread.State.PAUSE) { Thread.yield(); }
 
         // 処理を呼び出す
         dg();
@@ -255,4 +288,92 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 
   private:
     shared(CtrlThread)[] _threads;
+}
+
+unittest
+{
+    class TestDevice : IDevice
+    {
+        string state;
+        this() { }
+        void construct() { state = "init"; }
+        void destruct() { state = "finished"; }
+        void setup(JSONValue[string] configJSON) {}
+        size_t numTxStreamImpl() shared { return 1; }
+        size_t numRxStreamImpl() shared { return 0; }
+        synchronized void setParam(const(char)[] key, const(char)[] value) {}
+        synchronized const(char)[] getParam(const(char)[] key) { return null; }
+    }
+
+    class TestThread : ControllerThreadImpl!IDevice
+    {
+        size_t count;
+        this() { super(); }
+        override synchronized void onInit() {}
+        override synchronized void onRunTick() { count = count + 1; }
+        override synchronized void onStart() { assert(state == State.PAUSE); }
+        override synchronized void onFinish() { assert(state == State.RUN); }
+        override synchronized void onPause() { assert(state == State.RUN); }
+        override synchronized void onResume() { assert(state == State.PAUSE); }
+    }
+
+    class TestController : ControllerImpl!TestThread
+    {
+        shared(IDevice)[] devs;
+
+        this() { super(); }
+        override void setup(IDevice[] devs, JSONValue[string]) { this.devs = cast(shared)devs; }
+        override void spawnDeviceThreads() {
+            foreach(d; devs) {
+                auto thread = new TestThread();
+                thread.registerDevice(d);
+                this.registerThread(thread);
+                thread.start(d !is null ? true : false);
+            }
+        }
+        override void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) responseWriter) {}
+    }
+
+    auto ctrl = new TestController();
+    auto dev = new TestDevice();
+    ctrl.setup([dev, null], null);
+    ctrl.spawnDeviceThreads();
+    scope(exit) ctrl.killDeviceThreads();
+
+    assert(ctrl.threadList.length == 2);
+    assert(ctrl.threadList[0].hasDevice(dev));
+    assert(!ctrl.threadList[1].hasDevice(dev));
+    Thread.sleep(10.msecs);
+    assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
+    assert(ctrl.threadList[1].state == IControllerThread.State.PAUSE);
+    ctrl.pauseDeviceThreads();
+    Thread.sleep(10.msecs);
+    assert(ctrl.threadList[0].state == IControllerThread.State.PAUSE);
+    assert(ctrl.threadList[1].state == IControllerThread.State.PAUSE);
+    ctrl.resumeDeviceThreads();
+    Thread.sleep(10.msecs);
+    assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
+    assert(ctrl.threadList[1].state == IControllerThread.State.RUN);
+
+    bool executed = false;
+    ctrl.applyToDeviceSync(dev, (){
+        assert(ctrl.threadList[0].state == IControllerThread.State.PAUSE);
+        assert(ctrl.threadList[1].state == IControllerThread.State.RUN);
+        executed = true;
+    });
+    assert(executed);
+
+    executed = false;
+    ctrl.applyToDeviceAsync(dev, (thread){
+        assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
+        assert(ctrl.threadList[1].state == IControllerThread.State.RUN);
+        executed = true;
+    });
+    Thread.sleep(10.msecs);
+    assert(executed);
+
+    ctrl.killDeviceThreads();
+    Thread.sleep(10.msecs);
+    assert(ctrl.threadList[0].state == IControllerThread.State.FINISH);
+    assert(ctrl.threadList[1].state == IControllerThread.State.FINISH);
 }
