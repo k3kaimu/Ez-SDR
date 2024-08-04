@@ -7,6 +7,7 @@ import std.socket;
 import std.json;
 
 import device;
+import utils;
 
 
 interface IController
@@ -163,8 +164,8 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     abstract void onResume() shared;
 
 
-    shared(DeviceType)[] deviceList() { return _devs; }
-    shared(DeviceType)[] deviceList() shared { return _devs; }
+    ReadOnlyArray!(shared(DeviceType)) deviceList() { return _devs.readOnlyArray; }
+    ReadOnlyArray!(shared(DeviceType)) deviceList() shared { return _devs.readOnlyArray; }
 
 
     void registerDevice(shared DeviceType dev)
@@ -235,9 +236,9 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     }
 
 
-    shared(CtrlThread)[] threadList()
+    ReadOnlyArray!(shared(CtrlThread)) threadList()
     {
-        return _threads;
+        return _threads.readOnlyArray();
     }
 
 

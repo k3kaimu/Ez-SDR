@@ -115,3 +115,65 @@ struct BinaryReader
         return dst;
     }
 }
+
+
+struct ReadOnlyArray(E)
+{
+    import std.range;
+
+    inout(E) front() inout { return _array.front; }
+    void popFront() { _array.popFront(); }
+    bool empty() const { return _array.empty; }
+    inout(E) opIndex(size_t i) inout { return _array[i]; }
+    size_t length() const { return _array.length; }
+    inout(ReadOnlyArray!E) opSlice(size_t i, size_t j) inout { return inout(ReadOnlyArray!E)(_array[i .. j]); }
+    size_t opDollar() const { return _array.length; }
+
+    int opApply(scope int delegate(E) dg) 
+    {
+        int result = 0;
+        foreach (e; _array)
+        {
+            result = dg(e);
+            if(result)
+                return result;
+        }
+
+        return result;
+    }
+
+
+    int opApply(scope int delegate(size_t, E) dg)
+    {
+        int result = 0;
+        foreach (i, e; _array)
+        {
+            result = dg(i, e);
+            if(result)
+                break;
+        }
+    
+        return result;
+    }
+
+  private:
+    E[] _array;
+}
+
+
+auto readOnlyArray(E)(E[] arr)
+{
+    return ReadOnlyArray!E(arr);
+}
+
+
+unittest
+{
+    auto arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    auto r = readOnlyArray(arr);
+    assert(r[5 .. $].front == 6);
+    foreach(i, e; r) {
+        if((i+1) >= 3) break;
+        assert(e < 3);
+    }
+}
