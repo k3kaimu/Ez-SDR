@@ -1,5 +1,7 @@
 module msgqueue;
 
+import core.time;
+
 import std.typecons;
 import lock_free.rwqueue;
 import std.experimental.allocator.mallocator;
@@ -57,6 +59,18 @@ struct NotifiedLazy(T)
         return *cast(T*)_response;
     }
 
+
+    bool tryRead(ref T lhs, Duration timeout = 0.usecs)
+    {
+        immutable bool check = _nofity.wait(timeout);
+        if(check) {
+            assert(!*_isNull);
+            lhs = *cast(T*)_response;
+        }
+        return check;
+    }
+
+
   private:
     shared(T)* _response;
     Event* _nofity;
@@ -92,6 +106,9 @@ unittest
         msg2.terminate();
     }
 
+    int dst;
+    assert(!msg1.tryRead(dst));
+
     auto thread = new Thread((){
         assert(msg2.read == 2);
         assert(msg1.read == 1);
@@ -100,6 +117,9 @@ unittest
 
     msg1.write(1);
     msg2.write(2);
+
+    assert(msg1.tryRead(dst));
+    assert(dst == 1);
 }
 
 
