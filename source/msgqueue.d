@@ -51,21 +51,32 @@ struct NotifiedLazy(T)
     }
 
 
-    ref T read()
+    ref shared(T) read()
     {
         // 書き込みされるまで読み込めない
         _nofity.wait();
         assert(!*_isNull);
-        return *cast(T*)_response;
+        return *_response;
     }
 
 
-    bool tryRead(ref T lhs, Duration timeout = 0.usecs)
+    bool tryRead(U)(ref U lhs, Duration timeout = 0.usecs)
     {
         immutable bool check = _nofity.wait(timeout);
         if(check) {
             assert(!*_isNull);
-            lhs = *cast(T*)_response;
+            lhs = *_response;
+        }
+        return check;
+    }
+
+
+    bool tryRead(scope void delegate(shared(T)) dg, Duration timeout = 0.usecs)
+    {
+        immutable bool check = _nofity.wait(timeout);
+        if(check) {
+            assert(!*_isNull);
+            dg(*_response);
         }
         return check;
     }
@@ -108,6 +119,7 @@ unittest
 
     int dst;
     assert(!msg1.tryRead(dst));
+    assert(!msg1.tryRead((_){}));
 
     auto thread = new Thread((){
         assert(msg2.read == 2);
@@ -120,6 +132,10 @@ unittest
 
     assert(msg1.tryRead(dst));
     assert(dst == 1);
+
+    bool exec = false;
+    assert(msg1.tryRead((x){ assert(x == 1); exec = true; }));
+    assert(exec);
 }
 
 
