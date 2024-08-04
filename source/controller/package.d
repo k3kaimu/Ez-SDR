@@ -72,6 +72,10 @@ interface IControllerThread
 
 
 
+/**
+このクラスのsynchronizedメソッドは，runメソッドを実行しているスレッドからしか呼び出せません．
+synchronizedではないsharedメソッドは他のスレッドから呼び出される可能性があります．
+*/
 class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
 {
     import std.sumtype;
@@ -324,6 +328,9 @@ unittest
         override synchronized void onFinish() { assert(state == State.RUN); }
         override synchronized void onPause() { assert(state == State.RUN); }
         override synchronized void onResume() { assert(state == State.PAUSE); }
+
+        size_t countCallSync;
+        synchronized void callSync() { countCallSync = countCallSync + 1; }
     }
 
     class TestController : ControllerImpl!TestThread
@@ -383,8 +390,17 @@ unittest
     Thread.sleep(1.msecs);
     assert(executed);
 
+    assert(thread0.countCallSync == 0);
+    thread0.invoke({
+        // callSyncはsynchronizedメソッドのため，
+        // 他のスレッドから呼び出せないのでinvokeの中で呼び出す
+        thread0.callSync();
+    });
+    Thread.sleep(1.msecs);
+    assert(thread0.countCallSync == 1);
+
     ctrl.killDeviceThreads();
     Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.FINISH);
-    assert(ctrl.threadList[1].state == IControllerThread.State.FINISH);;
+    assert(ctrl.threadList[1].state == IControllerThread.State.FINISH);
 }
