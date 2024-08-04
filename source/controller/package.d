@@ -281,6 +281,13 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
             if(stopList[i])
                 _threads[i].pause();
         }
+        scope(exit) {
+            // 止めたスレッドを実行し直す
+            foreach(i; 0 .. _threads.length) {
+                if(stopList[i])
+                    _threads[i].resume();
+            }
+        }
 
         // すべてのスレッドが停止するまで待つ
         foreach(i, t; _threads)
@@ -289,12 +296,6 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 
         // 処理を呼び出す
         dg();
-
-        // 止めたスレッドを実行し直す
-        foreach(i; 0 .. _threads.length) {
-            if(stopList[i])
-                _threads[i].resume();
-        }
     }
 
 
