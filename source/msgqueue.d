@@ -18,12 +18,17 @@ struct NotifiedLazy(T)
     import core.sync.event;
     alias alloc = Mallocator.instance;
 
+    ~this()
+    {
+	this.terminate();
+    }
+
+    @disable this(this);
+    @disable void opAssign(Event);
+
     void initialize()
     {
-        _response = cast(shared)alloc.make!T;
-        _nofity = alloc.make!Event;
-        _isNull = cast(shared)alloc.make!bool;
-        *_isNull = true;
+        _isNull = true;
         _nofity.initialize(true, false);
     }
 
@@ -31,38 +36,31 @@ struct NotifiedLazy(T)
     void terminate()
     {
         _nofity.terminate();
-
-        Mallocator.instance.dispose(cast()_response);
-        _response = null;
-        Mallocator.instance.dispose(cast()_nofity);
-        _nofity = null;
-        Mallocator.instance.dispose(cast()_isNull);
-        _isNull = null;
     }
 
 
-    void write(T value)
+    void write(T value) shared
     {
         // 一度書き込みをすると，それ以降は書き込めない
-        if(!*_isNull) return;
-        *_isNull = false;
-        *cast()_response = value;
+        if(_isNull && cas(&_isNull, true, false)) return;
+        _response = value;
         _nofity.setIfInitialized();
     }
 
 
-    ref shared(T) read()
+    ref shared(T) read() shared
     {
         // 書き込みされるまで読み込めない
-        _nofity.wait();
-        assert(!*_isNull);
-        return *_response;
+        (cast()_nofity).wait();
+        assert(!_isNull);
+        return _response;
     }
 
 
-    bool tryRead(U)(ref U lhs, Duration timeout = 0.usecs)
+    bool tryRead(ref T lhs, Duration timeout = 0.usecs) shared
     {
-        immutable bool check = _nofity.wait(timeout);
+	if(_isNull) return false;
+        immutable bool check = (cast()_nofity).wait(timeout);
         if(check) {
             assert(!*_isNull);
             lhs = *_response;
@@ -77,15 +75,17 @@ struct NotifiedLazy(T)
         if(check) {
             assert(!*_isNull);
             dg(*_response);
+            assert(!_isNull);
+            lhs = _response;
         }
         return check;
     }
 
 
   private:
-    shared(T)* _response;
-    Event* _nofity;
-    shared(bool)* _isNull;
+    T _response;
+    Event _nofity;
+    bool _isNull;
 }
 
 unittest
@@ -136,6 +136,61 @@ unittest
     bool exec = false;
     assert(msg1.tryRead((x){ assert(x == 1); exec = true; }));
     assert(exec);
+}
+
+
+struct TaskEntry
+{
+	void* ptr;
+	bool function(void*) ready;
+	void function(void*) func;
+	void function(void*) finish;
+
+	bool isReady() { return this.ready(this.ptr); }
+	void run() { this.func(ptr); }
+	void terminate() { this.finish(this.ptr); }
+}
+
+
+TaskEntry makeTaskEntry(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
+if(is(typeof(Pred.init(lvalueOf!Value)) : bool) && is(typeof(Callable.init(lvalueOf!Value))))
+{
+	static struct Payload
+	{
+		Value v;
+		Pred ready;
+		Callable fn;
+	}
+
+
+	Payload* ptr = alloc.make!Payload();
+	ptr.v = v;
+	ptr.ready = ready;
+	ptr.fn = fn;
+
+
+	static bool isReady(void* ptr)
+	{
+		auto payload = cast(Payload*)ptr;
+		return payload.ready(payload.v);
+	}
+
+
+	static void task(void* ptr)
+	{
+		auto payload = cast(Payload*)ptr;
+		return payload.fn(payload.v);
+	}
+
+
+	static void finish(void* ptr)
+	{
+		auto payload = cast(Payload*)ptr;
+		alloc.dispose(payload);
+	}
+
+
+	return Entry(ptr, &isReady, &task);
 }
 
 
