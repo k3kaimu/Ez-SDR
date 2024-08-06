@@ -123,6 +123,61 @@ unittest
 }
 
 
+struct TaskEntry
+{
+	void* ptr;
+	bool function(void*) ready;
+	void function(void*) func;
+	void function(void*) finish;
+
+	bool isReady() { return this.ready(this.ptr); }
+	void run() { this.func(ptr); }
+	void terminate() { this.finish(this.ptr); }
+}
+
+
+TaskEntry makeTaskEntry(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
+if(is(typeof(Pred.init(lvalueOf!Value)) : bool) && is(typeof(Callable.init(lvalueOf!Value))))
+{
+	static struct Payload
+	{
+		Value v;
+		Pred ready;
+		Callable fn;
+	}
+
+
+	Payload* ptr = alloc.make!Payload();
+	ptr.v = v;
+	ptr.ready = ready;
+	ptr.fn = fn;
+
+
+	static bool isReady(void* ptr)
+	{
+		auto payload = cast(Payload*)ptr;
+		return payload.ready(payload.v);
+	}
+
+
+	static void task(void* ptr)
+	{
+		auto payload = cast(Payload*)ptr;
+		return payload.fn(payload.v);
+	}
+
+
+	static void finish(void* ptr)
+	{
+		auto payload = cast(Payload*)ptr;
+		alloc.dispose(payload);
+	}
+
+
+	return Entry(ptr, &isReady, &task);
+}
+
+
 final class RequestQueue(Req, Flag!"assumeUnique" assumeUnique = No.assumeUnique,  Allocator = Mallocator)
 {
     import core.lifetime : move;
