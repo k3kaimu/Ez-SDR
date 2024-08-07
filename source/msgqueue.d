@@ -4,11 +4,41 @@ import core.time;
 import core.lifetime : move;
 
 import std.typecons;
+import std.traits;
+
 import lock_free.rwqueue;
 import std.experimental.allocator.mallocator;
 import std.experimental.allocator;
 import automem.vector;
 
+
+enum bool isShareable(T) = isDelegate!T ? is(T == shared(T)) : is(T : shared(T));
+
+unittest
+{
+    static assert(isShareable!int);
+    static assert(isShareable!(shared(int)));
+    static assert(isShareable!(shared(int)*));
+    static assert(isShareable!(immutable(int)[]));
+    static assert(isShareable!(shared(int)[]));
+    static assert(!isShareable!(int*));
+
+    static struct S1(T) { T a; }
+    static assert(isShareable!(S1!int));
+    static assert(isShareable!(shared(int)));
+    static assert(isShareable!(S1!(shared(int)*)));
+    static assert(isShareable!(S1!(immutable(int)[])));
+    static assert(!isShareable!(S1!(int*)));
+
+    static class C1 {}
+    static assert(!isShareable!(C1));
+    static assert(isShareable!(immutable(C1)));
+    static assert(isShareable!(shared(C1)));
+
+    static assert(isShareable!(void function()));
+    static assert(isShareable!(shared(void delegate())));
+    static assert(!isShareable!(void delegate()));
+}
 
 
 /** 単一スレッドからの書き込みと，単一スレッドからの読み込みを許す通知付きオブジェクト．
@@ -297,18 +327,21 @@ struct Disposer
 
 
     void push(T)(T value) shared
+    if(isShareable!T)
     {
         _list.push(cast(shared)Task.new_(move(value), function(ref T v){ return true; }, function(ref T v){}));
     }
 
 
     void push(T, Pred)(T value, Pred ready) shared
+    if(isShareable!T && isShareable!Pred && !isDelegate!Pred)
     {
         _list.push(cast(shared)Task.new_(move(value), move(ready), function(ref T v){}));
     }
 
 
     void push(T, Pred, Callable)(T value, Pred ready, Callable finalize) shared
+    if(isShareable!T && isShareable!Pred && isShareable!Callable)
     {
         _list.push(cast(shared)Task.new_(move(value), move(ready), move(finalize)));
     }
@@ -362,12 +395,12 @@ unittest
 {
     static struct TestData
     {
-        int* ptr;
+        shared(int)* ptr;
         @disable this(this);
-        ~this(){ if(ptr) ++(*ptr); }
+        ~this(){ if(ptr) (*ptr) = (*ptr) + 1; }
     }
 
-    int* p1 = new int;
+    shared(int)* p1 = new int;
     TestData data1 = TestData(p1);
 
     shared(Disposer) list;
