@@ -75,6 +75,7 @@ void eventIOLoop(C, Alloc)(
 
             Lconnect: while(!stop_signal_called) {
                 try {
+                    Disposer.tryDisposeAll();
                     writeln("PLEASE COMMAND");
 
                     auto client = socket.accept();
