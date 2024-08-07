@@ -232,14 +232,14 @@ struct TaskImpl(PtrType = void*)
 
     static
     TaskImpl make(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
-if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
+    if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
     {
         static struct Payload {
             Value v;
             Pred ready;
             Callable fn;
         }
-static assert(is(PtrType == void*) || isShareable!Payload);
+        static assert(is(PtrType == void*) || isShareable!Payload);
 
         static bool readyImpl(PtrType ptr) {
             auto payload = cast(Payload*)ptr;
@@ -267,7 +267,7 @@ static assert(is(PtrType == void*) || isShareable!Payload);
 
     static
     TaskImpl* new_(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
-if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
+    if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
     {
         TaskImpl instance = TaskImpl.make(move(v), move(ready), move(fn));
         TaskImpl* ptr = alloc.make!TaskImpl();
@@ -442,6 +442,74 @@ unittest
     *p1 = 1;
     assert(list.tryDisposeAll() == 1);
     assert(*p1 == 101);
+}
+
+
+struct SharedTaskList
+{
+    import std.meta : allSatisfy;
+
+    void push(Callable, T...)(Callable func, T args) shared
+    if(isShareable!Callable && allSatisfy!(isShareable, T))
+    {
+        static struct TaskImpl { Callable func; T args; }
+        static bool readyImpl(ref TaskImpl) { return true; }
+        static void runImpl(ref TaskImpl impl) { impl.func(impl.args); }
+
+        TaskImpl value;
+        move(func, value.func);
+        static foreach(i, E; T)
+            move(args[i], value.args[i]);
+
+        _list.push(cast(shared)SharedTask.new_(value, &readyImpl, &runImpl));
+    }
+
+
+    void processFront() shared
+    {
+        if(_list.empty()) return;
+
+        SharedTask* task = cast(SharedTask*)_list.pop();
+        task.run();
+        SharedTask.dispose(task);
+    }
+
+
+    size_t processAll() shared
+    {
+        size_t cnt = 0;
+        immutable len = _list.length;
+        foreach(i; 0 .. len) {
+            if(_list.empty) return cnt;
+            this.processFront();
+            ++cnt;
+        }
+
+        return cnt;
+    }
+
+  private:
+    RWQueue!(SharedTask*) _list;
+}
+
+unittest
+{
+    shared(SharedTaskList) list;
+
+    shared(int)* p1 = new int;
+    list.push((shared(int)* a){ *a = *a + 1; }, p1);
+    assert(*p1 == 0);
+    assert(list.processAll() == 1);
+    assert(*p1 == 1);
+
+    shared(int)* p2 = new int;
+    *p2 = 3;
+    list.push((shared(int)* a, shared(int)* b) { *a = *b; }, p1, p2);
+    assert(*p1 == 1);
+    assert(*p2 == 3);
+    assert(list.processAll() == 1);
+    assert(*p1 == 3);
+    assert(*p2 == 3);
 }
 
 
