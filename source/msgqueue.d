@@ -1,6 +1,7 @@
 module msgqueue;
 
 import core.time;
+import core.lifetime : move;
 
 import std.typecons;
 import lock_free.rwqueue;
@@ -176,68 +177,231 @@ unittest
 }
 
 
-struct TaskEntry
-{
-    void* ptr;
-    bool function(void*) ready;
-    void function(void*) func;
-    void function(void*) finish;
-
-    bool isReady() { return this.ready(this.ptr); }
-    void run() { this.func(ptr); }
-    void terminate() { this.finish(this.ptr); }
-}
-
-
-TaskEntry makeTaskEntry(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
-if(is(typeof(Pred.init(lvalueOf!Value)) : bool) && is(typeof(Callable.init(lvalueOf!Value))))
+struct TaskImpl(PtrType = void*)
 {
     import std.experimental.allocator.mallocator;
     import std.experimental.allocator;
     alias alloc = Mallocator.instance;
 
-    static struct Payload
+
+    @disable this(this);
+    @disable void opAssign(TaskImpl);
+
+
+    ~this()
     {
-        Value v;
-        Pred ready;
-        Callable fn;
+        if(this._ptr !is null) {
+            this._terminate(this._ptr);
+            this._ptr = null;
+            _ready = null;
+            _task = null;
+            _terminate = null;
+        }
     }
 
 
-    Payload* ptr = alloc.make!Payload();
-    ptr.v = v;
-    ptr.ready = ready;
-    ptr.fn = fn;
-
-
-    static bool isReady(void* ptr)
+    static
+    TaskImpl make(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
     {
-        auto payload = cast(Payload*)ptr;
-        return payload.ready(payload.v);
+        static struct Payload {
+            Value v;
+            Pred ready;
+            Callable fn;
+        }
+
+        static bool readyImpl(PtrType ptr) {
+            auto payload = cast(Payload*)ptr;
+            return payload.ready(payload.v);
+        }
+
+        static void taskImpl(PtrType ptr) {
+            auto payload = cast(Payload*)ptr;
+            return payload.fn(payload.v);
+        }
+
+        static void terminateImpl(PtrType ptr) {
+            auto payload = cast(Payload*)ptr;
+            alloc.dispose(payload);
+        }
+
+        Payload* ptr = alloc.make!Payload();
+        move(v, ptr.v);
+        move(ready, ptr.ready);
+        move(fn, ptr.fn);
+
+        return TaskImpl(ptr, &readyImpl, &taskImpl, &terminateImpl);
     }
 
 
-    static void task(void* ptr)
+    static
+    TaskImpl* new_(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
     {
-        auto payload = cast(Payload*)ptr;
-        return payload.fn(payload.v);
+        TaskImpl instance = TaskImpl.make(move(v), move(ready), move(fn));
+        TaskImpl* ptr = alloc.make!TaskImpl();
+        move(instance, *ptr);
+        return ptr;
     }
 
 
-    static void finish(void* ptr)
+    static
+    void dispose(TaskImpl* ptr)
     {
-        auto payload = cast(Payload*)ptr;
-        alloc.dispose(payload);
+        alloc.dispose(ptr);
     }
 
 
-    return Entry(ptr, &isReady, &task);
+    bool isReady() { return this._ready(this._ptr); }
+    void run() { this._task(_ptr); }
+
+  private:
+    PtrType _ptr;
+    bool function(PtrType) _ready;
+    void function(PtrType) _task;
+    void function(PtrType) _terminate;
+}
+
+alias Task = TaskImpl!(void*);
+
+unittest
+{
+    bool ready = false;
+    bool done = false;
+    Task task = Task.make(1, (int) => ready, (int){ done = true; });
+
+    assert(!task.isReady());
+    ready = true;
+    assert(task.isReady());
+    task.run();
+    assert(done);
+}
+
+
+struct Disposer
+{
+    import core.thread;
+
+
+    @disable this(this);
+    @disable void opAssign(Disposer);
+
+
+    ~this() shared
+    {
+        this.tryDisposeAll();
+        if(&this !is Disposer.instance) {
+            while(!_list.empty()) {
+                Disposer.instance.push(_list.pop());
+            }
+        }
+    }
+
+
+    void push(T)(T value) shared
+    {
+        _list.push(cast(shared)Task.new_(move(value), function(ref T v){ return true; }, function(ref T v){}));
+    }
+
+
+    void push(T, Pred)(T value, Pred ready) shared
+    {
+        _list.push(cast(shared)Task.new_(move(value), move(ready), function(ref T v){}));
+    }
+
+
+    void push(T, Pred, Callable)(T value, Pred ready, Callable finalize) shared
+    {
+        _list.push(cast(shared)Task.new_(move(value), move(ready), move(finalize)));
+    }
+
+
+    bool tryDisposeFront() shared
+    {
+        if(_list.empty) return false;
+
+        Task* task = cast(Task*)_list.pop();
+        if(task.isReady()) {
+            task.run();
+            Task.dispose(task);
+            return true;
+        } else {
+            _list.push(cast(shared)task);
+            return false;
+        }
+    }
+
+
+    size_t tryDisposeAll() shared
+    {
+        size_t cnt = 0;
+        immutable len = _list.length;
+        foreach(i; 0 .. len) {
+            if(_list.empty) return cnt;
+            if(this.tryDisposeFront())
+                ++cnt;
+        }
+
+        return cnt;
+    }
+
+
+    static
+    shared(Disposer)* instance()
+    {
+        return &_instance;
+    }
+
+
+  private:
+    RWQueue!(Task*) _list;
+
+    shared static Disposer _instance;
 }
 
 
 unittest
 {
-    
+    static struct TestData
+    {
+        int* ptr;
+        @disable this(this);
+        ~this(){ if(ptr) ++(*ptr); }
+    }
+
+    int* p1 = new int;
+    TestData data1 = TestData(p1);
+
+    shared(Disposer) list;
+    list.push(move(data1));
+
+    assert(*p1 == 0);
+    assert(!list._list.empty);
+    assert(list.tryDisposeFront());
+    assert(*p1 == 1);
+    assert(list._list.empty);
+
+    TestData data2 = TestData(p1);
+    *p1 = 0;
+    list.push(move(data2), function(ref TestData d) { return *(d.ptr) == 1; });
+    assert(*p1 == 0);
+    assert(!list._list.empty);
+    assert(!list.tryDisposeFront());
+    assert(*p1 == 0);
+    assert(!list._list.empty);
+
+    *p1 = 1;
+    assert(*p1 == 1);
+    assert(!list._list.empty);
+    assert(list.tryDisposeFront());
+    assert(*p1 == 2);
+    assert(list._list.empty);
+
+
+    TestData data3 = TestData(p1);
+    list.push(move(data3), function(ref TestData d) { return *(d.ptr) == 1; }, function(ref TestData d) { *(d.ptr) = 100; });
+    assert(list.tryDisposeAll() == 0);
+    *p1 = 1;
+    assert(list.tryDisposeAll() == 1);
+    assert(*p1 == 101);
 }
 
 
