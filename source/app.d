@@ -46,6 +46,7 @@ import receiver;
 import msgqueue;
 import controller;
 import device;
+import dispatcher;
 
 import std.experimental.allocator;
 
@@ -180,8 +181,9 @@ void mainImpl(C)(JSONValue[string] settings){
         }
 
         try {
+            MessageDispatcher dispatcher = new MessageDispatcher(devs, ctrls);
             // イベントループを始める
-            eventIOLoop!C(stop_signal_called, cast(short)settings["port"].integer, theAllocator, ctrls);
+            eventIOLoop!C(stop_signal_called, cast(short)settings["port"].integer, theAllocator, dispatcher);
         }
         catch(Exception ex){
             writeln(ex);
