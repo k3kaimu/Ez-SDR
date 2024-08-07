@@ -232,12 +232,14 @@ struct TaskImpl(PtrType = void*)
 
     static
     TaskImpl make(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
+if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
     {
         static struct Payload {
             Value v;
             Pred ready;
             Callable fn;
         }
+static assert(is(PtrType == void*) || isShareable!Payload);
 
         static bool readyImpl(PtrType ptr) {
             auto payload = cast(Payload*)ptr;
@@ -259,12 +261,13 @@ struct TaskImpl(PtrType = void*)
         move(ready, ptr.ready);
         move(fn, ptr.fn);
 
-        return TaskImpl(ptr, &readyImpl, &taskImpl, &terminateImpl);
+        return TaskImpl(cast(PtrType)ptr, &readyImpl, &taskImpl, &terminateImpl);
     }
 
 
     static
     TaskImpl* new_(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
+if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
     {
         TaskImpl instance = TaskImpl.make(move(v), move(ready), move(fn));
         TaskImpl* ptr = alloc.make!TaskImpl();
@@ -291,6 +294,7 @@ struct TaskImpl(PtrType = void*)
 }
 
 alias Task = TaskImpl!(void*);
+alias SharedTask = TaskImpl!(shared(void)*);
 
 unittest
 {
@@ -303,6 +307,9 @@ unittest
     assert(task.isReady());
     task.run();
     assert(done);
+
+    static assert(!isShareable!Task);
+    static assert(isShareable!SharedTask);
 }
 
 
@@ -329,21 +336,21 @@ struct Disposer
     void push(T)(T value) shared
     if(isShareable!T)
     {
-        _list.push(cast(shared)Task.new_(move(value), function(ref T v){ return true; }, function(ref T v){}));
+        _list.push(cast(shared)SharedTask.new_(move(value), function(ref T v){ return true; }, function(ref T v){}));
     }
 
 
     void push(T, Pred)(T value, Pred ready) shared
     if(isShareable!T && isShareable!Pred && !isDelegate!Pred)
     {
-        _list.push(cast(shared)Task.new_(move(value), move(ready), function(ref T v){}));
+        _list.push(cast(shared)SharedTask.new_(move(value), move(ready), function(ref T v){}));
     }
 
 
     void push(T, Pred, Callable)(T value, Pred ready, Callable finalize) shared
     if(isShareable!T && isShareable!Pred && isShareable!Callable)
     {
-        _list.push(cast(shared)Task.new_(move(value), move(ready), move(finalize)));
+        _list.push(cast(shared)SharedTask.new_(move(value), move(ready), move(finalize)));
     }
 
 
@@ -351,10 +358,10 @@ struct Disposer
     {
         if(_list.empty) return false;
 
-        Task* task = cast(Task*)_list.pop();
+        SharedTask* task = cast(SharedTask*)_list.pop();
         if(task.isReady()) {
             task.run();
-            Task.dispose(task);
+            SharedTask.dispose(task);
             return true;
         } else {
             _list.push(cast(shared)task);
@@ -385,7 +392,7 @@ struct Disposer
 
 
   private:
-    RWQueue!(Task*) _list;
+    RWQueue!(SharedTask*) _list;
 
     shared static Disposer _instance;
 }
