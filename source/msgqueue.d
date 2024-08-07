@@ -60,7 +60,7 @@ struct NotifiedLazy(T)
 
 
     @disable this(this);
-    @disable void opAssign(Event);
+    @disable void opAssign(NotifiedLazy);
 
 
     void initialize()
@@ -192,6 +192,10 @@ struct TaskEntry
 TaskEntry makeTaskEntry(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
 if(is(typeof(Pred.init(lvalueOf!Value)) : bool) && is(typeof(Callable.init(lvalueOf!Value))))
 {
+    import std.experimental.allocator.mallocator;
+    import std.experimental.allocator;
+    alias alloc = Mallocator.instance;
+
     static struct Payload
     {
         Value v;
@@ -228,6 +232,12 @@ if(is(typeof(Pred.init(lvalueOf!Value)) : bool) && is(typeof(Callable.init(lvalu
 
 
     return Entry(ptr, &isReady, &task);
+}
+
+
+unittest
+{
+    
 }
 
 
