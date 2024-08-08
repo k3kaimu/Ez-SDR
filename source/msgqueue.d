@@ -308,7 +308,6 @@ unittest
     fp(cnt, 1);
     fp(cnt, 2);
     assert(cnt == 3);
-    pragma(msg, typeof(fp).sizeof);
     assert(typeof(fp).sizeof == 1);
 }
 
@@ -519,14 +518,14 @@ struct Disposer
     void push(T)(T value) shared
     if(isShareable!T)
     {
-        _list.push(SharedTask.make(move(value), function(ref T v){ return true; }, function(ref T v){}));
+        _list.push(SharedTask.make(move(value), lwfp!((ref _) => true), lwfp!((ref _){})));
     }
 
 
     void push(T, Pred)(T value, Pred ready) shared
     if(isShareable!T && isShareable!Pred && !isDelegate!Pred)
     {
-        _list.push(SharedTask.make(move(value), move(ready), function(ref T v){}));
+        _list.push(SharedTask.make(move(value), move(ready), lwfp!((ref _){})));
     }
 
 
@@ -658,7 +657,7 @@ struct SharedTaskList
         static foreach(i, E; T)
             move(args[i], value.args[i]);
 
-        _list.push(SharedTask.make(value, &readyImpl, &runImpl));
+        _list.push(SharedTask.make(value, lwfp!readyImpl, lwfp!runImpl));
     }
 
 
