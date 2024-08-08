@@ -28,7 +28,6 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     this()
     {
         super();
-        _list = SharedTaskList();
     }
 
 
@@ -95,7 +94,6 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
   private:
     bool isStreaming = false;
     bool isPaused = false;
-    shared(SharedTaskList) _list;
 }
 
 

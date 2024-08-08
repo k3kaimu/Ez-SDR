@@ -158,6 +158,9 @@ if(isShareable!T)
     }
 
 
+    size_t length() shared const { return _wpos - _rpos; }
+
+
     bool push(T item) shared
     {
         immutable wpos = _wpos.atomicLoad!(MemoryOrder.raw);
@@ -212,6 +215,8 @@ unittest
         size_t numTry = (i + 100)^^2 % 1024;
         foreach(n; 0 .. numTry)
             assert(queue.push(n));
+
+        assert(queue.length == numTry);
 
         foreach(n; 0 .. numTry) {
             assert(queue.pop(result));
@@ -729,7 +734,7 @@ unittest
 }
 
 
-struct SharedTaskList
+struct SharedTaskList(Flag!"locked" locked = Yes.locked)
 {
     import std.meta : allSatisfy;
 
@@ -739,10 +744,15 @@ struct SharedTaskList
 
 
     static
-    SharedTaskList opCall()
+    SharedTaskList opCall(size_t size = 4096 / SharedTask.sizeof)
     {
         SharedTaskList inst;
-        inst._list = new LockQueue!(SharedTask)(1024);
+
+        static if(locked)
+            inst._list = new LockQueue!(SharedTask)(size);
+        else
+            inst._list = new LockFreeSPSCQueue!(SharedTask)(size);
+
         return inst;
     }
 
@@ -791,12 +801,35 @@ struct SharedTaskList
     }
 
   private:
+  static if(locked)
     shared(LockQueue!(SharedTask)) _list;
+  else
+    shared(LockFreeSPSCQueue!(SharedTask)) _list;
 }
 
 unittest
 {
-    shared(SharedTaskList) list = SharedTaskList();
+    shared(SharedTaskList!(Yes.locked)) list = SharedTaskList!(Yes.locked)();
+
+    shared(int)* p1 = new int;
+    list.push((shared(int)* a){ *a = *a + 1; }, p1);
+    assert(*p1 == 0);
+    assert(list.processAll() == 1);
+    assert(*p1 == 1);
+
+    shared(int)* p2 = new int;
+    *p2 = 3;
+    list.push((shared(int)* a, shared(int)* b) { *a = *b; }, p1, p2);
+    assert(*p1 == 1);
+    assert(*p2 == 3);
+    assert(list.processAll() == 1);
+    assert(*p1 == 3);
+    assert(*p2 == 3);
+}
+
+unittest
+{
+    shared list = SharedTaskList!(No.locked)();
 
     shared(int)* p1 = new int;
     list.push((shared(int)* a){ *a = *a + 1; }, p1);

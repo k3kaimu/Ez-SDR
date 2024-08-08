@@ -6,6 +6,7 @@ import core.lifetime;
 import std.complex;
 import std.socket;
 import std.json;
+import std.typecons;
 
 import device;
 import utils;
@@ -96,7 +97,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     {
         _killSwitch = false;
         _resumeEvent.initialize(true, true);
-        _taskList = SharedTaskList();
+        _taskList = SharedTaskList!(No.locked)();
         _thread = new Thread(() { (cast(shared)this).run(); });
     }
 
@@ -208,7 +209,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     Thread _thread;
     bool _killSwitch;
     Event _resumeEvent;
-    shared(SharedTaskList) _taskList;
+    shared(SharedTaskList!(No.locked)) _taskList;
     shared(DeviceType)[] _devs;
     State _state;
 }
