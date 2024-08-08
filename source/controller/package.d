@@ -319,12 +319,12 @@ unittest
     {
         size_t count;
         this() { super(); }
-        override synchronized void onInit() {}
-        override synchronized void onRunTick() { count = count + 1; }
-        override synchronized void onStart() { assert(state == State.PAUSE); }
-        override synchronized void onFinish() { assert(state == State.RUN); }
-        override synchronized void onPause() { assert(state == State.RUN); }
-        override synchronized void onResume() { assert(state == State.PAUSE); }
+        override void onInit(DontCallOnOtherThread) shared {}
+        override void onRunTick(DontCallOnOtherThread) shared { count = count + 1; }
+        override void onStart(DontCallOnOtherThread) shared { assert(state == State.PAUSE); }
+        override void onFinish(DontCallOnOtherThread) shared { assert(state == State.RUN); }
+        override void onPause(DontCallOnOtherThread) shared { assert(state == State.RUN); }
+        override void onResume(DontCallOnOtherThread) shared { assert(state == State.PAUSE); }
 
         size_t countCallSync;
         synchronized void callSync() { countCallSync = countCallSync + 1; }
