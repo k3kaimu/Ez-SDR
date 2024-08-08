@@ -23,12 +23,14 @@ extern(C++, "uhd_usrp_tx_burst")
     void setNextCommandTime(DeviceHandler handler, long fullsecs, double fracsecs);
     void beginBurstTransmit(DeviceHandler handler);
     void endBurstTransmit(DeviceHandler handler);
-    void burstTransmit(DeviceHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
+    ulong burstTransmit(DeviceHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
 }
 
 
 class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
 {
+    import core.internal.spinlock : SpinLock;
+
     this(){}
 
     void construct(){}
@@ -40,70 +42,99 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!
 
     void setup(JSONValue[string] configJSON)
     {
+        spinLock = shared(SpinLock)(SpinLock.Contention.brief);
         this.handler = setupDevice(JSONValue(configJSON).toString().toStringz());
     }
 
 
-    synchronized size_t numTxStreamImpl() { return .numTxStream(cast()this.handler); }
+    size_t numTxStreamImpl() shared
+    {
+        spinLock.lock();
+        scope(exit) spinLock.unlock();        
+
+        return .numTxStream(cast()this.handler);
+    }
+
+
     size_t numRxStreamImpl() shared { return 0; }
 
 
-    synchronized
-    void setParam(const(char)[] key, const(char)[] value)
+    void setParam(const(char)[] key, const(char)[] value) shared
     {
         assert(0, "this is not implemented.");
     }
 
 
-    synchronized
-    const(char)[] getParam(const(char)[] key) { assert(0, "this is not implemented."); return null; }
+    const(char)[] getParam(const(char)[] key) shared { assert(0, "this is not implemented."); return null; }
 
 
-    synchronized
-    void setTimeNextPPS(DeviceTime t)
+    void setTimeNextPPS(DeviceTime t) shared
     {
+        spinLock.lock();
+        scope(exit) spinLock.unlock();     
+
         .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
     }
 
 
-    synchronized
-    DeviceTime getTimeLastPPS()
+    DeviceTime getTimeLastPPS() shared
     {
+        spinLock.lock();
+        scope(exit) spinLock.unlock();     
+
         DeviceTime t;
         .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
         return t;
     }
 
 
-    synchronized
-    void setNextCommandTime(DeviceTime t)
+    void setNextCommandTime(DeviceTime t) shared
     {
+        spinLock.lock();
+        scope(exit) spinLock.unlock();     
+
         .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
     }
 
 
-    synchronized
-    void beginBurstTransmit()
+    void beginBurstTransmit() shared
     {
+        spinLock.lock();
+        scope(exit) spinLock.unlock();   
+
         .beginBurstTransmit(cast()this.handler);
     }
 
 
-    synchronized
-    void endBurstTransmit()
+    void endBurstTransmit() shared
     {
+        spinLock.lock();
+        scope(exit) spinLock.unlock();   
+
         .endBurstTransmit(cast()this.handler);
     }
 
 
-    synchronized
-    void burstTransmit(scope const Complex!float[][] signals)
+    void burstTransmit(scope const Complex!float[][] signals) shared
     {
-        const(void)*[128] _tmp;
+        const(Complex!float)*[128] _tmp;
         foreach(i; 0 .. signals.length)
-            _tmp[i] = cast(const(void)*)signals[i].ptr;
+            _tmp[i] = signals[i].ptr;
 
-        .burstTransmit(cast()this.handler, _tmp.ptr, (Complex!float).sizeof, signals[0].length);
+        size_t remain = signals[0].length;
+        while(remain != 0) {
+            size_t num;
+            {
+                spinLock.lock();
+                scope(exit) spinLock.unlock();
+                num = .burstTransmit(cast()this.handler, cast(const(void)**)_tmp.ptr, (Complex!float).sizeof, signals[0].length);
+            }
+
+            foreach(i; 0 .. signals.length)
+                _tmp[i] += num;
+            
+            remain -= num;
+        }
     }
 
 
@@ -112,6 +143,7 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!
 
   private:
     DeviceHandler handler;
+    shared(SpinLock) spinLock;
 }
 
 unittest

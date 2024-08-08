@@ -224,31 +224,22 @@ template <typename T, size_t N> using StaticArray = T[N];
 template <typename T> using Const = std::add_const<T>::type;
 template <typename T> using Ptr = std::add_pointer<T>::type;
 
-void burstTransmit(DeviceHandler handler, void const* const* signals, uint64_t sample_size, uint64_t num_samples)
+uint64_t burstTransmit(DeviceHandler handler, void const* const* signals, uint64_t sample_size, uint64_t num_samples)
 {
     auto dev = handler.dev;
 
     for(size_t i = 0; i < dev->buffptrs.size(); ++i)
         dev->buffptrs[i] = reinterpret_cast<std::complex<float> const*>(signals[i]);
 
-    int64_t remain = num_samples;
-    while(remain != 0) {
-        size_t num = dev->streamer->send(dev->buffptrs, remain, dev->md, 0.1);
+    uint64_t num = dev->streamer->send(dev->buffptrs, num_samples, dev->md, 0.01);
 
-        if(num > 0) {
-            dev->md.has_time_spec = false;
-            dev->md.start_of_burst = false;
-
-            for(size_t i = 0; i < dev->buffptrs.size(); ++i)
-                dev->buffptrs[i] += num;
-
-            remain -= num;
-            if(remain == 0)
-                return;
-        } else {
-            std::cout << "[tx_burst.cpp] Cannot transmit from USRP" << std::endl;
-        }
+    if(num > 0) {
+        dev->md.has_time_spec = false;
+        dev->md.start_of_burst = false;
+    } else {
+        std::cout << "[tx_burst.cpp] Cannot transmit from USRP" << std::endl;
     }
+    return num;
 }
 
 
