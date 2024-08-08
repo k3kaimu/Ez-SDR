@@ -56,15 +56,15 @@ class LoopTransmitter:
             msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
             msg += sigdatafmt.arrayToBytes(signals, np.complex64)
         
-        self.client.sendMsg(msg)
+        self.client.sendMsg(self.target, msg)
     
     def startTransmit(self):
         msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
-        self.client.sendMsg(msg)
+        self.client.sendMsg(self.target, msg)
 
     def stopTransmit(self):
         msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
-        self.client.sendMsg(msg)
+        self.client.sendMsg(self.target, msg)
     
     def transmit(self, signals):
         self.setTransmitSignal(signals)

@@ -6,13 +6,13 @@ import numpy as np
 
 # サーバーIPとポート番号
 IPADDR = "127.0.0.1";
-PORT = 8889;
+PORT = 8888;
 
 
 with multiusrp.ClientV3(IPADDR, PORT) as usrp:
     while True:
         target = input("Target ID: ");
-        cmd = input("Transmit, Receive, or Quit (t/r/q): ");
+        cmd = input("Transmit, Receive, StopTransmit, or Quit (t/r/st/q): ");
 
         looper = multiusrp.LoopTransmitter(usrp, "TX0")
 
@@ -29,6 +29,9 @@ with multiusrp.ClientV3(IPADDR, PORT) as usrp:
 
             looper.transmit(signals)
             print("Done")
+
+        if cmd.startswith("st"):
+            looper.stopTransmit()
 
         # elif cmd.startswith("r"):
 
