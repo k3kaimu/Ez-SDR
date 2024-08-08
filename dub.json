@@ -12,8 +12,8 @@
 		"automem": "~>0.6.9"
 	},
 	"preBuildCommands": [
-        "clang++ -std=c++20 -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
-		"clang++ -std=c++20 -c cpp/uhd_usrp/tx_burst.cpp",
+        "clang++ -std=c++20 -O2 -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
+		"clang++ -std=c++20 -O2 -c cpp/uhd_usrp/tx_burst.cpp",
     ],
 	"sourceFiles": [
 		"looptx_rfnoc_replay_block.o",

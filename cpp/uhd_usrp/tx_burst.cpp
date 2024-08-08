@@ -80,6 +80,7 @@ DeviceHandler setupDevice(char const* configJSON)
     std::cout << std::endl;
     std::cout << "Creating the usrp device" << std::endl;
     uhd::usrp::multi_usrp::sptr usrp = uhd::usrp::multi_usrp::make(args);
+    dev->usrp = usrp;
 
     // Lock mboard clocks
     if (clockref.size() > 0) {
@@ -152,6 +153,10 @@ DeviceHandler setupDevice(char const* configJSON)
     dev->streamer = tx_stream;
     dev->buffptrs.resize(channels.size());
 
+    uhd::tx_metadata_t md;
+    md.has_time_spec = false;
+    dev->md = md;
+
     DeviceHandler ret;
     ret.dev = dev;
     return ret;
@@ -196,7 +201,10 @@ void setNextCommandTime(DeviceHandler handler, int64_t fullsecs, double fracsecs
 
 void beginBurstTransmit(DeviceHandler handler)
 {
-    handler.dev->md.start_of_burst = true;
+    auto dev = handler.dev;
+
+    dev->md.start_of_burst = true;
+    dev->md.end_of_burst = false;
 }
 
 
@@ -224,8 +232,8 @@ void burstTransmit(DeviceHandler handler, void const* const* signals, uint64_t s
         dev->buffptrs[i] = reinterpret_cast<std::complex<float> const*>(signals[i]);
 
     int64_t remain = num_samples;
-    while(1) {
-        size_t num = dev->streamer->send(dev->buffptrs, remain, dev->md);
+    while(remain != 0) {
+        size_t num = dev->streamer->send(dev->buffptrs, remain, dev->md, 0.1);
 
         if(num > 0) {
             dev->md.has_time_spec = false;
