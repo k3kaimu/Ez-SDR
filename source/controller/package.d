@@ -1,6 +1,7 @@
 module controller;
 
 import core.thread;
+import core.lifetime;
 
 import std.complex;
 import std.socket;
@@ -98,9 +99,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     {
         _killSwitch = false;
         _resumeEvent.initialize(true, true);
-
-        _queue = new Message.Queue;
-
+        _taskList = SharedTaskList();
         _thread = new Thread(() { (cast(shared)this).run(); });
     }
 
@@ -130,22 +129,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
         _state = State.RUN;
 
         while(!_killSwitch) {
-            while(!_queue.emptyRequest()) {
-                auto req = _queue.popRequest();
-                req.match!(
-                    (Message.Pause) {
-                        this.onPause();
-                        _state = State.PAUSE;
-                        (cast()_resumeEvent).wait();
-                        this.onResume();
-                        _state = State.RUN;
-                    },
-                    (Message.Invoke r) {
-                        r.dg();
-                    }
-                );
-            }
-
+            _taskList.processAll();
             this.onRunTick();
         }
         this.onFinish();
@@ -193,7 +177,13 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     void pause() shared
     {
         (cast()_resumeEvent).reset();
-        _queue.pushRequest(Message.Types(Message.Pause()));
+        this.invoke(function(shared(ControllerThreadImpl) _this){
+            _this.onPause();
+            _this._state = State.PAUSE;
+            (cast()_this._resumeEvent).wait();
+            _this.onResume();
+            _this._state = State.RUN;
+        });
     }
 
 
@@ -203,9 +193,9 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     }
 
 
-    void invoke(void delegate() dg) shared
+    void invoke(this T, Callable, U...)(Callable fn, auto ref U args) shared
     {
-        _queue.pushRequest(Message.Types(Message.Invoke(dg)));
+        _taskList.push(fn, cast(shared(T))this, forward!args);
     }
 
 
@@ -213,7 +203,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     Thread _thread;
     bool _killSwitch;
     Event _resumeEvent;
-    shared(Message.Queue) _queue;
+    shared(SharedTaskList) _taskList;
     shared(DeviceType)[] _devs;
     State _state;
 }
@@ -385,7 +375,7 @@ unittest
 
     executed = false;
     auto thread0 = ctrl.threadList[0];
-    thread0.invoke({
+    thread0.invoke(cast(shared)delegate(shared(TestThread) thread0){
         assert(thread0.state == IControllerThread.State.RUN);
         executed = true;
     });
@@ -393,13 +383,20 @@ unittest
     assert(executed);
 
     assert(thread0.countCallSync == 0);
-    thread0.invoke({
+    thread0.invoke(function(shared(TestThread) thread0){
         // callSyncはsynchronizedメソッドのため，
         // 他のスレッドから呼び出せないのでinvokeの中で呼び出す
         thread0.callSync();
     });
     Thread.sleep(1.msecs);
     assert(thread0.countCallSync == 1);
+
+    thread0.invoke(function(shared(TestThread) thread0, size_t num){
+        foreach(i; 0 .. num)
+            thread0.callSync();
+    }, 10);
+    Thread.sleep(1.msecs);
+    assert(thread0.countCallSync == 11);
 
     ctrl.killDeviceThreads();
     Thread.sleep(1.msecs);
