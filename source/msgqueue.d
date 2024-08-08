@@ -546,6 +546,9 @@ struct SharedTaskList
     }
 
 
+    size_t length() shared const { return _list.length; }
+
+
     void push(Callable, T...)(Callable func, T args) shared
     if(isShareable!Callable && allSatisfy!(isShareable, T))
     {

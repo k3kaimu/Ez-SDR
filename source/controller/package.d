@@ -129,7 +129,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
         _state = State.RUN;
 
         while(!_killSwitch) {
-            _taskList.processAll();
+            if(_taskList.length) _taskList.processAll();
             this.onRunTick(tag);
         }
         this.onFinish(tag);
