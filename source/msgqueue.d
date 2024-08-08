@@ -51,6 +51,15 @@ if(isShareable!T)
     }
 
 
+    synchronized size_t length() const
+    {
+        if(_wpos < _rpos)
+            return (_wpos + _data.length) - _rpos;
+        else
+            return _wpos - _rpos;
+    }
+
+
     synchronized bool pop(out T result)
     {
         if(_rpos == _wpos) return false;
@@ -69,7 +78,7 @@ if(isShareable!T)
 
             if(_wpos < _rpos) {
                 foreach(i; 0 .. _wpos)
-                    move(_data[i], _data[oldlen + i]);
+                    move(cast()_data[i], cast()_data[oldlen + i]);
 
                 _wpos = oldlen + _wpos;
             }
@@ -388,12 +397,23 @@ struct Disposer
     @disable void opAssign(Disposer);
 
 
+    static
+    Disposer opCall()
+    {
+        Disposer inst;
+        inst._list = new LockQueue!(SharedTask)(1024);
+        return inst;
+    }
+
+
     ~this() shared
     {
         this.tryDisposeAll();
         if(&this !is Disposer.instance) {
-            while(!_list.empty()) {
-                Disposer.instance.push(_list.pop());
+            while(1) {
+                SharedTask task;
+                if(!_list.pop(task)) break;
+                Disposer.instance.push(move(task));
             }
         }
     }
@@ -402,35 +422,34 @@ struct Disposer
     void push(T)(T value) shared
     if(isShareable!T)
     {
-        _list.push(cast(shared)SharedTask.new_(move(value), function(ref T v){ return true; }, function(ref T v){}));
+        _list.push(SharedTask.make(move(value), function(ref T v){ return true; }, function(ref T v){}));
     }
 
 
     void push(T, Pred)(T value, Pred ready) shared
     if(isShareable!T && isShareable!Pred && !isDelegate!Pred)
     {
-        _list.push(cast(shared)SharedTask.new_(move(value), move(ready), function(ref T v){}));
+        _list.push(SharedTask.make(move(value), move(ready), function(ref T v){}));
     }
 
 
     void push(T, Pred, Callable)(T value, Pred ready, Callable finalize) shared
     if(isShareable!T && isShareable!Pred && isShareable!Callable)
     {
-        _list.push(cast(shared)SharedTask.new_(move(value), move(ready), move(finalize)));
+        _list.push(SharedTask.make(move(value), move(ready), move(finalize)));
     }
 
 
     bool tryDisposeFront() shared
     {
-        if(_list.empty) return false;
+        SharedTask task;
+        if(!_list.pop(task)) return false;
 
-        SharedTask* task = cast(SharedTask*)_list.pop();
         if(task.isReady()) {
             task.run();
-            SharedTask.dispose(task);
             return true;
         } else {
-            _list.push(cast(shared)task);
+            _list.push(move(task));
             return false;
         }
     }
@@ -441,7 +460,6 @@ struct Disposer
         size_t cnt = 0;
         immutable len = _list.length;
         foreach(i; 0 .. len) {
-            if(_list.empty) return cnt;
             if(this.tryDisposeFront())
                 ++cnt;
         }
@@ -458,9 +476,14 @@ struct Disposer
 
 
   private:
-    RWQueue!(SharedTask*) _list;
-
+    shared(LockQueue!(SharedTask)) _list;
     shared static Disposer _instance;
+}
+
+
+shared static this()
+{
+    Disposer._instance._list = new LockQueue!(SharedTask)(1024);
 }
 
 
@@ -476,30 +499,24 @@ unittest
     shared(int)* p1 = new int;
     TestData data1 = TestData(p1);
 
-    shared(Disposer) list;
+    shared(Disposer) list = Disposer();
     list.push(move(data1));
 
     assert(*p1 == 0);
-    assert(!list._list.empty);
     assert(list.tryDisposeFront());
     assert(*p1 == 1);
-    assert(list._list.empty);
 
     TestData data2 = TestData(p1);
     *p1 = 0;
     list.push(move(data2), function(ref TestData d) { return *(d.ptr) == 1; });
     assert(*p1 == 0);
-    assert(!list._list.empty);
     assert(!list.tryDisposeFront());
     assert(*p1 == 0);
-    assert(!list._list.empty);
 
     *p1 = 1;
     assert(*p1 == 1);
-    assert(!list._list.empty);
     assert(list.tryDisposeFront());
     assert(*p1 == 2);
-    assert(list._list.empty);
 
 
     TestData data3 = TestData(p1);
@@ -515,6 +532,20 @@ struct SharedTaskList
 {
     import std.meta : allSatisfy;
 
+
+    @disable this(this);
+    @disable void opAssign(SharedTaskList);
+
+
+    static
+    SharedTaskList opCall()
+    {
+        SharedTaskList inst;
+        inst._list = new LockQueue!(SharedTask)(1024);
+        return inst;
+    }
+
+
     void push(Callable, T...)(Callable func, T args) shared
     if(isShareable!Callable && allSatisfy!(isShareable, T))
     {
@@ -527,27 +558,27 @@ struct SharedTaskList
         static foreach(i, E; T)
             move(args[i], value.args[i]);
 
-        _list.push(cast(shared)SharedTask.new_(value, &readyImpl, &runImpl));
+        _list.push(SharedTask.make(value, &readyImpl, &runImpl));
     }
 
 
-    void processFront() shared
+    bool processFront() shared
     {
-        if(_list.empty()) return;
+        SharedTask task;
+        if(!_list.pop(task)) return false;
 
-        SharedTask* task = cast(SharedTask*)_list.pop();
         task.run();
-        SharedTask.dispose(task);
+        return true;
     }
 
 
     size_t processAll() shared
     {
         size_t cnt = 0;
-        immutable len = _list.length;
-        foreach(i; 0 .. len) {
-            if(_list.empty) return cnt;
-            this.processFront();
+        while(1) {
+            if(!this.processFront())
+                return cnt;
+
             ++cnt;
         }
 
@@ -555,12 +586,12 @@ struct SharedTaskList
     }
 
   private:
-    RWQueue!(SharedTask*) _list;
+    shared(LockQueue!(SharedTask)) _list;
 }
 
 unittest
 {
-    shared(SharedTaskList) list;
+    shared(SharedTaskList) list = SharedTaskList();
 
     shared(int)* p1 = new int;
     list.push((shared(int)* a){ *a = *a + 1; }, p1);
