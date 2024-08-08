@@ -149,13 +149,16 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
 
 IDevice newDevice(string type)
 {
-    import device.uhd_loop_tx_dram;
     import std.stdio;
     writefln("Lookup: %s", type);
 
     switch(type) {
         case "USRP_TX_LoopDRAM":
+            import device.uhd_loop_tx_dram;
             return new UHDLoopTransmitterFromDRAM();
+        case "USRP_TX_Burst":
+            import device.uhd_usrp;
+            return new UHD_USRPBurstTX();
         default:
             writefln("Cannot file device type: %s", type);
             return null;
