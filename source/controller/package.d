@@ -120,6 +120,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
 
     synchronized void run()
     {
+        Thread.getThis.priority = Thread.PRIORITY_MAX;
         this.onInit();
         _state = State.PAUSE;
 
