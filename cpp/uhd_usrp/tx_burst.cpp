@@ -235,7 +235,7 @@ void burstTransmit(DeviceHandler handler, void const* const* signals, uint64_t s
                 dev->buffptrs[i] += num;
 
             remain -= num;
-            if(remain < 0)
+            if(remain == 0)
                 return;
         } else {
             std::cout << "[tx_burst.cpp] Cannot transmit from USRP" << std::endl;
