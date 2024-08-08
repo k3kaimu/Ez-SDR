@@ -51,6 +51,12 @@ if(isShareable!T)
     }
 
 
+    bool empty() shared const
+    {
+        return _wpos == _rpos;
+    }
+
+
     synchronized size_t length() const
     {
         if(_wpos < _rpos)
@@ -643,6 +649,7 @@ struct SharedTaskList
 
 
     size_t length() shared const { return _list.length; }
+    bool empty() shared const { return _list.empty; }
 
 
     void push(Callable, T...)(Callable func, T args) shared
