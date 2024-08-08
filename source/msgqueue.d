@@ -122,6 +122,105 @@ unittest
 }
 
 
+/// Lock-free Queue. See: https://kumagi.hatenablog.com/entry/ring-buffer
+final class LockFreeSPSCQueue(T)
+if(isShareable!T)
+{
+    import core.atomic;
+
+    this(size_t size = 4096 / T.sizeof)
+    {
+        _data.length = size;
+    }
+
+
+    bool empty() shared const
+    {
+        immutable rpos = _rpos.atomicLoad!(MemoryOrder.raw);
+        immutable wpos = _wpos.atomicLoad!(MemoryOrder.acq);
+
+        if(wpos == rpos)
+            return true;
+        else
+            return false;
+    }
+
+
+    bool filled() shared const
+    {
+        immutable wpos = _wpos.atomicLoad!(MemoryOrder.raw);
+        immutable rpos = _rpos.atomicLoad!(MemoryOrder.acq);
+
+        if(wpos - rpos == _data.length)
+            return true;
+        else
+            return false;
+    }
+
+
+    bool push(T item) shared
+    {
+        immutable wpos = _wpos.atomicLoad!(MemoryOrder.raw);
+        immutable size = _data.length;
+
+        if(wpos - _rpos_cached == size) {
+            _rpos_cached = _rpos.atomicLoad!(MemoryOrder.acq);
+            if(wpos - _rpos_cached == size)
+                return false;
+        }
+
+        move(item, cast()_data[wpos & (_data.length - 1)]);
+        _wpos.atomicStore!(MemoryOrder.rel)(wpos + 1);
+        return true;
+    }
+
+
+    bool pop(out T item) shared
+    {
+        immutable rpos = _rpos.atomicLoad!(MemoryOrder.raw);
+        immutable size = _data.length;
+
+        if(_wpos_cached == rpos) {
+            _wpos_cached = _wpos.atomicLoad!(MemoryOrder.acq);
+            if(_wpos_cached == rpos)
+                return false;
+        }
+
+        move(cast()_data[rpos & (size - 1)], item);
+        _rpos.atomicStore!(MemoryOrder.rel)(rpos + 1);
+        return true;
+    }
+
+  private:
+    T[] _data;
+    align(64) size_t _rpos;
+    align(64) size_t _rpos_cached;
+    align(64) size_t _wpos;
+    align(64) size_t _wpos_cached;
+}
+
+unittest
+{
+    shared(LockFreeSPSCQueue!size_t) q1 = new LockFreeSPSCQueue!size_t(1024);
+    size_t result = size_t.max;
+
+    assert(!q1.pop(result));
+    assert(result == typeof(result).init);
+
+    shared(LockFreeSPSCQueue!size_t) queue = new LockFreeSPSCQueue!size_t(1024);
+    foreach(i; 0 .. 100) {
+        size_t numTry = (i + 100)^^2 % 1024;
+        foreach(n; 0 .. numTry)
+            assert(queue.push(n));
+
+        foreach(n; 0 .. numTry) {
+            assert(queue.pop(result));
+            assert(result == n);
+        }
+    }
+}
+
+
 /** 単一スレッドからの書き込みと，単一スレッドからの読み込みを許す通知付きオブジェクト．
 一度書き込みをすると，それ以降は読み取り専用となる．
 */
