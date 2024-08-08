@@ -51,7 +51,7 @@ interface IControllerThread
     Thread getThread();
 
     /// スレッドを実行します
-    void start();
+    void start(bool defaultRun = true);
 
     /// このスレッドの動作状態を返します
     State state() shared;
@@ -67,9 +67,6 @@ interface IControllerThread
 
     /// このスレッドの動作を再開する
     void resume() shared;
-
-    /// 動作中のこのスレッド上でデリゲートを呼び出す
-    void invoke(void delegate() dg) shared;
 }
 
 
@@ -120,20 +117,22 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
 
     synchronized void run()
     {
+        DontCallOnOtherThread tag;
         Thread.getThis.priority = Thread.PRIORITY_MAX;
-        this.onInit();
+
+        this.onInit(tag);
         _state = State.PAUSE;
 
         (cast()_resumeEvent).wait();
 
-        this.onStart();
+        this.onStart(tag);
         _state = State.RUN;
 
         while(!_killSwitch) {
             _taskList.processAll();
-            this.onRunTick();
+            this.onRunTick(tag);
         }
-        this.onFinish();
+        this.onFinish(tag);
         _state = State.FINISH;
     }
 
@@ -141,12 +140,12 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     State state() shared { return atomicLoad(_state); }
 
 
-    abstract void onInit() shared;
-    abstract void onRunTick() shared;
-    abstract void onStart() shared;
-    abstract void onFinish() shared;
-    abstract void onPause() shared;
-    abstract void onResume() shared;
+    abstract void onInit(DontCallOnOtherThread) shared;
+    abstract void onRunTick(DontCallOnOtherThread) shared;
+    abstract void onStart(DontCallOnOtherThread) shared;
+    abstract void onFinish(DontCallOnOtherThread) shared;
+    abstract void onPause(DontCallOnOtherThread) shared;
+    abstract void onResume(DontCallOnOtherThread) shared;
 
 
     ReadOnlyArray!(shared(DeviceType)) deviceList() { return _devs.readOnlyArray; }
@@ -179,10 +178,12 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     {
         (cast()_resumeEvent).reset();
         this.invoke(function(shared(ControllerThreadImpl) _this){
-            _this.onPause();
+            DontCallOnOtherThread tag;
+
+            _this.onPause(tag);
             _this._state = State.PAUSE;
             (cast()_this._resumeEvent).wait();
-            _this.onResume();
+            _this.onResume(tag);
             _this._state = State.RUN;
         });
     }
@@ -198,6 +199,9 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     {
         _taskList.push(fn, cast(shared(T))this, forward!args);
     }
+
+  protected:
+    static struct DontCallOnOtherThread {}
 
 
   private:

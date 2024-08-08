@@ -33,8 +33,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    synchronized
-    void onInit()
+    void onInit(DontCallOnOtherThread) shared
     {
         isStreaming = false;
         isPaused = false;
@@ -42,13 +41,11 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    synchronized
-    void onStart() { }
+    void onStart(DontCallOnOtherThread) shared { }
 
 
     override
-    synchronized
-    void onRunTick()
+    void onRunTick(DontCallOnOtherThread) shared
     {
         if(isStreaming) {
             foreach(d; this.deviceList)
@@ -58,8 +55,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    synchronized
-    void onFinish()
+    void onFinish(DontCallOnOtherThread) shared
     {
         if(isStreaming) {
             foreach(d; this.deviceList)
@@ -71,8 +67,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    synchronized
-    void onPause()
+    void onPause(DontCallOnOtherThread) shared
     {
         if(isStreaming) {
             foreach(d; this.deviceList)
@@ -85,8 +80,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    synchronized
-    void onResume()
+    void onResume(DontCallOnOtherThread) shared
     {
         if(isPaused) {
             foreach(d; this.deviceList)
