@@ -1,7 +1,7 @@
 module msgqueue;
 
 import core.time;
-import core.lifetime : move;
+import core.lifetime;
 
 import std.typecons;
 import std.traits;
@@ -279,6 +279,37 @@ unittest
     bool exec = false;
     assert(msg1.tryRead((x){ assert(x == 1); exec = true; }));
     assert(exec);
+}
+
+
+align(1) struct LWFp(alias fn)
+{
+    auto opCall(T...)(auto ref T args) const
+    {
+        return fn(forward!args);
+    }
+}
+
+auto lwfp(alias fn)()
+{
+    static auto impl(T...)(auto ref T args)
+    {
+        return fn(forward!args);
+    }
+
+    LWFp!impl dst;
+    return dst;
+}
+
+unittest
+{
+    int cnt;
+    auto fp = lwfp!((ref int cnt, int a){ cnt += a; });
+    fp(cnt, 1);
+    fp(cnt, 2);
+    assert(cnt == 3);
+    pragma(msg, typeof(fp).sizeof);
+    assert(typeof(fp).sizeof == 1);
 }
 
 
