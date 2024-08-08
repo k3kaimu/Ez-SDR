@@ -282,7 +282,7 @@ unittest
 }
 
 
-struct TaskImpl(PtrType = void*)
+struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
 {
     import std.experimental.allocator.mallocator;
     import std.experimental.allocator;
@@ -293,50 +293,87 @@ struct TaskImpl(PtrType = void*)
     @disable void opAssign(TaskImpl);
 
 
+    enum size_t ON_FIELD_TAG = 1;
+
+    enum TaskType
+    {
+        RUN, READY, TERMINATE
+    }
+
+
     ~this()
     {
-        if(this._ptr !is null) {
-            this._terminate(this._ptr);
-            this._ptr = null;
-            _ready = null;
-            _task = null;
-            _terminate = null;
+        if(this._ptr is null) return;
+
+        if(cast(size_t) this._ptr == ON_FIELD_TAG) {
+            this._task(this._dummy.ptr, TaskType.TERMINATE);
+        } else {
+            this._task(this._ptr, TaskType.TERMINATE);
         }
+
+        this._ptr = null;
+        _task = null;
     }
 
 
     static
-    TaskImpl make(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
+    TaskImpl make(Value, Pred, Callable, string file = __FILE__, size_t line = __LINE__)(Value v, Pred ready, Callable fn)
     if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
     {
         static struct Payload {
+          align(1):
             Value v;
             Pred ready;
             Callable fn;
         }
         static assert(is(PtrType == void*) || isShareable!Payload);
+        enum bool placedOnField = Payload.sizeof <= fieldSize;
 
-        static bool readyImpl(PtrType ptr) {
+
+        static bool taskImpl(PtrType ptr, TaskType type) {
             auto payload = cast(Payload*)ptr;
-            return payload.ready(payload.v);
+            final switch(type) {
+            case TaskType.RUN:
+                payload.fn(payload.v);
+                return false;
+            case TaskType.READY:
+                return payload.ready(payload.v);
+            case TaskType.TERMINATE:
+                static if(placedOnField) {
+                    Payload p = move(*payload);
+                } else {
+                    alloc.dispose(payload);
+                }
+                return false;
+            }
         }
 
-        static void taskImpl(PtrType ptr) {
-            auto payload = cast(Payload*)ptr;
-            return payload.fn(payload.v);
+
+        static if(placedOnField) {
+            TaskImpl dst;
+            Payload* ptr = cast(Payload*)dst._dummy.ptr;
+            move(v, ptr.v);
+            move(ready, ptr.ready);
+            move(fn, ptr.fn);
+            dst._ptr = cast(PtrType)ON_FIELD_TAG;
+            dst._task = &taskImpl;
+
+            return dst;
+        } else {
+            // import std.meta;
+            // pragma(msg, AliasSeq!(Value, Pred, Callable, file, line, Payload.sizeof, fieldSize));
+            static void terminateImpl(PtrType ptr) {
+                auto payload = cast(Payload*)ptr;
+                alloc.dispose(payload);
+            }
+
+            Payload* ptr = alloc.make!Payload();
+            move(v, ptr.v);
+            move(ready, ptr.ready);
+            move(fn, ptr.fn);
+
+            return TaskImpl(cast(PtrType)ptr, &taskImpl);
         }
-
-        static void terminateImpl(PtrType ptr) {
-            auto payload = cast(Payload*)ptr;
-            alloc.dispose(payload);
-        }
-
-        Payload* ptr = alloc.make!Payload();
-        move(v, ptr.v);
-        move(ready, ptr.ready);
-        move(fn, ptr.fn);
-
-        return TaskImpl(cast(PtrType)ptr, &readyImpl, &taskImpl, &terminateImpl);
     }
 
 
@@ -358,14 +395,41 @@ struct TaskImpl(PtrType = void*)
     }
 
 
-    bool isReady() { return this._ready(this._ptr); }
-    void run() { this._task(_ptr); }
+    bool isReady()
+    {
+        assert(_ptr !is null);
+
+        if(cast(size_t)_ptr == ON_FIELD_TAG) {
+            return this._task(_dummy.ptr, TaskType.READY);
+        } else {
+            return this._task(this._ptr, TaskType.READY);
+        }
+    }
+
+
+    void run()
+    {
+        assert(_ptr !is null);
+        if(cast(size_t)_ptr == ON_FIELD_TAG) {
+            this._task(_dummy.ptr, TaskType.RUN);
+        } else {
+            this._task(_ptr, TaskType.RUN);
+        }
+    }
+
 
   private:
     PtrType _ptr;
-    bool function(PtrType) _ready;
-    void function(PtrType) _task;
-    void function(PtrType) _terminate;
+    bool function(PtrType, TaskType) _task;
+
+  static if(is(PtrType == shared(void)*))
+  {
+    shared(void)[fieldSize] _dummy;
+  }
+  else
+  {
+    void[fieldSize] _dummy;
+  }
 }
 
 alias Task = TaskImpl!(void*);
@@ -373,6 +437,8 @@ alias SharedTask = TaskImpl!(shared(void)*);
 
 unittest
 {
+    static assert(TaskImpl!(void*, 64 - (void*).sizeof * 2).sizeof == 64);
+
     bool ready = false;
     bool done = false;
     Task task = Task.make(1, (int) => ready, (int){ done = true; });
@@ -413,7 +479,7 @@ struct Disposer
             while(1) {
                 SharedTask task;
                 if(!_list.pop(task)) break;
-                Disposer.instance.push(move(task));
+                Disposer.instance._list.push(move(task));
             }
         }
     }
@@ -552,11 +618,11 @@ struct SharedTaskList
     void push(Callable, T...)(Callable func, T args) shared
     if(isShareable!Callable && allSatisfy!(isShareable, T))
     {
-        static struct TaskImpl { Callable func; T args; }
-        static bool readyImpl(ref TaskImpl) { return true; }
-        static void runImpl(ref TaskImpl impl) { impl.func(impl.args); }
+        static struct Packed { Callable func; T args; }
+        static bool readyImpl(ref Packed) { return true; }
+        static void runImpl(ref Packed impl) { impl.func(impl.args); }
 
-        TaskImpl value;
+        Packed value;
         move(func, value.func);
         static foreach(i, E; T)
             move(args[i], value.args[i]);
