@@ -41,6 +41,72 @@ unittest
 }
 
 
+/// Locked Queue
+final class LockQueue(T)
+if(isShareable!T)
+{
+    this(size_t initlen = 4096 / T.sizeof)
+    {
+        _data.length = initlen;
+    }
+
+
+    synchronized bool pop(out T result)
+    {
+        if(_rpos == _wpos) return false;
+
+        move(cast()_data[_rpos], result);
+        _rpos = (_rpos + 1) % _data.length;
+        return true;
+    }
+
+
+    synchronized void push(T result)
+    {
+        if(_rpos == (_wpos + 1) % _data.length) {
+            immutable oldlen = _data.length;
+            _data.length = _data.length * 2;
+
+            if(_wpos < _rpos) {
+                foreach(i; 0 .. _wpos)
+                    move(_data[i], _data[oldlen + i]);
+
+                _wpos = oldlen + _wpos;
+            }
+        }
+
+        move(result, cast()_data[_wpos]);
+        _wpos = (_wpos + 1) % _data.length;
+    }
+
+  private:
+    T[] _data;
+    size_t _rpos;
+    size_t _wpos;
+}
+
+unittest
+{
+    shared(LockQueue!size_t) q1 = new LockQueue!size_t(1);
+    size_t result = size_t.max;
+
+    assert(!q1.pop(result));
+    assert(result == typeof(result).init);
+
+    shared(LockQueue!size_t) queue = new LockQueue!size_t(1);
+    foreach(i; 0 .. 100) {
+        size_t numTry = (i + 100)^^2 % 1000;
+        foreach(n; 0 .. numTry)
+            queue.push(n);
+
+        foreach(n; 0 .. numTry) {
+            assert(queue.pop(result));
+            assert(result == n);
+        }
+    }
+}
+
+
 /** 単一スレッドからの書き込みと，単一スレッドからの読み込みを許す通知付きオブジェクト．
 一度書き込みをすると，それ以降は読み取り専用となる．
 */
