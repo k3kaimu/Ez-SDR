@@ -29,7 +29,7 @@ extern(C++, "uhd_usrp_tx_burst")
 
 class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
 {
-    import core.internal.spinlock : SpinLock;
+    import msgqueue : SpinLock;
 
     this(){}
 
@@ -42,7 +42,6 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!
 
     void setup(JSONValue[string] configJSON)
     {
-        spinLock = shared(SpinLock)(SpinLock.Contention.brief);
         this.handler = setupDevice(JSONValue(configJSON).toString().toStringz());
     }
 

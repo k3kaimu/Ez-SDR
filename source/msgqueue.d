@@ -1236,3 +1236,22 @@ alias UniqueMsgQueue(Req, Res, Allocator = Mallocator) = MsgQueue!(Req, Res, Yes
 
 
 
+align(64) shared struct SpinLock
+{
+    import core.atomic;
+
+    void lock()
+    {
+        while(!cas(&_flag, cast(size_t)0, cast(size_t)1)) {
+            core.atomic.pause();
+        }
+    }
+
+    void unlock()
+    {
+        atomicStore!(MemoryOrder.rel)(_flag, cast(size_t)0);
+    }
+
+private:
+    size_t _flag;
+}
