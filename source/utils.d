@@ -2,6 +2,8 @@ module utils;
 
 import core.thread;
 import std.stdio;
+import std.traits;
+import std.experimental.allocator;
 
 template debugMsg(string tag)
 {
@@ -176,4 +178,79 @@ unittest
         if((i+1) >= 3) break;
         assert(e < 3);
     }
+}
+
+
+auto makeUniqueArray(T)(size_t n)
+{
+    return UniqueArray!T(n);
+}
+
+
+private void _disposeAll(alias alloc, U)(ref U[] arr)
+{
+    if(arr is null) return;
+
+    static if(isArray!U) {
+        foreach(ref e; arr)
+            ._disposeAll!alloc(e);
+    }
+
+    alloc.dispose(arr);
+    arr = null;
+}
+
+
+struct UniqueArray(T)
+{
+    import std.traits : isArray, ForeachType;
+    import std.experimental.allocator;
+    import std.experimental.allocator.mallocator;
+    alias alloc = Mallocator.instance;
+
+    @disable this(this);
+    @disable void opAssign(UniqueArray);
+
+
+    ~this()
+    {
+        if(_array.ptr is null) return;
+        _disposeAll!alloc(_array);
+    }
+
+
+    this(size_t n)
+    {
+        _array = alloc.makeArray!(T)(n);
+    }
+
+
+  static if(isArray!T)
+  {
+    void opIndexAssign(UniqueArray!(ForeachType!T) arr, size_t i)
+    in(i < _array.length)
+    {
+        _disposeAll!alloc(_array[i]);
+        _array[i] = arr.array;
+        arr._array = null;
+    }
+  }
+
+
+    inout(T)[] array() inout { return _array; }
+
+  private:
+    T[] _array;
+}
+
+
+unittest
+{
+    auto int2d = makeUniqueArray!(int[])(3);
+    foreach(i; 0 .. 3)
+        int2d[i] = makeUniqueArray!int(2);
+
+    assert(int2d.array.length == 3);
+    foreach(i; 0 .. 3)
+        assert(int2d.array[i].length == 2);
 }
