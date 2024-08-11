@@ -11,35 +11,35 @@ interface IDevice
     void construct();
     void destruct();
     void setup(JSONValue[string] configJSON);
-    size_t numTxStreamImpl() shared;
-    size_t numRxStreamImpl() shared;
+    size_t numTxStreamImpl() shared @nogc;
+    size_t numRxStreamImpl() shared @nogc;
 
 
-    final size_t numTxStream()
+    final size_t numTxStream() @nogc
     {
         return (cast(shared)this).numTxStreamImpl();
     }
 
 
-    final size_t numTxStream() shared
+    final size_t numTxStream() shared @nogc
     {
         return this.numTxStreamImpl();
     }
 
 
-    final size_t numRxStream() shared
+    final size_t numRxStream() shared @nogc
     {
         return this.numRxStreamImpl();
     }
 
 
-    final size_t numRxStream()
+    final size_t numRxStream() @nogc
     {
         return (cast(shared)this).numRxStreamImpl();
     }
 
-    void setParam(const(char)[] key, const(char)[] value) shared;
-    const(char)[] getParam(const(char)[] key) shared;
+    void setParam(const(char)[] key, const(char)[] value) shared @nogc;
+    const(char)[] getParam(const(char)[] key) shared @nogc;
 }
 
 
@@ -67,35 +67,35 @@ unittest
 
 interface IPPSSynchronizable
 {
-    void setTimeNextPPS(DeviceTime) shared;
-    DeviceTime getTimeLastPPS() shared;
-    void setNextCommandTime(DeviceTime) shared;
+    void setTimeNextPPS(DeviceTime) shared @nogc;
+    DeviceTime getTimeLastPPS() shared @nogc;
+    void setNextCommandTime(DeviceTime) shared @nogc;
 }
 
 
 interface IBurstTransmitter(C) : IDevice
 {
-    void beginBurstTransmit() shared;
-    void endBurstTransmit() shared;
-    void burstTransmit(scope const C[][]) shared;
+    void beginBurstTransmit() shared @nogc;
+    void endBurstTransmit() shared @nogc;
+    void burstTransmit(scope const C[][]) shared @nogc;
 }
 
 
 interface IContinuousReceiver(C) : IDevice
 {
-    void startContinuousReceive() shared;
-    void stopContinuousReceive() shared;
-    void singleReceive(scope C[][]) shared;
-    void setAlignSize(size_t alignsize) shared;
+    void startContinuousReceive() shared @nogc;
+    void stopContinuousReceive() shared @nogc;
+    void singleReceive(scope C[][]) shared @nogc;
+    void setAlignSize(size_t alignsize) shared @nogc;
 }
 
 
 interface ILoopTransmitter(C) : IDevice
 {
-    void setLoopTransmitSignal(scope const C[][]) shared;
-    void startLoopTransmit() shared;
-    void stopLoopTransmit() shared;
-    void performLoopTransmit() shared;
+    void setLoopTransmitSignal(scope const C[][]) shared @nogc;
+    void startLoopTransmit() shared @nogc;
+    void stopLoopTransmit() shared @nogc;
+    void performLoopTransmit() shared @nogc;
 }
 
 
@@ -108,7 +108,7 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
 
 
     synchronized
-    void setLoopTransmitSignal(scope const C[][] signals)
+    void setLoopTransmitSignal(scope const C[][] signals) @nogc
     in {
         assert(signals.length == this.numTxStream);
     }
@@ -125,19 +125,19 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     }
 
 
-    void startLoopTransmit() shared
+    void startLoopTransmit() shared @nogc
     {
         this.beginBurstTransmit();
     }
 
 
-    void stopLoopTransmit() shared
+    void stopLoopTransmit() shared @nogc
     {
         this.endBurstTransmit();
     }
 
 
-    void performLoopTransmit() shared
+    void performLoopTransmit() shared @nogc
     {
         this.burstTransmit(cast(C[][])(_loopSignals[]));
     }

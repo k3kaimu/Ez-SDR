@@ -1240,14 +1240,14 @@ align(64) shared struct SpinLock
 {
     import core.atomic;
 
-    void lock()
+    void lock() pure nothrow @safe @nogc
     {
         while(!cas(&_flag, cast(size_t)0, cast(size_t)1)) {
             core.atomic.pause();
         }
     }
 
-    void unlock()
+    void unlock() pure nothrow @safe @nogc
     {
         atomicStore!(MemoryOrder.rel)(_flag, cast(size_t)0);
     }

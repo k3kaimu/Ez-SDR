@@ -6,8 +6,9 @@ import std.json;
 import std.string;
 
 import device;
+import utils;
 
-extern(C++, "looptx_rfnoc_replay_block")
+extern(C++, "looptx_rfnoc_replay_block") nothrow @nogc
 {
     struct DeviceHandler
     {
@@ -29,6 +30,10 @@ extern(C++, "looptx_rfnoc_replay_block")
 
 class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchronizable
 {
+    import std.experimental.allocator;
+    import std.experimental.allocator.mallocator;
+    alias alloc = Mallocator.instance;
+
     this() {}
 
 
@@ -45,15 +50,22 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
     }
 
 
-    size_t numTxStreamImpl() shared { return 1; }
-    size_t numRxStreamImpl() shared { return 0; }
+    size_t numTxStreamImpl() shared nothrow @nogc { return 1; }
+    size_t numRxStreamImpl() shared nothrow @nogc { return 0; }
 
     void sync() { assert(0, "please implement"); }
 
     synchronized
-    void setParam(const(char)[] key, const(char)[] value)
+    void setParam(const(char)[] key, const(char)[] value) @nogc
     {
-        .setParam(cast()this.handler, key.toStringz, value.toStringz);
+        auto keybuf = makeUniqueArray!char(key.length + 1),
+             valuebuf = makeUniqueArray!char(key.length + 1);
+
+        keybuf.array[0 .. key.length] = key[];
+        keybuf.array[$-1] = 0;
+        valuebuf.array[0 .. value.length] = value[];
+        valuebuf.array[$-1] = 0;
+        .setParam(cast()this.handler, keybuf.array.ptr, valuebuf.array.ptr);
     }
 
 

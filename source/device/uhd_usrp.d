@@ -7,7 +7,7 @@ import std.string;
 import device;
 
 
-extern(C++, "uhd_usrp_tx_burst")
+extern(C++, "uhd_usrp_tx_burst") nothrow @nogc
 {
     struct DeviceHandler
     {

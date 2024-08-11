@@ -245,7 +245,7 @@ unittest
     class TestDevice : ILoopTransmitter!C
     {
         size_t _numTxStream;
-        C[][] _buffer;
+        UniqueArray!(C[]) _buffer;
         string state;
         size_t cntPerf;
 
@@ -257,9 +257,16 @@ unittest
         size_t numTxStreamImpl() shared { return _numTxStream; }
         size_t numRxStreamImpl() shared { return 0; }
         synchronized void setLoopTransmitSignal(scope const C[][] signal) {
-            _buffer = null;
-            foreach(e; signal)
-                _buffer ~= cast(shared)e.dup;
+            import core.lifetime : move;
+
+            auto newbuf = makeUniqueArray!(C[])(signal.length);
+            foreach(i; 0 .. signal.length) {
+                auto e = makeUniqueArray!C(signal[i].length);
+                e.array[] = signal[i][];
+                newbuf[i] = move(e);
+            }
+
+            move(newbuf, cast()_buffer);
         }
         synchronized void startLoopTransmit() { state = "start"; }
         synchronized void stopLoopTransmit() { state = "stop"; }
@@ -300,10 +307,10 @@ unittest
     size_t cnt;
     foreach(id, d; devs) {
         assert(devs[id].state == "start");
-        assert(devs[id]._buffer.length == d.numTxStream);
+        assert(devs[id]._buffer.array.length == d.numTxStream);
 
         foreach(istream; 0 .. d.numTxStream) {
-            assert(devs[id]._buffer[istream][0] == C(cnt, cnt));
+            assert(devs[id]._buffer.array[istream][0] == C(cnt, cnt));
             ++cnt;
         }
     }
