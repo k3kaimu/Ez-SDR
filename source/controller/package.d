@@ -76,8 +76,10 @@ interface IControllerThread
 このクラスのsynchronizedメソッドは，runメソッドを実行しているスレッドからしか呼び出せません．
 synchronizedではないsharedメソッドは他のスレッドから呼び出される可能性があります．
 */
-class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
+class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
 {
+    alias DeviceType = shared(DeviceType_);
+
     import std.sumtype;
     import msgqueue;
     import core.sync.event;
@@ -121,36 +123,38 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
         DontCallOnOtherThread tag;
         Thread.getThis.priority = Thread.PRIORITY_MAX;
 
-        this.onInit(tag);
-        _state = State.PAUSE;
+        () @nogc {
+            this.onInit(tag);
+            _state = State.PAUSE;
 
-        (cast()_resumeEvent).wait();
+            (cast()_resumeEvent).wait();
 
-        this.onStart(tag);
-        _state = State.RUN;
+            this.onStart(tag);
+            _state = State.RUN;
 
-        while(!_killSwitch) {
-            if(!_taskList.empty) _taskList.processAll();
-            this.onRunTick(tag);
-        }
-        this.onFinish(tag);
-        _state = State.FINISH;
+            while(!_killSwitch) {
+                if(!_taskList.empty) _taskList.processAll();
+                this.onRunTick(tag);
+            }
+            this.onFinish(tag);
+            _state = State.FINISH;
+        }();
     }
 
 
-    State state() shared { return atomicLoad(_state); }
+    State state() shared @nogc { return atomicLoad(_state); }
 
 
-    abstract void onInit(DontCallOnOtherThread) shared;
-    abstract void onRunTick(DontCallOnOtherThread) shared;
-    abstract void onStart(DontCallOnOtherThread) shared;
-    abstract void onFinish(DontCallOnOtherThread) shared;
-    abstract void onPause(DontCallOnOtherThread) shared;
-    abstract void onResume(DontCallOnOtherThread) shared;
+    abstract void onInit(DontCallOnOtherThread) shared @nogc;
+    abstract void onRunTick(DontCallOnOtherThread) shared @nogc;
+    abstract void onStart(DontCallOnOtherThread) shared @nogc;
+    abstract void onFinish(DontCallOnOtherThread) shared @nogc;
+    abstract void onPause(DontCallOnOtherThread) shared @nogc;
+    abstract void onResume(DontCallOnOtherThread) shared @nogc;
 
 
-    ReadOnlyArray!(shared(DeviceType)) deviceList() { return _devs.readOnlyArray; }
-    ReadOnlyArray!(shared(DeviceType)) deviceList() shared { return _devs.readOnlyArray; }
+    ReadOnlyArray!(shared(DeviceType)) deviceList() @nogc { return _devs.readOnlyArray; }
+    ReadOnlyArray!(shared(DeviceType)) deviceList() shared @nogc { return _devs.readOnlyArray; }
 
 
     void registerDevice(shared DeviceType dev)
@@ -159,7 +163,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     }
 
 
-    bool hasDevice(IDevice d) shared
+    bool hasDevice(IDevice d) shared @nogc
     {
         foreach(e; _devs) {
             if(e is cast(shared)d) return true;
@@ -175,7 +179,7 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     }
 
 
-    void pause() shared
+    void pause() shared @nogc
     {
         (cast()_resumeEvent).reset();
         this.invoke(function(shared(ControllerThreadImpl) _this){
@@ -190,13 +194,13 @@ class ControllerThreadImpl(DeviceType : IDevice) : IControllerThread
     }
 
 
-    void resume() shared
+    void resume() shared @nogc
     {
         (cast()_resumeEvent).setIfInitialized();
     }
 
 
-    void invoke(this T, Callable, U...)(Callable fn, auto ref U args) shared
+    void invoke(this T, Callable, U...)(Callable fn, auto ref U args) shared @nogc
     {
         _taskList.push(fn, cast(shared(T))this, forward!args);
     }
@@ -219,6 +223,8 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 {
     import std.experimental.allocator.mallocator;
     import std.experimental.allocator;
+
+    alias ThreadType = shared(CtrlThread);
 
     this() {}
 
@@ -328,7 +334,7 @@ unittest
         override void onResume(DontCallOnOtherThread) shared { assert(state == State.PAUSE); }
 
         size_t countCallSync;
-        synchronized void callSync() { countCallSync = countCallSync + 1; }
+        synchronized void callSync() @nogc { countCallSync = countCallSync + 1; }
     }
 
     class TestController : ControllerImpl!TestThread
@@ -389,7 +395,7 @@ unittest
     assert(executed);
 
     assert(thread0.countCallSync == 0);
-    thread0.invoke(function(shared(TestThread) thread0){
+    thread0.invoke(function(shared(TestThread) thread0) @nogc {
         // callSyncはsynchronizedメソッドのため，
         // 他のスレッドから呼び出せないのでinvokeの中で呼び出す
         thread0.callSync();
@@ -397,7 +403,7 @@ unittest
     Thread.sleep(1.msecs);
     assert(thread0.countCallSync == 1);
 
-    thread0.invoke(function(shared(TestThread) thread0, size_t num){
+    thread0.invoke(function(shared(TestThread) thread0, size_t num) @nogc {
         foreach(i; 0 .. num)
             thread0.callSync();
     }, 10);

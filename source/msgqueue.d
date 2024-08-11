@@ -11,6 +11,8 @@ import std.experimental.allocator.mallocator;
 import std.experimental.allocator;
 import automem.vector;
 
+import utils;
+
 
 enum bool isShareable(T) = isDelegate!T ? is(T == shared(T)) : is(T : shared(T));
 
@@ -47,7 +49,8 @@ if(isShareable!T)
 {
     this(size_t initlen = 4096 / T.sizeof)
     {
-        _data.length = initlen;
+        auto buf = makeUniqueArray!T(initlen);
+        move(buf, cast()_data);
     }
 
 
@@ -70,7 +73,7 @@ if(isShareable!T)
     {
         if(_rpos == _wpos) return false;
 
-        move(cast()_data[_rpos], result);
+        move(cast()_data.array[_rpos], result);
         _rpos = (_rpos + 1) % _data.length;
         return true;
     }
@@ -80,22 +83,22 @@ if(isShareable!T)
     {
         if(_rpos == (_wpos + 1) % _data.length) {
             immutable oldlen = _data.length;
-            _data.length = _data.length * 2;
+            (cast()_data).resize(_data.length * 2);
 
             if(_wpos < _rpos) {
                 foreach(i; 0 .. _wpos)
-                    move(cast()_data[i], cast()_data[oldlen + i]);
+                    move(cast()_data.array[i], cast()_data.array[oldlen + i]);
 
                 _wpos = oldlen + _wpos;
             }
         }
 
-        move(result, cast()_data[_wpos]);
+        move(result, cast()_data.array[_wpos]);
         _wpos = (_wpos + 1) % _data.length;
     }
 
   private:
-    T[] _data;
+    shared(UniqueArray!T) _data;
     size_t _rpos;
     size_t _wpos;
 }
@@ -457,7 +460,7 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
 
 
     static
-    TaskImpl make(Value, Pred, Callable, string file = __FILE__, size_t line = __LINE__)(Value v, Pred ready, Callable fn)
+    TaskImpl make(Value, Pred, Callable)(Value v, Pred ready, Callable fn)
     if(is(PtrType == void*) || (isShareable!Value && isShareable!Pred && isShareable!Callable))
     {
         static struct Payload {
@@ -470,7 +473,7 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
         enum bool placedOnField = Payload.sizeof <= fieldSize;
 
 
-        static bool taskImpl(PtrType ptr, TaskType type) {
+        static bool taskImpl(PtrType ptr, TaskType type) @nogc {
             auto payload = cast(Payload*)ptr;
             final switch(type) {
             case TaskType.RUN:
@@ -560,7 +563,7 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
 
   private:
     PtrType _ptr;
-    bool function(PtrType, TaskType) _task;
+    bool function(PtrType, TaskType) @nogc _task;
 
   static if(is(PtrType == shared(void)*))
   {
@@ -607,7 +610,7 @@ struct Disposer
     Disposer opCall()
     {
         Disposer inst;
-        inst._list = new LockQueue!(SharedTask)(1024);
+        inst._list = new shared(LockQueue!(SharedTask))(1024);
         return inst;
     }
 
@@ -689,7 +692,7 @@ struct Disposer
 
 shared static this()
 {
-    Disposer._instance._list = new LockQueue!(SharedTask)(1024);
+    Disposer._instance._list = new shared(LockQueue!(SharedTask))(1024);
 }
 
 
@@ -699,7 +702,7 @@ unittest
     {
         shared(int)* ptr;
         @disable this(this);
-        ~this(){ if(ptr) (*ptr) = (*ptr) + 1; }
+        ~this() @nogc { if(ptr) (*ptr) = (*ptr) + 1; }
     }
 
     shared(int)* p1 = new int;
@@ -749,7 +752,7 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
         SharedTaskList inst;
 
         static if(locked)
-            inst._list = new LockQueue!(SharedTask)(size);
+            inst._list = new shared(LockQueue!(SharedTask))(size);
         else
             inst._list = new LockFreeSPSCQueue!(SharedTask)(size);
 
@@ -757,16 +760,16 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
     }
 
 
-    size_t length() shared const { return _list.length; }
-    bool empty() shared const { return _list.empty; }
+    size_t length() shared const @nogc { return _list.length; }
+    bool empty() shared const @nogc { return _list.empty; }
 
 
-    void push(Callable, T...)(Callable func, T args) shared
+    void push(Callable, T...)(Callable func, T args) shared @nogc
     if(isShareable!Callable && allSatisfy!(isShareable, T))
     {
         static struct Packed { Callable func; T args; }
-        static bool readyImpl(ref Packed) { return true; }
-        static void runImpl(ref Packed impl) { impl.func(impl.args); }
+        static bool readyImpl(ref Packed) @nogc { return true; }
+        static void runImpl(ref Packed impl) @nogc { impl.func(impl.args); }
 
         Packed value;
         move(func, value.func);

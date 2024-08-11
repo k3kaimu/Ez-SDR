@@ -131,30 +131,20 @@ struct ReadOnlyArray(E)
     inout(ReadOnlyArray!E) opSlice(size_t i, size_t j) inout { return inout(ReadOnlyArray!E)(_array[i .. j]); }
     size_t opDollar() const { return _array.length; }
 
-    int opApply(scope int delegate(E) dg) 
-    {
-        int result = 0;
-        foreach (e; _array)
-        {
-            result = dg(e);
-            if(result)
-                return result;
-        }
-
-        return result;
-    }
-
-
-    int opApply(scope int delegate(size_t, E) dg)
+    int opApply(Fn)(scope Fn dg)
     {
         int result = 0;
         foreach (i, e; _array)
         {
-            result = dg(i, e);
+            static if(is(typeof(dg(i, e))))
+                result = dg(i, e);
+            else
+                result = dg(e);
+
             if(result)
-                break;
+                return result;
         }
-    
+
         return result;
     }
 
@@ -174,26 +164,27 @@ unittest
     auto arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     auto r = readOnlyArray(arr);
     assert(r[5 .. $].front == 6);
-    foreach(i, e; r) {
+    foreach(size_t i, int e; r) {
         if((i+1) >= 3) break;
         assert(e < 3);
     }
 }
 
 
-auto makeUniqueArray(T)(size_t n)
+auto makeUniqueArray(T, size_t dim = 1)(size_t n)
 {
-    return UniqueArray!T(n);
+    return UniqueArray!(T, dim)(n);
 }
 
 
-private void _disposeAll(alias alloc, U)(ref U[] arr)
+private void _disposeAll(alias alloc, size_t dim, U)(ref U[] arr)
+if(dim >= 1)
 {
     if(arr is null) return;
 
-    static if(isArray!U) {
+    static if(dim > 1) {
         foreach(ref e; arr)
-            ._disposeAll!alloc(e);
+            ._disposeAll!(alloc, dim-1)(e);
     }
 
     alloc.dispose(arr);
@@ -201,12 +192,24 @@ private void _disposeAll(alias alloc, U)(ref U[] arr)
 }
 
 
-struct UniqueArray(T)
+struct UniqueArray(E, size_t dim = 1)
 {
-    import std.traits : isArray, ForeachType;
     import std.experimental.allocator;
     import std.experimental.allocator.mallocator;
     alias alloc = Mallocator.instance;
+
+
+  static if(dim > 1)
+  {
+    alias ArrayType = UniqueArray!(E, dim-1).ArrayType[];
+    alias ForeachType = UniqueArray!(E, dim-1).ArrayType;
+  }
+  else
+  {
+    alias ArrayType = E[];
+    alias ForeachType = E;
+  }
+
 
     @disable this(this);
     @disable void opAssign(UniqueArray);
@@ -215,38 +218,59 @@ struct UniqueArray(T)
     ~this()
     {
         if(_array.ptr is null) return;
-        _disposeAll!alloc(_array);
+        _disposeAll!(alloc, dim)(_array);
     }
 
 
     this(size_t n)
     {
-        _array = alloc.makeArray!(T)(n);
+        _array = alloc.makeArray!(ForeachType)(n);
     }
 
 
-  static if(isArray!T)
+  static if(dim > 1)
   {
-    void opIndexAssign(UniqueArray!(ForeachType!T) arr, size_t i)
+    void opIndexAssign(UniqueArray!(E, dim-1) arr, size_t i)
     in(i < _array.length)
     {
-        _disposeAll!alloc(_array[i]);
+        _disposeAll!(alloc, dim-1)(_array[i]);
         _array[i] = arr.array;
         arr._array = null;
     }
   }
 
 
-    inout(T)[] array() inout { return _array; }
+    auto array() inout { return _array; }
+    auto array() inout shared { return _array; }
+
+
+    size_t length() const { return _array.length; }
+    size_t length() const shared { return _array.length; }
+
+
+    void resize(size_t newlen)
+    {
+        static if(dim > 1) if(newlen < _array.length) {
+            foreach(i; newlen .. _array.length) {
+                _disposeAll!(alloc, dim-1)(_array[i]);
+            }
+        }
+
+        if(newlen < _array.length) {
+            alloc.shrinkArray(_array, _array.length - newlen);
+        } else {
+            alloc.expandArray(_array, newlen - _array.length);
+        }
+    }
 
   private:
-    T[] _array;
+    ArrayType _array;
 }
 
 
 unittest
 {
-    auto int2d = makeUniqueArray!(int[])(3);
+    auto int2d = makeUniqueArray!(int, 2)(3);
     foreach(i; 0 .. 3)
         int2d[i] = makeUniqueArray!int(2);
 

@@ -47,7 +47,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onRunTick(DontCallOnOtherThread) shared
     {
         if(isStreaming) {
-            foreach(d; this.deviceList)
+            foreach(DeviceType d; this.deviceList)
                 d.performLoopTransmit();
         }
     }
@@ -57,7 +57,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onFinish(DontCallOnOtherThread) shared
     {
         if(isStreaming) {
-            foreach(d; this.deviceList)
+            foreach(DeviceType d; this.deviceList)
                 d.stopLoopTransmit();
         }
 
@@ -69,7 +69,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onPause(DontCallOnOtherThread) shared
     {
         if(isStreaming) {
-            foreach(d; this.deviceList)
+            foreach(DeviceType d; this.deviceList)
                 d.stopLoopTransmit();
 
             isStreaming = false;
@@ -82,7 +82,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onResume(DontCallOnOtherThread) shared
     {
         if(isPaused) {
-            foreach(d; this.deviceList)
+            foreach(DeviceType d; this.deviceList)
                 d.startLoopTransmit();
 
             isStreaming = true;
@@ -186,9 +186,9 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                 shared(C)[][] buffer = alloc.makeArray!(shared(C)[])(totStream);
                 foreach(ref e; buffer) e = parseAndAllocSignal();
 
-                this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, shared(C[])[] buf){
+                this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, shared(C[])[] buf) @nogc {
                     size_t idx;
-                    foreach(d; thread.deviceList) {
+                    foreach(thread.DeviceType d; thread.deviceList) {
                         d.setLoopTransmitSignal(cast(C[][])buf[idx .. idx + d.numTxStream]);
                         idx += d.numTxStream;
                     }
@@ -196,13 +196,13 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                     disposeSignal(buf);
                 }, cast(shared(C[])[])buffer);
             } else {
-                foreach(i, t; this.threadList) {
+                foreach(size_t i, this.ThreadType t; this.threadList) {
                     assert(t.deviceList.length == 1);
                     auto d = t.deviceList[0];
                     shared(C)[][] buffer = alloc.makeArray!(shared(C)[])(d.numTxStream);
                     foreach(ref e; buffer) e = parseAndAllocSignal();
 
-                    t.invoke(function(shared(LoopTXControllerThread!C) thread, shared(C[])[] buf){
+                    t.invoke(function(shared(LoopTXControllerThread!C) thread, shared(C[])[] buf) @nogc {
                         thread.deviceList[0].setLoopTransmitSignal(cast(C[][])buf);
                         disposeSignal(buf);
                     }, cast(shared(C[])[])buffer);
@@ -211,16 +211,16 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             break;
 
         case 0b00010001:     // ループ送信の開始
-            foreach(t; this.threadList)
+            foreach(ThreadType t; this.threadList)
                 t.invoke(function(shared(LoopTXControllerThread!C) thread){
-                    foreach(d; thread.deviceList) d.startLoopTransmit();
+                    foreach(thread.DeviceType d; thread.deviceList) d.startLoopTransmit();
                     thread.isStreaming = true;
                 });
             break;
         case 0b00010010:     // ループ送信の終了
-            foreach(t; this.threadList)
+            foreach(ThreadType t; this.threadList)
                 t.invoke(function(shared(LoopTXControllerThread!C) thread){
-                    foreach(d; thread.deviceList) d.stopLoopTransmit();
+                    foreach(thread.DeviceType d; thread.deviceList) d.stopLoopTransmit();
                     thread.isStreaming = false;
                 });
             break;
@@ -245,7 +245,7 @@ unittest
     class TestDevice : ILoopTransmitter!C
     {
         size_t _numTxStream;
-        UniqueArray!(C[]) _buffer;
+        UniqueArray!(C, 2) _buffer;
         string state;
         size_t cntPerf;
 
@@ -259,7 +259,7 @@ unittest
         synchronized void setLoopTransmitSignal(scope const C[][] signal) {
             import core.lifetime : move;
 
-            auto newbuf = makeUniqueArray!(C[])(signal.length);
+            auto newbuf = makeUniqueArray!(C, 2)(signal.length);
             foreach(i; 0 .. signal.length) {
                 auto e = makeUniqueArray!C(signal[i].length);
                 e.array[] = signal[i][];
