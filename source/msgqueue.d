@@ -764,7 +764,7 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
     bool empty() shared const @nogc { return _list.empty; }
 
 
-    void push(Callable, T...)(Callable func, T args) shared @nogc
+    void push(Callable, T...)(Callable func, T args) shared
     if(isShareable!Callable && allSatisfy!(isShareable, T))
     {
         static struct Packed { Callable func; T args; }

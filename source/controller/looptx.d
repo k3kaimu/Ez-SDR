@@ -192,7 +192,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                     assert(t.deviceList.length == 1);
                     auto d = t.deviceList[0];
                     UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(d.numTxStream);
-                    foreach(i; 0 .. d.numTxStream) buffer[i] = parseAndAllocSignal();
+                    foreach(j; 0 .. d.numTxStream) buffer[j] = parseAndAllocSignal();
 
                     t.invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
                         thread.deviceList[0].setLoopTransmitSignal(buf.array);
