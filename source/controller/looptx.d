@@ -164,13 +164,6 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             return move(dst);
         }
 
-        static void disposeSignal(shared(C[])[] buffer) {
-            foreach(ref e; buffer) {
-                alloc.dispose(cast(C[])e);
-            }
-            alloc.dispose(cast(C[][])buffer);
-        }
-
         switch(reader.read!ubyte) {
         case 0b00001000:        // Resume Device Thread
             this.resumeDeviceThreads();
