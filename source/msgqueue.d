@@ -425,7 +425,13 @@ unittest
 }
 
 
-struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
+enum TaskKind
+{
+    RUN, READY, TERMINATE
+}
+
+
+struct TaskImpl(PtrType = void*, TaskType = bool function(PtrType, TaskKind) @nogc, size_t fieldSize = 64 - (void*).sizeof*2)
 {
     import std.experimental.allocator.mallocator;
     import std.experimental.allocator;
@@ -438,20 +444,15 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
 
     enum size_t ON_FIELD_TAG = 1;
 
-    enum TaskType
-    {
-        RUN, READY, TERMINATE
-    }
-
 
     ~this()
     {
         if(this._ptr is null) return;
 
         if(cast(size_t) this._ptr == ON_FIELD_TAG) {
-            this._task(this._dummy.ptr, TaskType.TERMINATE);
+            this._task(this._dummy.ptr, TaskKind.TERMINATE);
         } else {
-            this._task(this._ptr, TaskType.TERMINATE);
+            this._task(this._ptr, TaskKind.TERMINATE);
         }
 
         this._ptr = null;
@@ -473,15 +474,15 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
         enum bool placedOnField = Payload.sizeof <= fieldSize;
 
 
-        static bool taskImpl(PtrType ptr, TaskType type) @nogc {
+        static bool taskImpl(PtrType ptr, TaskKind type) {
             auto payload = cast(Payload*)ptr;
             final switch(type) {
-            case TaskType.RUN:
+            case TaskKind.RUN:
                 payload.fn(payload.v);
                 return false;
-            case TaskType.READY:
+            case TaskKind.READY:
                 return payload.ready(payload.v);
-            case TaskType.TERMINATE:
+            case TaskKind.TERMINATE:
                 static if(placedOnField) {
                     Payload p = move(*payload);
                 } else {
@@ -543,9 +544,9 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
         assert(_ptr !is null);
 
         if(cast(size_t)_ptr == ON_FIELD_TAG) {
-            return this._task(_dummy.ptr, TaskType.READY);
+            return this._task(_dummy.ptr, TaskKind.READY);
         } else {
-            return this._task(this._ptr, TaskType.READY);
+            return this._task(this._ptr, TaskKind.READY);
         }
     }
 
@@ -554,16 +555,16 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
     {
         assert(_ptr !is null);
         if(cast(size_t)_ptr == ON_FIELD_TAG) {
-            this._task(_dummy.ptr, TaskType.RUN);
+            this._task(_dummy.ptr, TaskKind.RUN);
         } else {
-            this._task(_ptr, TaskType.RUN);
+            this._task(_ptr, TaskKind.RUN);
         }
     }
 
 
   private:
     PtrType _ptr;
-    bool function(PtrType, TaskType) @nogc _task;
+    TaskType _task;
 
   static if(is(PtrType == shared(void)*))
   {
@@ -576,11 +577,11 @@ struct TaskImpl(PtrType = void*, size_t fieldSize = 64 - (void*).sizeof*2)
 }
 
 alias Task = TaskImpl!(void*);
-alias SharedTask = TaskImpl!(shared(void)*);
+alias SharedNoGCTask = TaskImpl!(shared(void)*, bool function(shared(void)*, TaskKind) @nogc);
 
 unittest
 {
-    static assert(TaskImpl!(void*, 64 - (void*).sizeof * 2).sizeof == 64);
+    static assert(TaskImpl!(void*, bool function(void*, TaskKind), 64 - (void*).sizeof * 2).sizeof == 64);
 
     bool ready = false;
     bool done = false;
@@ -593,7 +594,7 @@ unittest
     assert(done);
 
     static assert(!isShareable!Task);
-    static assert(isShareable!SharedTask);
+    static assert(isShareable!SharedNoGCTask);
 }
 
 
@@ -610,7 +611,7 @@ struct Disposer
     Disposer opCall()
     {
         Disposer inst;
-        inst._list = new shared(LockQueue!(SharedTask))(1024);
+        inst._list = new shared(LockQueue!(SharedNoGCTask))(1024);
         return inst;
     }
 
@@ -620,7 +621,7 @@ struct Disposer
         this.tryDisposeAll();
         if(&this !is Disposer.instance) {
             while(1) {
-                SharedTask task;
+                SharedNoGCTask task;
                 if(!_list.pop(task)) break;
                 Disposer.instance._list.push(move(task));
             }
@@ -631,27 +632,27 @@ struct Disposer
     void push(T)(T value) shared
     if(isShareable!T)
     {
-        _list.push(SharedTask.make(move(value), lwfp!((ref _) => true), lwfp!((ref _){})));
+        _list.push(SharedNoGCTask.make(move(value), lwfp!((ref _) => true), lwfp!((ref _){})));
     }
 
 
     void push(T, Pred)(T value, Pred ready) shared
     if(isShareable!T && isShareable!Pred && !isDelegate!Pred)
     {
-        _list.push(SharedTask.make(move(value), move(ready), lwfp!((ref _){})));
+        _list.push(SharedNoGCTask.make(move(value), move(ready), lwfp!((ref _){})));
     }
 
 
     void push(T, Pred, Callable)(T value, Pred ready, Callable finalize) shared
     if(isShareable!T && isShareable!Pred && isShareable!Callable)
     {
-        _list.push(SharedTask.make(move(value), move(ready), move(finalize)));
+        _list.push(SharedNoGCTask.make(move(value), move(ready), move(finalize)));
     }
 
 
     bool tryDisposeFront() shared
     {
-        SharedTask task;
+        SharedNoGCTask task;
         if(!_list.pop(task)) return false;
 
         if(task.isReady()) {
@@ -685,14 +686,14 @@ struct Disposer
 
 
   private:
-    shared(LockQueue!(SharedTask)) _list;
+    shared(LockQueue!(SharedNoGCTask)) _list;
     shared static Disposer _instance;
 }
 
 
 shared static this()
 {
-    Disposer._instance._list = new shared(LockQueue!(SharedTask))(1024);
+    Disposer._instance._list = new shared(LockQueue!(SharedNoGCTask))(1024);
 }
 
 
@@ -747,14 +748,14 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
 
 
     static
-    SharedTaskList opCall(size_t size = 4096 / SharedTask.sizeof)
+    SharedTaskList opCall(size_t size = 4096 / SharedNoGCTask.sizeof)
     {
         SharedTaskList inst;
 
         static if(locked)
-            inst._list = new shared(LockQueue!(SharedTask))(size);
+            inst._list = new shared(LockQueue!(SharedNoGCTask))(size);
         else
-            inst._list = new LockFreeSPSCQueue!(SharedTask)(size);
+            inst._list = new LockFreeSPSCQueue!(SharedNoGCTask)(size);
 
         return inst;
     }
@@ -768,21 +769,21 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
     if(isShareable!Callable && allSatisfy!(isShareable, T))
     {
         static struct Packed { Callable func; T args; }
-        static bool readyImpl(ref Packed) @nogc { return true; }
-        static void runImpl(ref Packed impl) @nogc { impl.func(impl.args); }
+        static bool readyImpl(ref Packed) { return true; }
+        static void runImpl(ref Packed impl) { impl.func(impl.args); }
 
         Packed value;
         move(func, value.func);
         static foreach(i, E; T)
             move(args[i], value.args[i]);
 
-        _list.push(SharedTask.make(move(value), lwfp!readyImpl, lwfp!runImpl));
+        _list.push(SharedNoGCTask.make(move(value), lwfp!readyImpl, lwfp!runImpl));
     }
 
 
     bool processFront() shared
     {
-        SharedTask task;
+        SharedNoGCTask task;
         if(!_list.pop(task)) return false;
 
         task.run();
@@ -805,9 +806,9 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
 
   private:
   static if(locked)
-    shared(LockQueue!(SharedTask)) _list;
+    shared(LockQueue!(SharedNoGCTask)) _list;
   else
-    shared(LockFreeSPSCQueue!(SharedTask)) _list;
+    shared(LockFreeSPSCQueue!(SharedNoGCTask)) _list;
 }
 
 unittest
