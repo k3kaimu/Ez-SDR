@@ -190,7 +190,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                 this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
                     size_t idx;
                     foreach(thread.DeviceType d; thread.deviceList) {
-                        d.setLoopTransmitSignal(cast(C[][])buf.array[idx .. idx + d.numTxStream]);
+                        d.setLoopTransmitSignal(buf.array[idx .. idx + d.numTxStream]);
                         idx += d.numTxStream;
                     }
                 }, move(buffer));
@@ -202,7 +202,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                     foreach(i; 0 .. d.numTxStream) buffer[i] = parseAndAllocSignal();
 
                     t.invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
-                        thread.deviceList[0].setLoopTransmitSignal(cast(C[][])buf.array);
+                        thread.deviceList[0].setLoopTransmitSignal(buf.array);
                     }, move(buffer));
                 }
             }
