@@ -1,5 +1,6 @@
 module controller.looptx;
 
+import core.lifetime;
 import core.thread;
 import core.sync.event;
 
@@ -151,16 +152,16 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             return;
 
         size_t cntStream = 0;
-        shared(C)[] parseAndAllocSignal() {
-            if(!reader.canRead!size_t) { dbg.writefln("Cannot read %s-th signal length", cntStream); return null; }
+        UniqueArray!C parseAndAllocSignal() {
+            if(!reader.canRead!size_t) { dbg.writefln("Cannot read %s-th signal length", cntStream); return typeof(return).init; }
             immutable siglen = reader.read!size_t;
             dbg.writefln("siglen = %s", siglen);
 
-            if(!reader.canReadArray!C(siglen)) { dbg.writefln("Cannot read %s-th signal (len = %s)", cntStream, siglen); return null; }
+            if(!reader.canReadArray!C(siglen)) { dbg.writefln("Cannot read %s-th signal (len = %s)", cntStream, siglen); return typeof(return).init; }
             const(C)[] arr = reader.readArray!C(siglen);
-            auto buf = alloc.makeArray!(shared(C))(arr.length);
-            buf[0 .. arr.length] = arr[];
-            return buf;
+            UniqueArray!C dst = makeUniqueArray!C(arr.length);
+            dst.array[] = arr[];
+            return move(dst);
         }
 
         static void disposeSignal(shared(C[])[] buffer) {
@@ -183,29 +184,26 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             size_t totStream = 0;
             foreach(d; _devs) totStream += d.numTxStream();
             if(_singleThread) {
-                shared(C)[][] buffer = alloc.makeArray!(shared(C)[])(totStream);
-                foreach(ref e; buffer) e = parseAndAllocSignal();
+                UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(totStream);
+                foreach(i; 0 .. totStream) buffer[i] = parseAndAllocSignal();
 
-                this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, shared(C[])[] buf) @nogc {
+                this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
                     size_t idx;
                     foreach(thread.DeviceType d; thread.deviceList) {
-                        d.setLoopTransmitSignal(cast(C[][])buf[idx .. idx + d.numTxStream]);
+                        d.setLoopTransmitSignal(cast(C[][])buf.array[idx .. idx + d.numTxStream]);
                         idx += d.numTxStream;
                     }
-
-                    disposeSignal(buf);
-                }, cast(shared(C[])[])buffer);
+                }, move(buffer));
             } else {
                 foreach(size_t i, this.ThreadType t; this.threadList) {
                     assert(t.deviceList.length == 1);
                     auto d = t.deviceList[0];
-                    shared(C)[][] buffer = alloc.makeArray!(shared(C)[])(d.numTxStream);
-                    foreach(ref e; buffer) e = parseAndAllocSignal();
+                    UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(d.numTxStream);
+                    foreach(i; 0 .. d.numTxStream) buffer[i] = parseAndAllocSignal();
 
-                    t.invoke(function(shared(LoopTXControllerThread!C) thread, shared(C[])[] buf) @nogc {
-                        thread.deviceList[0].setLoopTransmitSignal(cast(C[][])buf);
-                        disposeSignal(buf);
-                    }, cast(shared(C[])[])buffer);
+                    t.invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
+                        thread.deviceList[0].setLoopTransmitSignal(cast(C[][])buf.array);
+                    }, move(buffer));
                 }
             }
             break;

@@ -1,6 +1,8 @@
 module utils;
 
 import core.thread;
+import core.lifetime;
+
 import std.stdio;
 import std.traits;
 import std.experimental.allocator;
@@ -212,19 +214,20 @@ struct UniqueArray(E, size_t dim = 1)
 
 
     @disable this(this);
-    @disable void opAssign(UniqueArray);
 
 
     ~this()
     {
         if(_array.ptr is null) return;
-        _disposeAll!(alloc, dim)(_array);
+        ArrayType arr = cast(ArrayType)_array;
+        _disposeAll!(alloc, dim)(arr);
+        _array = null;
     }
 
 
     this(size_t n)
     {
-        _array = alloc.makeArray!(ForeachType)(n);
+        _array = cast(shared) alloc.makeArray!(ForeachType)(n);
     }
 
 
@@ -233,14 +236,15 @@ struct UniqueArray(E, size_t dim = 1)
     void opIndexAssign(UniqueArray!(E, dim-1) arr, size_t i)
     in(i < _array.length)
     {
-        _disposeAll!(alloc, dim-1)(_array[i]);
-        _array[i] = arr.array;
+        auto ei = cast(ForeachType) _array[i];
+        _disposeAll!(alloc, dim-1)(ei);
+        _array[i] = arr._array;
         arr._array = null;
     }
   }
 
 
-    auto array() inout { return _array; }
+    inout(ArrayType) array() inout { return cast(inout(ArrayType))_array; }
     auto array() inout shared { return _array; }
 
 
@@ -252,19 +256,33 @@ struct UniqueArray(E, size_t dim = 1)
     {
         static if(dim > 1) if(newlen < _array.length) {
             foreach(i; newlen .. _array.length) {
-                _disposeAll!(alloc, dim-1)(_array[i]);
+                auto ei = cast(ForeachType)_array[i];
+                _disposeAll!(alloc, dim-1)(ei);
+                _array[i] = null;
             }
         }
 
+        auto arr = cast(ArrayType)_array;
         if(newlen < _array.length) {
-            alloc.shrinkArray(_array, _array.length - newlen);
+            alloc.shrinkArray(arr, _array.length - newlen);
         } else {
-            alloc.expandArray(_array, newlen - _array.length);
+            alloc.expandArray(arr, newlen - _array.length);
         }
+        _array = cast(shared)arr;
     }
 
+
+    void opAssign(UniqueArray rhs)
+    {
+        auto arr = cast(ArrayType)_array;
+        if(_array !is null) ._disposeAll!(alloc, dim)(arr);
+        _array = rhs._array;
+        rhs._array = null;
+    }
+
+
   private:
-    ArrayType _array;
+    shared(ArrayType) _array;
 }
 
 
@@ -277,4 +295,7 @@ unittest
     assert(int2d.array.length == 3);
     foreach(i; 0 .. 3)
         assert(int2d.array[i].length == 2);
+
+    import msgqueue : isShareable;
+    static assert(isShareable!(typeof(int2d)));
 }

@@ -776,7 +776,7 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
         static foreach(i, E; T)
             move(args[i], value.args[i]);
 
-        _list.push(SharedTask.make(value, lwfp!readyImpl, lwfp!runImpl));
+        _list.push(SharedTask.make(move(value), lwfp!readyImpl, lwfp!runImpl));
     }
 
 
