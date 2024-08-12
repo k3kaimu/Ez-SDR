@@ -29,7 +29,7 @@ extern(C++, "uhd_usrp_tx_burst") nothrow @nogc
 
 class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
 {
-    import msgqueue : SpinLock;
+    import multithread : SpinLock;
 
     this(){}
 

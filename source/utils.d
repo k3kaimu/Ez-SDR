@@ -7,7 +7,7 @@ import std.stdio;
 import std.traits;
 import std.experimental.allocator;
 
-import msgqueue : isShareable;
+import multithread;
 
 
 
