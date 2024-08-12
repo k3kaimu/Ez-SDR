@@ -7,6 +7,10 @@ import std.stdio;
 import std.traits;
 import std.experimental.allocator;
 
+import msgqueue : isShareable;
+
+
+
 template debugMsg(string tag)
 {
     enum string _tag_ = "[" ~ tag ~ "] ";
@@ -194,6 +198,24 @@ if(dim >= 1)
 }
 
 
+private U[] _duplicateAll(alias alloc, size_t dim, U)(scope U[] arr)
+if(dim >= 1)
+{
+    if(arr is null) return null;
+
+    U[] dst = alloc.makeArray!U(arr.length);
+    static if(dim > 1) {
+        foreach(i; 0 .. arr.length)
+            dst[i] = ._duplicateAll!(alloc, dim-1)(arr[i]);
+    } else {
+        foreach(i; 0 .. arr.length)
+            dst[i] = arr[i];
+    }
+
+    return dst;
+}
+
+
 struct UniqueArray(E, size_t dim = 1)
 {
     import std.experimental.allocator;
@@ -241,6 +263,28 @@ struct UniqueArray(E, size_t dim = 1)
         _array[i] = arr._array;
         arr._array = null;
     }
+
+
+    UniqueArray!(E, dim-1) moveAt(size_t i)
+    {
+        UniqueArray!(E, dim-1) ret;
+        ret._array = this._array[i];
+        this._array[i] = null;
+        return ret;
+    }
+  }
+  else
+  {
+    void opIndexAssign(E value, size_t i)
+    {
+        move(value, cast()this._array[i]);
+    }
+
+
+    ref inout(E) opIndex(size_t i) inout
+    {
+        return (cast(inout(ArrayType))this._array)[i];
+    }
   }
 
 
@@ -268,7 +312,7 @@ struct UniqueArray(E, size_t dim = 1)
         } else {
             alloc.expandArray(arr, newlen - _array.length);
         }
-        _array = cast(shared)arr;
+        _array = cast(typeof(this._array))arr;
     }
 
 
@@ -281,21 +325,84 @@ struct UniqueArray(E, size_t dim = 1)
     }
 
 
+  static if(isLvalueAssignable!E)
+  {
+    typeof(this) dup()
+    {
+        UniqueArray ret;
+        ret._array = cast(typeof(this._array)) _duplicateAll!(alloc, dim)(cast(ArrayType) _array);
+        return ret;
+    }
+  }
+
+
   private:
+
+  static if(isShareable!E)
     shared(ArrayType) _array;
+  else
+    ArrayType _array;
 }
 
+unittest
+{
+    auto arr = makeUniqueArray!int(3);
+    assert(arr.length == 3);
+    arr[0] = 1;
+    arr[1] = 2;
+    arr[2] = 3;
+    assert(arr[0] == 1 && arr[1] == 2 && arr[2] == 3);
+
+    auto arr2 = arr.dup;
+    assert(arr2[0] == 1 && arr2[1] == 2 && arr[2] == 3);
+
+    auto p1 = arr._array.ptr;
+    auto p2 = arr2._array.ptr;
+    assert(p1 !is p2);
+
+    arr = move(arr2);
+    assert(arr._array.ptr is p2);
+
+    arr.resize(2);
+    assert(arr.length == 2);
+    assert(arr[0] == 1 && arr[1] == 2);
+
+    arr.resize(4);
+    assert(arr.length == 4);
+    assert(arr[0] == 1 && arr[1] == 2 && arr[2] == 0 && arr[3] == 0);
+}
 
 unittest
 {
     auto int2d = makeUniqueArray!(int, 2)(3);
-    foreach(i; 0 .. 3)
-        int2d[i] = makeUniqueArray!int(2);
+    foreach(i; 0 .. 3) {
+        auto e =  makeUniqueArray!int(2);
+        e[0] = (i + 1);
+        e[1] = (i + 1) * 2;
+        int2d[i] = move(e);
+    }
 
     assert(int2d.array.length == 3);
     foreach(i; 0 .. 3)
         assert(int2d.array[i].length == 2);
 
-    import msgqueue : isShareable;
-    static assert(isShareable!(typeof(int2d)));
+    auto int1d = int2d.moveAt(0);
+    assert(int2d.array[0].length == 0);
+    assert(int1d.array.length == 2);
+
+    assert(int1d[0] == 1 && int1d[1] == 2);
+
+    int2d[0] = move(int1d);
+    int2d.resize(1);
+    assert(int2d.length == 1);
+    assert(int2d.array[0].length == 2);
+    int2d.resize(2);
+    assert(int2d.length == 2);
+    assert(int2d.array[0].length == 2 && int2d.array[1].length == 0);
+    assert(int2d.array[0][0] == 1 && int2d.array[0][1] == 2);
+
+    auto int2ddup = int2d.dup;
+    assert(int2ddup.length == 2);
+    assert(int2ddup.array[0].length == 2 && int2ddup.array[1].length == 0);
+    assert(int2ddup.array[0][0] == 1 && int2ddup.array[0][1] == 2);
 }
