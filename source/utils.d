@@ -6,6 +6,7 @@ import core.lifetime;
 import std.stdio;
 import std.traits;
 import std.experimental.allocator;
+import std.meta;
 
 import multithread;
 
@@ -193,26 +194,9 @@ if(dim >= 1)
             ._disposeAll!(alloc, dim-1)(e);
     }
 
-    alloc.dispose(arr);
+    auto unq = cast(Unqual!U[])arr;
+    alloc.dispose(unq);
     arr = null;
-}
-
-
-private U[] _duplicateAll(alias alloc, size_t dim, U)(scope U[] arr)
-if(dim >= 1)
-{
-    if(arr is null) return null;
-
-    U[] dst = alloc.makeArray!U(arr.length);
-    static if(dim > 1) {
-        foreach(i; 0 .. arr.length)
-            dst[i] = ._duplicateAll!(alloc, dim-1)(arr[i]);
-    } else {
-        foreach(i; 0 .. arr.length)
-            dst[i] = arr[i];
-    }
-
-    return dst;
 }
 
 
@@ -253,6 +237,13 @@ struct UniqueArray(E, size_t dim = 1)
     }
 
 
+    private
+    this(inout shared(ArrayType) arr) inout
+    {
+        this._array = arr;
+    }
+
+
   static if(dim > 1)
   {
     void opIndexAssign(UniqueArray!(E, dim-1) arr, size_t i)
@@ -275,25 +266,27 @@ struct UniqueArray(E, size_t dim = 1)
   }
   else
   {
-    void opIndexAssign(E value, size_t i)
-    {
-        move(value, cast()this._array[i]);
-    }
-
-
     ref inout(E) opIndex(size_t i) inout
     {
         return (cast(inout(ArrayType))this._array)[i];
+    }
+
+    
+    ref Select!(isShareable!E, inout(E), shared(inout(E))) opIndex(size_t i) inout shared
+    {
+        return (cast(typeof(return)[]) this._array)[i];
     }
   }
 
 
     inout(ArrayType) array() inout { return cast(inout(ArrayType))_array; }
-    auto array() inout shared { return _array; }
+    Select!(isShareable!E, inout(ArrayType), shared(inout(ArrayType))) array() inout shared { return cast(typeof(return)) _array; }
+    immutable(ArrayType) array() immutable { return cast(immutable(ArrayType))_array; }
 
 
     size_t length() const { return _array.length; }
     size_t length() const shared { return _array.length; }
+    size_t length() immutable { return _array.length; }
 
 
     void resize(size_t newlen)
@@ -325,13 +318,32 @@ struct UniqueArray(E, size_t dim = 1)
     }
 
 
-  static if(isLvalueAssignable!E)
+  static if(isLvalueAssignable!(E, const(E)))
+  {
+    typeof(this) dup() const
+    {
+        UniqueArray ret;
+        ret._array = cast(typeof(ret._array)) _duplicateAll(cast(const(ArrayType)) _array);
+        return ret;
+    }
+  }
+  else static if(isLvalueAssignable!E)
   {
     typeof(this) dup()
     {
         UniqueArray ret;
-        ret._array = cast(typeof(this._array)) _duplicateAll!(alloc, dim)(cast(ArrayType) _array);
+        ret._array = cast(typeof(ret._array)) _duplicateAll(cast(ArrayType) _array);
         return ret;
+    }
+  }
+
+  static if(is(E : immutable(E)))
+  {
+    immutable(UniqueArray!(E, dim)) moveAsImmutable()
+    {
+        auto arr = this._array;
+        this._array = null;
+        return immutable UniqueArray!(E, dim)(cast(immutable) arr);
     }
   }
 
@@ -342,6 +354,25 @@ struct UniqueArray(E, size_t dim = 1)
     shared(ArrayType) _array;
   else
     ArrayType _array;
+
+
+    private static ArrayType _duplicateAll(T)(scope T arr)
+    if((is(T : const(ArrayType)) && isLvalueAssignable!(E, const(E)))
+    || (is(T : ArrayType) && isLvalueAssignable!(E, E)))
+    {
+        if(arr is null) return null;
+
+        ArrayType dst = alloc.makeArray!(ForeachType)(arr.length);
+        static if(dim > 1) {
+            foreach(i; 0 .. arr.length)
+                dst[i] = UniqueArray!(E, dim-1)._duplicateAll(arr[i]);
+        } else {
+            foreach(i; 0 .. arr.length)
+                dst[i] = arr[i];
+        }
+
+        return dst;
+    }
 }
 
 unittest
@@ -405,4 +436,9 @@ unittest
     assert(int2ddup.length == 2);
     assert(int2ddup.array[0].length == 2 && int2ddup.array[1].length == 0);
     assert(int2ddup.array[0][0] == 1 && int2ddup.array[0][1] == 2);
+
+    immutable imm = int2ddup.moveAsImmutable;
+    assert(imm.length == 2);
+    assert(imm.array[0].length == 2 && imm.array[1].length == 0);
+    assert(imm.array[0][0] == 1 && imm.array[0][1] == 2);
 }

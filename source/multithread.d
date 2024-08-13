@@ -94,7 +94,7 @@ if(isShareable!T)
     }
 
   private:
-    shared(UniqueArray!T) _data;
+    UniqueArray!T _data;
     size_t _rpos;
     size_t _wpos;
 }
