@@ -55,23 +55,31 @@ import lock_free.rwqueue;
 
 void main(string[] args)
 {
-    string config_json;
+    string config_json = null;
     short tcpPort = -1;
     bool flagRetry = false;
+    string[] modifySettings;
 
     // コマンドライン引数指定されたjsonファイルを読み込む
     auto helpInformation1 = getopt(
         args,
         std.getopt.config.passThrough,
-        "config_json|c", "read settings from json", &config_json,
+        "config_json|c", "Read settings from a json file. If this argument is not specified, it is read from the standard input.", &config_json,
         "port", "TCP port", &tcpPort,
         "retry", "retry", &flagRetry,
     );
 
-    writeln("[multiusrp] Read config json: ", config_json);
+    JSONValue[string] settings;
+    if(config_json) {
+        writeln("[multiusrp] Read config json from file: ", config_json);
 
-    import std.file : read;
-    JSONValue[string] settings = parseJSON(cast(const(char)[])read(config_json)).object;
+        import std.file : read;
+        settings = parseJSON(cast(const(char)[])read(config_json)).object;
+    } else {
+        writeln("[multiusrp] Read config json from stdin as follows:");
+        settings = parseJSON(stdin.byLine.join()).object;
+        writeln(settings);
+    }
 
     bool hasUHDException = false;
     bool isUpdatedConfig = false;
