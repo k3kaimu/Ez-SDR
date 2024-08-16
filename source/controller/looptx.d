@@ -3,6 +3,7 @@ module controller.looptx;
 import core.lifetime;
 import core.thread;
 import core.sync.event;
+import core.atomic;
 
 import std.json;
 import std.sumtype;
@@ -245,7 +246,7 @@ unittest
         void construct() { state = "init"; }
         void destruct() { state = "finished"; }
         void setup(JSONValue[string] configJSON) {}
-        size_t numTxStreamImpl() shared { return _numTxStream; }
+        size_t numTxStreamImpl() shared { return atomicLoad(_numTxStream); }
         size_t numRxStreamImpl() shared { return 0; }
         synchronized void setLoopTransmitSignal(scope const C[][] signal) {
             import core.lifetime : move;
@@ -259,9 +260,9 @@ unittest
 
             move(newbuf, cast()_buffer);
         }
-        synchronized void startLoopTransmit() { state = "start"; }
-        synchronized void stopLoopTransmit() { state = "stop"; }
-        synchronized void performLoopTransmit() { cntPerf = cntPerf + 1; Thread.sleep(10.msecs); }
+        synchronized void startLoopTransmit() { atomicStore(state, "start"); }
+        synchronized void stopLoopTransmit() { atomicStore(state, "stop"); }
+        synchronized void performLoopTransmit() { atomicOp!"+="(cntPerf, 1); Thread.sleep(10.msecs); }
         synchronized void setParam(const(char)[] key, const(char)[] value) {}
         synchronized const(char)[] getParam(const(char)[] key) { return null; }
     }
