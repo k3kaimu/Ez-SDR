@@ -21,5 +21,11 @@
 	],
 	"libs":[
 		"stdc++"
+	],
+	"__dflags": [
+		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,nosharedaccess,inclusiveincontracts,fixImmutableConv,systemVariables"
+	],
+	"dflags": [
+		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,inclusiveincontracts,fixImmutableConv,systemVariables"
 	]
 }

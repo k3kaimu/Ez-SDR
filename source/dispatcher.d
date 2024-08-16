@@ -4,13 +4,14 @@ import std.stdio;
 import controller;
 import device;
 import utils;
+import multithread;
 
 
 class MessageDispatcher
 {
     alias dbg = debugMsg!"MessageDispatcher";
 
-    this(IDevice[string] devices, IController[string] controllers)
+    this(LocalRef!(shared(IDevice))[string] devices, IController[string] controllers)
     {
         this.devs = devices;
         this.ctrls = controllers;
@@ -86,6 +87,6 @@ class MessageDispatcher
 
 
   private:
-    IDevice[string] devs;
+    LocalRef!(shared(IDevice))[string] devs;
     IController[string] ctrls;
 }

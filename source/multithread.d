@@ -5,8 +5,44 @@ import core.lifetime;
 import core.time;
 
 import std.traits;
+import std.typecons;
 
 import utils;
+
+
+// alias SharedRef(T) = UnqualRef!(shared(T));
+
+struct LocalRef(T)
+if(is(T == shared))
+{
+    T value;
+
+    this()(auto ref inout(T) v) inout
+    {
+        cast()this.value = cast()v;
+    }
+
+    alias get this;
+    T get() { return cast(T)cast()this.value; }
+
+    void opAssign(LocalRef rhs)
+    {
+        cast()this.value = cast()rhs.value;
+    }
+
+    void opAssign(T rhs)
+    {
+        cast()this.value = cast()rhs;
+    }
+}
+
+unittest
+{
+    LocalRef!(shared(int*)) p1;
+    p1 = new shared(int);
+    shared(int)* p2 = p1;
+}
+
 
 enum bool isShareable(T) = isDelegate!T ? is(T == shared(T)) : is(T : shared(T));
 
@@ -411,3 +447,28 @@ private:
     size_t _flag;
 }
 
+
+struct Shared(T)
+if(is(T : Object))
+{
+    this(shared(T) obj)
+    {
+        cast()this.obj = cast()obj;
+    }
+
+    this(ref return scope SharedRef rhs)
+    {
+        _obj = rhs._obj;
+    }
+
+    alias obj this;
+
+    shared(T) obj;
+}
+
+unittest
+{
+    static synchronized class C { void foo() {} }
+    // Shared!C c = new C);
+
+}

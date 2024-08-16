@@ -131,6 +131,7 @@ struct ReadOnlyArray(E)
     import std.range;
 
     inout(E) front() inout { return _array.front; }
+
     void popFront() { _array.popFront(); }
     bool empty() const { return _array.empty; }
     inout(E) opIndex(size_t i) inout { return _array[i]; }
@@ -141,7 +142,7 @@ struct ReadOnlyArray(E)
     int opApply(Fn)(scope Fn dg)
     {
         int result = 0;
-        foreach (i, e; _array)
+        foreach (i, ref e; _array)
         {
             static if(is(typeof(dg(i, e))))
                 result = dg(i, e);
@@ -238,7 +239,7 @@ struct UniqueArray(E, size_t dim = 1)
 
 
     private
-    this(inout shared(ArrayType) arr) inout
+    this(inout shared(ForeachType)[] arr) inout
     {
         this._array = arr;
     }
@@ -251,7 +252,7 @@ struct UniqueArray(E, size_t dim = 1)
     {
         auto ei = cast(ForeachType) _array[i];
         _disposeAll!(alloc, dim-1)(ei);
-        _array[i] = arr._array;
+        this.array[i] = arr.array;
         arr._array = null;
     }
 
@@ -259,8 +260,8 @@ struct UniqueArray(E, size_t dim = 1)
     UniqueArray!(E, dim-1) moveAt(size_t i)
     {
         UniqueArray!(E, dim-1) ret;
-        ret._array = this._array[i];
-        this._array[i] = null;
+        ret._array = cast(shared)this.array[i];
+        this.array[i] = null;
         return ret;
     }
   }
@@ -295,7 +296,7 @@ struct UniqueArray(E, size_t dim = 1)
             foreach(i; newlen .. _array.length) {
                 auto ei = cast(ForeachType)_array[i];
                 _disposeAll!(alloc, dim-1)(ei);
-                _array[i] = null;
+                this.array[i] = null;
             }
         }
 
@@ -351,7 +352,7 @@ struct UniqueArray(E, size_t dim = 1)
   private:
 
   static if(isShareable!E)
-    shared(ArrayType) _array;
+    shared(ForeachType)[] _array;
   else
     ArrayType _array;
 

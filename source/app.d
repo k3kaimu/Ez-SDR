@@ -39,6 +39,7 @@ import core.atomic;
 import core.memory;
 
 import core.stdc.stdlib;
+import core.atomic;
 
 import tcp_iface;
 import transmitter;
@@ -47,6 +48,7 @@ import msgqueue;
 import controller;
 import device;
 import dispatcher;
+import multithread;
 
 import std.experimental.allocator;
 
@@ -126,7 +128,7 @@ void mainImpl(C)(JSONValue[string] settings){
     // txUSRPs.length = ("tx" in settings) ? settings["tx"].array.length : 0;
     // rxUSRPs.length = ("rx" in settings) ? settings["rx"].array.length : 0;
 
-    IDevice[string] devs;
+    LocalRef!(shared(IDevice))[string] devs;
     IController[string] ctrls;
     scope(exit) {
         foreach(tag, ctrl; ctrls)
@@ -135,7 +137,7 @@ void mainImpl(C)(JSONValue[string] settings){
         ctrls = null;
 
         foreach(tag, dev; devs)
-            dev.destruct();
+            (cast()dev.get).destruct();
 
         devs = null;
     }
@@ -148,7 +150,7 @@ void mainImpl(C)(JSONValue[string] settings){
         auto newdev = newDevice(deviceSettings["type"].str);
         newdev.construct();
         newdev.setup(deviceSettings.object);
-        devs[tag] = newdev;
+        devs[tag] = cast(shared)newdev;
     }
 
     // Controllerの構築
@@ -173,7 +175,7 @@ void mainImpl(C)(JSONValue[string] settings){
     // kill switch for transmit and receive threads
     shared bool stop_signal_called = false;
     scope(exit)
-        stop_signal_called = true;
+        atomicStore(stop_signal_called, true);
 
     writeln("START");
 
@@ -185,7 +187,7 @@ void mainImpl(C)(JSONValue[string] settings){
     auto event_dg = delegate(){
         scope(exit) {
             writeln("[eventIOLoop] END");
-            stop_signal_called = true;
+            atomicStore(stop_signal_called, true);
         }
 
         try {
