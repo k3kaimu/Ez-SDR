@@ -30,7 +30,7 @@ with multiusrp.ClientV3(IPADDR, PORT) as usrp:
             looper.transmit(signals)
             print("Done")
 
-        if cmd.startswith("st"):
+        elif cmd.startswith("st"):
             looper.stopTransmit()
 
         # elif cmd.startswith("r"):
