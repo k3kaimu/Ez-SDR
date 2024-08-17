@@ -19,6 +19,7 @@ import controller;
 import device;
 import msgqueue;
 import utils;
+import multithread;
 
 
 
@@ -108,11 +109,13 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
 
 
     override
-    void setup(IDevice[] devs, JSONValue[string] settings)
+    void setup(LocalRef!(shared(IDevice))[] devs, JSONValue[string] settings)
     {
-        foreach(i, e; devs) {
-            _devs ~= cast(shared)enforce(cast(ILoopTransmitter!C) e, "The device#%s is not a ILoopTransmitter.".format(i));
+        ILoopTransmitter!C[] tmplist;
+        foreach(i, ref LocalRef!(shared(IDevice)) e; devs) {
+            tmplist ~= enforce(cast(ILoopTransmitter!C) cast()(e.get), "The device#%s is not a ILoopTransmitter.".format(i));
         }
+        _devs = cast(shared) tmplist;
 
         if("singleThread" in settings && settings["singleThread"].get!bool)
             _singleThread = true;
@@ -124,7 +127,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
     {
         if(_singleThread) {
             auto thread = new LoopTXControllerThread!C();
-            foreach(d; _devs)
+            foreach(ref d; _devs)
                 thread.registerDevice(d);
 
             this.registerThread(thread);
@@ -270,7 +273,7 @@ unittest
     auto ctrl = new LoopTXController!C();
     TestDevice[] devs = [new TestDevice(2), new TestDevice(1), new TestDevice(3)];
     foreach(d; devs) d.construct();
-    ctrl.setup(devs.map!(a => cast(IDevice)a).array, null);
+    ctrl.setup(devs.map!(a => localRef(cast(shared(IDevice))a)).array, null);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 

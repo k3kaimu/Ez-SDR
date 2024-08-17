@@ -36,6 +36,12 @@ if(is(T == shared))
     }
 }
 
+auto localRef(T)(T value)
+if(is(T == shared))
+{
+    return LocalRef!T(value);
+}
+
 unittest
 {
     LocalRef!(shared(int*)) p1;

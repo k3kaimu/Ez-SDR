@@ -22,10 +22,22 @@
 	"libs":[
 		"stdc++"
 	],
-	"__dflags": [
+	"__dflags-ldc": [
 		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,nosharedaccess,inclusiveincontracts,fixImmutableConv,systemVariables"
 	],
-	"dflags": [
+	"dflags-ldc": [
 		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,inclusiveincontracts,fixImmutableConv,systemVariables"
-	]
+	],
+	"dflags-dmd": [
+		"-preview=dip1000",
+		"-preview=dip1008",
+		"-preview=bitfields",
+		"-preview=fieldwise",
+		"-preview=fixAliasThis",
+		"-preview=rvaluerefparam",
+		"-preview=nosharedaccess",
+		"-preview=inclusiveincontracts",
+		"-preview=fixImmutableConv",
+		"-preview=systemVariables"
+	],
 }

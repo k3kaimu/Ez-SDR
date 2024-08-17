@@ -159,7 +159,7 @@ void mainImpl(C)(JSONValue[string] settings){
 
         auto newctrl = newController(ctrlSettings["type"].str);
 
-        IDevice[] devlist;
+        LocalRef!(shared(IDevice))[] devlist;
         foreach(JSONValue devtag; ctrlSettings["devices"].array) {
             devlist ~= devs[devtag.str];
         }

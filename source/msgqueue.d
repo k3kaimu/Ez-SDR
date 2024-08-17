@@ -373,9 +373,9 @@ struct SharedTaskList(Flag!"locked" locked = Yes.locked)
         SharedTaskList inst;
 
         static if(locked)
-            inst._list = new shared(LockQueue!(SharedNoGCTask))(size);
+            cast()inst._list = cast()new shared LockQueue!(SharedNoGCTask)(size);
         else
-            inst._list = new LockFreeSPSCQueue!(SharedNoGCTask)(size);
+            cast()inst._list = new LockFreeSPSCQueue!(SharedNoGCTask)(size);
 
         return inst;
     }

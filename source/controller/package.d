@@ -10,11 +10,12 @@ import std.typecons;
 
 import device;
 import utils;
+import multithread;
 
 
 interface IController
 {
-    void setup(IDevice[], JSONValue[string]);
+    void setup(LocalRef!(shared(IDevice))[], JSONValue[string]);
 
     void spawnDeviceThreads();
     void killDeviceThreads();
@@ -229,7 +230,7 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     this() {}
 
     abstract
-    void setup(IDevice[], JSONValue[string]);
+    void setup(LocalRef!(shared(IDevice))[], JSONValue[string]);
 
 
     void registerThread(CtrlThread thread)
@@ -308,6 +309,8 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 unittest
 {
     import std.stdio;
+    import std.algorithm : map;
+    import std.array : array;
 
     class TestDevice : IDevice
     {
@@ -342,7 +345,7 @@ unittest
         shared(IDevice)[] devs;
 
         this() { super(); }
-        override void setup(IDevice[] devs, JSONValue[string]) { this.devs = cast(shared)devs; }
+        override void setup(LocalRef!(shared(IDevice))[] devs, JSONValue[string]) { this.devs = cast(shared)devs.map!"a.get".array(); }
         override void spawnDeviceThreads() {
             foreach(d; devs) {
                 auto thread = new TestThread();
@@ -356,7 +359,7 @@ unittest
 
     auto ctrl = new TestController();
     auto dev = new TestDevice();
-    ctrl.setup([dev, null], null);
+    ctrl.setup([localRef(cast(shared(IDevice))dev), LocalRef!(shared(IDevice))(null)], null);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 
