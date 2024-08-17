@@ -8,6 +8,69 @@ import multiprocessing as mp
 
 
 
+class ClientV3:
+    def __init__(self, ipaddr, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.ipaddr = ipaddr
+        self.port = port
+
+    def __enter__(self):
+        if self.ipaddr is not None:
+            self.sock.__enter__();
+            self.sock.connect((self.ipaddr, self.port))
+        return self
+
+    def __exit__(self, *args):
+        if self.ipaddr is not None:
+            self.sock.close()
+            self.sock.__exit__(args)
+
+    def connect(self):
+        if self.ipaddr is not None:
+            self.sock.connect((self.ipaddr, self.port))
+
+    def sendMsg(self, target, msg):
+        sigdatafmt.writeStringToSock(self.sock, target)
+        sigdatafmt.writeIntToSock(self.sock, len(msg), np.uint64)
+        self.sock.sendall(msg)
+
+    def startController(self, target):
+        msg = sigdatafmt.valueToBytes(0b00001000, np.uint8)
+        msg += target.encode(encoding="utf-8")
+        self.sendMsg("@server", msg)
+
+    def stopController(self, target):
+        msg = sigdatafmt.valueToBytes(0b00001001, np.uint8)
+        msg += target.encode(encoding="utf-8")
+        self.sendMsg("@server", msg)
+
+
+class LoopTransmitter:
+    def __init__(self, client, target):
+        self.client = client
+        self.target = target
+
+    def setTransmitSignal(self, signals):
+        msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
+        for i in range(len(signals)):
+            msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
+            msg += sigdatafmt.arrayToBytes(signals, np.complex64)
+        
+        self.client.sendMsg(self.target, msg)
+    
+    def startTransmit(self):
+        msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
+        self.client.sendMsg(self.target, msg)
+
+    def stopTransmit(self):
+        msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
+        self.client.sendMsg(self.target, msg)
+    
+    def transmit(self, signals):
+        self.setTransmitSignal(signals)
+        self.startTransmit()
+
+
 class SimpleClient:
     def __init__(self, ipaddr, port, nTXUSRPs, nRXUSRPs):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -1,5 +1,5 @@
 {
-	"name": "multiusrp",
+	"name": "ezsdr",
 	"authors": [
 		"Kazuki Komatsu"
 	],
@@ -10,5 +10,22 @@
 		"uhd": { "path": "../uhd4d" },
 		"lock-free": "~>0.1.2",
 		"automem": "~>0.6.9"
-	}
+	},
+	"preBuildCommands": [
+        "clang++ -std=c++20 -O2 -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
+		"clang++ -std=c++20 -O2 -c cpp/uhd_usrp/tx_burst.cpp",
+    ],
+	"sourceFiles": [
+		"looptx_rfnoc_replay_block.o",
+		"tx_burst.o",
+	],
+	"libs":[
+		"stdc++"
+	],
+	"__dflags": [
+		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,nosharedaccess,inclusiveincontracts,fixImmutableConv,systemVariables"
+	],
+	"dflags": [
+		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,inclusiveincontracts,fixImmutableConv,systemVariables"
+	]
 }

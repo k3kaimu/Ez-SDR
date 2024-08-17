@@ -39,11 +39,16 @@ import core.atomic;
 import core.memory;
 
 import core.stdc.stdlib;
+import core.atomic;
 
-import binif;
+import tcp_iface;
 import transmitter;
 import receiver;
 import msgqueue;
+import controller;
+import device;
+import dispatcher;
+import multithread;
 
 import std.experimental.allocator;
 
@@ -52,23 +57,31 @@ import lock_free.rwqueue;
 
 void main(string[] args)
 {
-    string config_json;
+    string config_json = null;
     short tcpPort = -1;
     bool flagRetry = false;
+    string[] modifySettings;
 
     // コマンドライン引数指定されたjsonファイルを読み込む
     auto helpInformation1 = getopt(
         args,
         std.getopt.config.passThrough,
-        "config_json|c", "read settings from json", &config_json,
+        "config_json|c", "Read settings from a json file. If this argument is not specified, it is read from the standard input.", &config_json,
         "port", "TCP port", &tcpPort,
         "retry", "retry", &flagRetry,
     );
 
-    writeln("[multiusrp] Read config json: ", config_json);
+    JSONValue[string] settings;
+    if(config_json) {
+        writeln("[multiusrp] Read config json from file: ", config_json);
 
-    import std.file : read;
-    JSONValue[string] settings = parseJSON(cast(const(char)[])read(config_json)).object;
+        import std.file : read;
+        settings = parseJSON(cast(const(char)[])read(config_json)).object;
+    } else {
+        writeln("[multiusrp] Read config json from stdin as follows:");
+        settings = parseJSON(stdin.byLine.join()).object;
+        writeln(settings);
+    }
 
     bool hasUHDException = false;
     bool isUpdatedConfig = false;
@@ -77,7 +90,10 @@ void main(string[] args)
             if("version" !in settings)
                 settings = convertSettingJSONFromV1ToV2(settings);
 
-            settings = normalizeSettingJSON(settings);
+            if(settings["version"].integer == 2) {
+                settings = normalizeSettingJSONForV2(settings);
+                // settings = convertSettingJSONFromV2ToV3(settings);
+            }
 
             if(tcpPort != -1)
                 settings["port"] = tcpPort;
@@ -107,39 +123,49 @@ void mainImpl(C)(JSONValue[string] settings){
     else if(is(C == short[2]))
         enforce(cpufmt == "sc16");
 
-    USRP[] xcvrUSRPs, txUSRPs, rxUSRPs;
-    xcvrUSRPs.length = ("xcvr" in settings) ? settings["xcvr"].array.length : 0;
-    txUSRPs.length = ("tx" in settings) ? settings["tx"].array.length : 0;
-    rxUSRPs.length = ("rx" in settings) ? settings["rx"].array.length : 0;
+    // USRP[] xcvrUSRPs, txUSRPs, rxUSRPs;
+    // xcvrUSRPs.length = ("xcvr" in settings) ? settings["xcvr"].array.length : 0;
+    // txUSRPs.length = ("tx" in settings) ? settings["tx"].array.length : 0;
+    // rxUSRPs.length = ("rx" in settings) ? settings["rx"].array.length : 0;
 
-    // immutable(size_t)[][] txChannelList = ("tx" in settings) ? settings["tx"].array.map!`a["channels"].array.map!"cast(immutable)a.get!size_t".array()`.array() : null;
-    // immutable(size_t)[][] rxChannelList = ("rx" in settings) ? settings["rx"].array.map!`a["channels"].array.map!"cast(immutable)a.get!size_t".array()`.array() : null;
-    immutable(size_t)[][] txChannelList, rxChannelList;
-    shared(UniqueMsgQueue!(TxRequest!C, TxResponse!C))[] txMsgQueues;
-    shared(UniqueMsgQueue!(RxRequest!C, RxResponse!C))[] rxMsgQueues;
+    LocalRef!(shared(IDevice))[string] devs;
+    IController[string] ctrls;
+    scope(exit) {
+        foreach(tag, ctrl; ctrls)
+            ctrl.killDeviceThreads();
 
-    foreach(i, ref e; xcvrUSRPs) {
-        settingUSRPGeneral(e, settings["xcvr"][i].object);
-        settingTransmitDevice(e, settings["xcvr"][i]["tx"].object);
-        settingReceiveDevice(e, settings["xcvr"][i]["rx"].object);
-        txChannelList ~= settings["xcvr"][i]["tx"]["channels"].array.map!"cast(immutable)a.get!size_t".array();
-        rxChannelList ~= settings["xcvr"][i]["rx"]["channels"].array.map!"cast(immutable)a.get!size_t".array();
-        txMsgQueues ~= new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
-        rxMsgQueues ~= new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
+        ctrls = null;
+
+        foreach(tag, dev; devs)
+            (cast()dev.get).destruct();
+
+        devs = null;
     }
 
-    foreach(i, ref e; txUSRPs) {
-        settingUSRPGeneral(e, settings["tx"][i].object);
-        settingTransmitDevice(e, settings["tx"][i].object);
-        txChannelList ~= settings["tx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
-        txMsgQueues ~= new UniqueMsgQueue!(TxRequest!C, TxResponse!C)();
+    // Deviceの構築
+    foreach(string tag, JSONValue deviceSettings; settings["devices"].object) {
+        import std.stdio;
+        writefln("Create and setup the device '%s' with %s", tag, deviceSettings);
+
+        auto newdev = newDevice(deviceSettings["type"].str);
+        newdev.construct();
+        newdev.setup(deviceSettings.object);
+        devs[tag] = cast(shared)newdev;
     }
 
-    foreach(i, ref e; rxUSRPs) {
-        settingUSRPGeneral(e, settings["rx"][i].object);
-        settingReceiveDevice(e, settings["rx"][i].object);
-        rxChannelList ~= settings["rx"][i]["channels"].array.map!"cast(immutable)a.get!size_t".array();
-        rxMsgQueues ~= new UniqueMsgQueue!(RxRequest!C, RxResponse!C)();
+    // Controllerの構築
+    foreach(string tag, ctrlSettings; settings["controllers"].object) {
+        writefln("Create and setup the controller '%s'...", tag);
+
+        auto newctrl = newController(ctrlSettings["type"].str);
+
+        IDevice[] devlist;
+        foreach(JSONValue devtag; ctrlSettings["devices"].array) {
+            devlist ~= devs[devtag.str];
+        }
+
+        newctrl.setup(devlist, ctrlSettings.object);
+        ctrls[tag] = newctrl;
     }
 
     {
@@ -149,7 +175,7 @@ void mainImpl(C)(JSONValue[string] settings){
     // kill switch for transmit and receive threads
     shared bool stop_signal_called = false;
     scope(exit)
-        stop_signal_called = true;
+        atomicStore(stop_signal_called, true);
 
     writeln("START");
 
@@ -161,67 +187,20 @@ void mainImpl(C)(JSONValue[string] settings){
     auto event_dg = delegate(){
         scope(exit) {
             writeln("[eventIOLoop] END");
-            stop_signal_called = true;
+            atomicStore(stop_signal_called, true);
         }
 
         try {
-            auto txCommanders = txMsgQueues.map!"a.makeCommander".array();
-            auto rxCommanders = rxMsgQueues.map!"a.makeCommander".array();
-
+            MessageDispatcher dispatcher = new MessageDispatcher(devs, ctrls);
             // イベントループを始める
-            eventIOLoop!C(stop_signal_called, cast(short)settings["port"].integer, theAllocator, txChannelList.map!"a.length".array(), rxChannelList.map!"a.length".array(), cpufmt, txCommanders, rxCommanders);
+            eventIOLoop!C(stop_signal_called, cast(short)settings["port"].integer, theAllocator, dispatcher);
         }
         catch(Exception ex){
             writeln(ex);
         }
     };
 
-    auto makeThread(alias fn, T...)(ref shared(bool) stop_signal_called, auto ref T args)
-    {
-        return new Thread(delegate(){
-            scope(exit) stop_signal_called = true;
-
-            try
-                fn(stop_signal_called, args);
-            catch(Throwable ex){
-                writeln(ex);
-            }
-        });
-    }
-
-    Thread[] txThreads;
-    Thread[] rxThreads;
-    scope(exit) {
-        stop_signal_called = true;
-        foreach(e; txThreads) e.join();
-        foreach(e; rxThreads) e.join();
-    }
-
-    foreach(i, ref usrp; xcvrUSRPs) {
-        immutable bool timesync = ("timesync" in settings["xcvr"][i].object) ? settings["xcvr"][i]["timesync"].boolean : false;
-        immutable double settling =  ("settling" in settings["xcvr"][i].object) ? settings["xcvr"][i]["settling"].floating : 1;
-        immutable size_t recvAlignSize = ("alignsize" in settings["xcvr"][i].object) ? settings["xcvr"][i]["alignsize"].integer : 4096;
-        txThreads ~= makeThread!(transmit_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, txChannelList[i], cpufmt, otwfmt, timesync, settling, settings["xcvr"][i]["tx"].object, txMsgQueues[i].makeExecuter, Yes.isStopped);
-        rxThreads ~= makeThread!(receive_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, rxChannelList[i], cpufmt, otwfmt, timesync, settling, recvAlignSize, settings["xcvr"][i]["rx"].object, rxMsgQueues[i].makeExecuter, No.isStopped);
-    }
-
-    foreach(i, ref usrp; txUSRPs) {
-        immutable offset = xcvrUSRPs.length;
-        immutable bool timesync = ("timesync" in settings["tx"][i].object) ? settings["tx"][i]["timesync"].boolean : false;
-        immutable double settling =  ("settling" in settings["tx"][i].object) ? settings["tx"][i]["settling"].floating : 1;
-        txThreads ~= makeThread!(transmit_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, txChannelList[i + offset], cpufmt, otwfmt, timesync, settling, settings["tx"][i].object, txMsgQueues[i + offset].makeExecuter);
-    }
-
-    foreach(i, ref usrp; rxUSRPs) {
-        immutable offset = xcvrUSRPs.length;
-        immutable timesync = ("timesync" in settings["rx"][i].object) ? settings["rx"][i]["timesync"].boolean : false;
-        immutable double settling =  ("settling" in settings["rx"][i].object) ? settings["rx"][i]["settling"].floating : 1;
-        immutable size_t recvAlignSize = ("alignsize" in settings["rx"][i].object) ? settings["rx"][i]["alignsize"].integer : 4096;
-        rxThreads ~= makeThread!(receive_worker!(C, typeof(theAllocator)))(stop_signal_called, theAllocator, usrp, rxChannelList[i + offset], cpufmt, otwfmt, timesync, settling, recvAlignSize, settings["rx"][i].object, rxMsgQueues[i + offset].makeExecuter);
-    }
-
-    foreach(e; txThreads) e.start();
-    foreach(e; rxThreads) e.start();
+    foreach(tag, ctrl; ctrls) ctrl.spawnDeviceThreads();
 
     // run TCP/IP loop
     event_dg();
@@ -272,12 +251,51 @@ JSONValue[string] convertSettingJSONFromV1ToV2(JSONValue[string] oldSettings)
     if("port" in oldSettings)   dst["port"] = oldSettings["port"];
     if("otw" in oldSettings)    dst["otwfmt"] = oldSettings["otw"];
     if("cpufmt" in oldSettings) dst["cpufmt"] = oldSettings["cpufmt"];
+    dst["version"] = 2;
 
     return dst;
 }
 
 
-JSONValue[string] normalizeSettingJSON(JSONValue[string] settings)
+JSONValue[string] convertSettingJSONFromV2ToV3(JSONValue[string] oldSettings)
+{
+    JSONValue[string] dst;
+    dst["version"] = 3;
+    if("port" in oldSettings)   dst["port"] = oldSettings["port"];
+    if("otw" in oldSettings)    dst["otwfmt"] = oldSettings["otw"];
+    if("cpufmt" in oldSettings) dst["cpufmt"] = oldSettings["cpufmt"];
+
+    JSONValue[string] devices;
+    if("tx" in oldSettings) {
+        JSONValue[string] newlist;
+        foreach(i, e; oldSettings["tx"].array) {
+            e["type"] = "LoopTX:USRP_TX";
+            devices[format("TX%d", i)] = e;
+        }
+    }
+
+    if("rx" in oldSettings) {
+        JSONValue[] newlist;
+        foreach(i, e; oldSettings["rx"].array) {
+            e["type"] = "LoopRX:USRP_RX";
+            devices[format("RX%d", i)] = e;
+        }
+    }
+
+    if("trx" in oldSettings) {
+        JSONValue[] newlist;
+        foreach(i, e; oldSettings["trx"].array) {
+            e["type"] = "LoopTRX:USRP_TRX";
+            devices[format("TRX%d", i)] = e;
+        }
+    }
+
+    dst["devices"] = JSONValue(devices);
+    return dst;
+}
+
+
+JSONValue[string] normalizeSettingJSONForV2(JSONValue[string] settings)
 {
     void fixChannel(ref JSONValue[string] obj) {
         if("channels" in obj && obj["channels"].type == JSONType.string) {
