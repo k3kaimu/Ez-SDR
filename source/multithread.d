@@ -17,7 +17,7 @@ if(is(T == shared))
 {
     T value;
 
-    this()(auto ref inout(T) v) inout
+    this()(inout(T) v) inout
     {
         cast()this.value = cast()v;
     }
@@ -445,30 +445,4 @@ align(64) shared struct SpinLock
 
 private:
     size_t _flag;
-}
-
-
-struct Shared(T)
-if(is(T : Object))
-{
-    this(shared(T) obj)
-    {
-        cast()this.obj = cast()obj;
-    }
-
-    this(ref return scope SharedRef rhs)
-    {
-        _obj = rhs._obj;
-    }
-
-    alias obj this;
-
-    shared(T) obj;
-}
-
-unittest
-{
-    static synchronized class C { void foo() {} }
-    // Shared!C c = new C);
-
 }
