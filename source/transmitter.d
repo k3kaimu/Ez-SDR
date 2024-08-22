@@ -1,3 +1,5 @@
+__EOF__
+
 module transmitter;
 
 import core.thread;

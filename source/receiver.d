@@ -1,3 +1,5 @@
+__EOF__
+
 module receiver;
 
 import core.time;

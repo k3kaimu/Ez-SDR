@@ -86,15 +86,6 @@ class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
     import core.sync.event;
     import core.atomic;
 
-    static struct Message
-    {
-        static struct Pause {}
-        static struct Invoke { void delegate() dg; }
-
-        alias Types = SumType!(Pause, Invoke);
-        alias Queue = UniqueRequestQueue!Types;
-    }
-
 
     this()
     {
