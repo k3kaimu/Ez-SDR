@@ -20,7 +20,9 @@
 	],
 	"libs":[
 		"stdc++",
-		"uhd"
+		"uhd",
+		"hackrf",
+		"bladeRF"
 	],
 	"__dflags-ldc": [
 		"-preview=dip1000,dip1008,bitfields,fieldwise,fixAliasThis,rvaluerefparam,nosharedaccess,inclusiveincontracts,fixImmutableConv,systemVariables"
