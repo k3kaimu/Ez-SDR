@@ -38,7 +38,6 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onInit(DontCallOnOtherThread) shared
     {
         isStreaming = false;
-        isPaused = false;
     }
 
 
@@ -74,9 +73,6 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
         if(isStreaming) {
             foreach(DeviceType d; this.deviceList)
                 d.stopLoopTransmit();
-
-            isStreaming = false;
-            isPaused = true;
         }
     }
 
@@ -84,19 +80,15 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     override
     void onResume(DontCallOnOtherThread) shared
     {
-        if(isPaused) {
+        if(isStreaming) {
             foreach(DeviceType d; this.deviceList)
                 d.startLoopTransmit();
-
-            isStreaming = true;
-            isPaused = false;
         }
     }
 
 
   private:
     bool isStreaming = false;
-    bool isPaused = false;
 }
 
 
@@ -208,15 +200,19 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
         case 0b00010001:     // ループ送信の開始
             foreach(ThreadType t; this.threadList)
                 t.invoke(function(shared(LoopTXControllerThread!C) thread){
-                    foreach(thread.DeviceType d; thread.deviceList) d.startLoopTransmit();
-                    thread.isStreaming = true;
+                    if(!thread.isStreaming) {
+                        foreach(thread.DeviceType d; thread.deviceList) d.startLoopTransmit();
+                        thread.isStreaming = true;
+                    }
                 });
             break;
         case 0b00010010:     // ループ送信の終了
             foreach(ThreadType t; this.threadList)
                 t.invoke(function(shared(LoopTXControllerThread!C) thread){
-                    foreach(thread.DeviceType d; thread.deviceList) d.stopLoopTransmit();
-                    thread.isStreaming = false;
+                    if(thread.isStreaming) {
+                        foreach(thread.DeviceType d; thread.deviceList) d.stopLoopTransmit();
+                        thread.isStreaming = false;
+                    }
                 });
             break;
         default:
@@ -263,9 +259,9 @@ unittest
 
             move(newbuf, cast()_buffer);
         }
-        synchronized void startLoopTransmit() { atomicStore(state, "start"); }
-        synchronized void stopLoopTransmit() { atomicStore(state, "stop"); }
-        synchronized void performLoopTransmit() { atomicOp!"+="(cntPerf, 1); Thread.sleep(10.msecs); }
+        synchronized void startLoopTransmit() { assert(state != "start"); atomicStore(state, "start"); }
+        synchronized void stopLoopTransmit() { assert(state != "stop"); atomicStore(state, "stop"); }
+        synchronized void performLoopTransmit() { atomicOp!"+="(cntPerf, 1); Thread.sleep(1.msecs); }
         synchronized void setParam(const(char)[] key, const(char)[] value) {}
         synchronized const(char)[] getParam(const(char)[] key) { return null; }
     }
@@ -277,7 +273,7 @@ unittest
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 
-    Thread.sleep(100.msecs);
+    Thread.sleep(10.msecs);
 
     foreach(id, d; devs) {
         assert(devs[id].state == "init");
@@ -294,10 +290,12 @@ unittest
     }
     assert(txmsg.length == 1 + (8 + 8) * 6);
     
-
+    // 信号の設定
     ctrl.processMessage(txmsg, (scope const(ubyte)[] buf){});
+
+    // ループ送信の開始
     ctrl.processMessage([cast(ubyte)0b00010001], (scope const(ubyte)[] buf){});
-    Thread.sleep(100.msecs);
+    Thread.sleep(10.msecs);
 
     size_t cnt;
     foreach(id, d; devs) {
@@ -310,8 +308,32 @@ unittest
         }
     }
 
+    // デバイススレッドを一度止める
+    ctrl.pauseDeviceThreads();
+    Thread.sleep(10.msecs);
+
+    // ループ送信は一時停止
+    foreach(d; devs) assert(d.state == "stop");
+
+    // デバイススレッドを再開する
+    ctrl.resumeDeviceThreads();
+    Thread.sleep(10.msecs);
+
+    // ループ送信は再開されている
+    foreach(d; devs) assert(d.state == "start");
+
+    // ループ送信している状態でループ送信開始命令を送っても無視
+    ctrl.processMessage([cast(ubyte)0b00010001], (scope const(ubyte)[] buf){});
+    Thread.sleep(10.msecs);
+    foreach(d; devs) assert(d.state == "start");
+
+    // ループ送信の終了
     ctrl.processMessage([cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
-    Thread.sleep(100.msecs);
+    Thread.sleep(10.msecs);
     foreach(d; devs) assert(d.state == "stop");
     foreach(d; devs) assert(d.cntPerf > 0);
+
+    // ループ送信が止まっている状態でループ送信停止命令を送っても無視
+    ctrl.processMessage([cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
+    Thread.sleep(10.msecs);
 }
