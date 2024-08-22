@@ -86,7 +86,6 @@ interface IContinuousReceiver(C) : IDevice
     void startContinuousReceive() shared @nogc;
     void stopContinuousReceive() shared @nogc;
     void singleReceive(scope C[][]) shared @nogc;
-    void setAlignSize(size_t alignsize) shared @nogc;
 }
 
 
