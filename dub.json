@@ -3,8 +3,8 @@
 	"authors": [
 		"Kazuki Komatsu"
 	],
-	"description": "Management System for Multiple USRPs",
-	"copyright": "Copyright © 2023, Kazuki Komatsu",
+	"description": "Management System for Multiple SDRs",
+	"copyright": "Copyright © 2023-2024, Kazuki Komatsu",
 	"license": "NYSL",
 	"dependencies": {
 		"lock-free": "~>0.1.2",
