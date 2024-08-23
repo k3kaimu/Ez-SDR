@@ -76,7 +76,7 @@ class MessageDispatcher
 
     void dispatchToDevice(ref LocalRef!(shared(IDevice)) dev, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
-        writefln("[WARNIGN] dispatchToDevice is not implemented yet.", tag);
+        writeln("[WARNIGN] dispatchToDevice is not implemented yet.");
     }
 
 
