@@ -48,7 +48,7 @@ Ez-SDRの開発目的ではなく，単にEz-SDRを実行するだけであれ�
 $ ...開発環境用のコンテナをビルドしてください...
 $ cd ezsdr/docker/v3_prebuild
 $ docker build -t ezsdr:3.0.0 .
-$ docker run -it --rm --net=host ezsdr:3.0.0 /bundle/usr/bin/ezsdr -c ...
+$ docker run -it --rm --net=host -v $(pwd)/work ezsdr:3.0.0 /bundle/usr/bin/ezsdr -c /work/config_examples/x310_UBX_DRAM_TX_v3.json
 ```
 
 ## TCP/IPによるAPI
