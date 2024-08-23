@@ -18,7 +18,7 @@ class MessageDispatcher
     }
 
 
-    void dispatchAtServer(scope const(char)[] target, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
+    void dispatchToServer(scope const(char)[] target, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
         if(msgbuf.length == 0) return;
         switch(msgbuf[0]) {
@@ -37,7 +37,7 @@ class MessageDispatcher
     }
 
 
-    void dispatchAtAllCtrls(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
+    void dispatchToAllCtrls(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
         foreach(t, c; ctrls)
             c.processMessage(msgbuf, writer);
@@ -46,7 +46,7 @@ class MessageDispatcher
 
     void dispatchAtAllDevs(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
-        writefln("[WARNIGN] tag '@alldevs' has not implemented yet.", tag);
+        writefln("[WARNIGN] tag '@alldevs' is not implemented yet.", tag);
     }
 
 
@@ -74,14 +74,26 @@ class MessageDispatcher
     }
 
 
+    void dispatchToDevice(ref LocalRef!(shared(IDevice)) dev, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
+    {
+        writefln("[WARNIGN] dispatchToDevice is not implemented yet.", tag);
+    }
+
+
     void dispatch(scope const(char)[] target, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
+        if(target.length == 0) return;
+
         if(target == "@allctrls") {
-            this.dispatchAtAllCtrls(target, msgbuf, writer);
+            this.dispatchToAllCtrls(target, msgbuf, writer);
         } else if(target == "@server") {
-            this.dispatchAtServer(target, msgbuf, writer);
-        } else {
-            this.dispatchOtherRegex(target, msgbuf, writer);
+            this.dispatchToServer(target, msgbuf, writer);
+        } else if(target[0] == '/') {
+            this.dispatchOtherRegex(target[1 .. $], msgbuf, writer);
+        } else if(auto pdev = target in devs) {
+            this.dispatchToDevice(*pdev, msgbuf, writer);
+        } else if(auto pctrl = target in ctrls) {
+            pctrl.processMessage(msgbuf, writer);
         }
     }
 
