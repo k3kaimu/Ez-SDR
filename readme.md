@@ -28,17 +28,28 @@ $ ./multiusrp -c config_examples/n210_TX1_RX1_sync.json --port=8889
 
 ## ビルド環境構築とビルド
 
-コンテナの起動からビルドまでは次のようにします．
+開発環境用のコンテナのビルドと，開発環境コンテナの起動からビルドまでは次のようにします．
 
 ```
-$ docker compose up -d
-$ ...少し待つ...
-$ docker exec -it container_name bash
-$ dub build --build=release --compiler=ldc2
+$ git clone https://github.com/k3kaimu/Ez-SDR ezsdr
+$ cd ezsdr/docker/devenv_uhd4.7
+$ docker build -t ezsdr_dev:3.0.0 .
+$ cd ../..
+$ docker run -it --rm --net=host -v $(pwd):/work ezsdr_dev:3.0.0 /bin/bash
+# cd /work
+# dub build --build=release
 ```
 
-なおlibuhdのバージョンの変更等はリポジトリの中の`docker-compose.yml`や`entrypoint.sh`を参考にしてください．
+## 実行用コンテナ
 
+Ez-SDRの開発目的ではなく，単にEz-SDRを実行するだけであれば，以下のように実行用のコンテナをビルドして，それを使うことができます．
+
+```
+$ ...開発環境用のコンテナをビルドしてください...
+$ cd ezsdr/docker/v3_prebuild
+$ docker build -t ezsdr:3.0.0 .
+$ docker run -it --rm --net=host ezsdr:3.0.0 /bundle/usr/bin/ezsdr -c ...
+```
 
 ## TCP/IPによるAPI
 
