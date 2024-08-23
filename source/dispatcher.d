@@ -44,7 +44,7 @@ class MessageDispatcher
     }
 
 
-    void dispatchAtAllDevs(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
+    void dispatchToAllDevs(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
         writefln("[WARNIGN] tag '@alldevs' is not implemented yet.", tag);
     }
@@ -88,12 +88,16 @@ class MessageDispatcher
             this.dispatchToAllCtrls(target, msgbuf, writer);
         } else if(target == "@server") {
             this.dispatchToServer(target, msgbuf, writer);
+        } else if(target == "@alldevs") {
+            this.dispatchToAllDevs(target, msgbuf, writer);
         } else if(target[0] == '/') {
             this.dispatchOtherRegex(target[1 .. $], msgbuf, writer);
         } else if(auto pdev = target in devs) {
             this.dispatchToDevice(*pdev, msgbuf, writer);
         } else if(auto pctrl = target in ctrls) {
             pctrl.processMessage(msgbuf, writer);
+        } else {
+            writefln("Invalid target '%s'", target);
         }
     }
 
