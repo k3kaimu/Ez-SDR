@@ -238,6 +238,22 @@ struct UniqueArray(E, size_t dim = 1)
     }
 
 
+  static if(dim > 1)
+  {
+    this(size_t[dim] ns...)
+    {
+        _array = cast(shared) alloc.makeArray!(ForeachType)(ns[0]);
+
+        foreach(i; 0 .. ns[0]) {
+            static if(dim - 1 == 1)
+                this[i] = UniqueArray!(E, dim-1)(ns[1]);
+            else
+                this[i] = UniqueArray!(E, dim-1)(ns[1 .. $]);
+        }
+    }
+  }
+
+
     private
     this(inout shared(ForeachType)[] arr) inout
     {
@@ -458,12 +474,12 @@ unittest
 
 unittest
 {
-    auto int2d = makeUniqueArray!(int, 2)(3);
+    auto int2d = UniqueArray!(int, 2)(3, 2);
+    assert(int2d.array.length == 3);
+    assert(int2d.array[0].length == 2);
     foreach(i; 0 .. 3) {
-        auto e =  makeUniqueArray!int(2);
-        e[0] = (i + 1);
-        e[1] = (i + 1) * 2;
-        int2d[i] = move(e);
+        int2d.array[i][0] = (i + 1);
+        int2d.array[i][1] = (i + 1) * 2;
     }
 
     auto mv1 = int2d.moveSlice(0, 1);
