@@ -258,10 +258,22 @@ struct UniqueArray(E, size_t dim = 1)
 
 
     UniqueArray!(E, dim-1) moveAt(size_t i)
+    in(i < _array.length)
     {
         UniqueArray!(E, dim-1) ret;
         ret._array = cast(shared)this.array[i];
         this.array[i] = null;
+        return ret;
+    }
+
+
+    UniqueArray!(E, dim) moveSlice(size_t i, size_t j)
+    in(i < j) in(i <= _array.length) in(j <= _array.length)
+    {
+        auto ret = UniqueArray!(E, dim)(j - i);
+        foreach(k; i .. j) {
+            ret[k - i] = this.moveAt(k);
+        }
         return ret;
     }
   }
@@ -442,4 +454,26 @@ unittest
     assert(imm.length == 2);
     assert(imm.array[0].length == 2 && imm.array[1].length == 0);
     assert(imm.array[0][0] == 1 && imm.array[0][1] == 2);
+}
+
+unittest
+{
+    auto int2d = makeUniqueArray!(int, 2)(3);
+    foreach(i; 0 .. 3) {
+        auto e =  makeUniqueArray!int(2);
+        e[0] = (i + 1);
+        e[1] = (i + 1) * 2;
+        int2d[i] = move(e);
+    }
+
+    auto mv1 = int2d.moveSlice(0, 1);
+    assert(mv1.length == 1);
+    assert(mv1.array[0].length == 2);
+    assert(mv1.array[0][0] == 1 && mv1.array[0][1] == 2);
+
+    auto mv2 = int2d.moveSlice(1, 3);
+    assert(mv2.length == 2);
+    assert(mv2.array[0].length == 2);
+    assert(mv2.array[0][0] == 2 && mv2.array[0][1] == 4);
+    assert(mv2.array[1][0] == 3 && mv2.array[1][1] == 6);
 }
