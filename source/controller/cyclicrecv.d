@@ -218,16 +218,10 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
     void processReceiveMessage(size_t numRecvSamples, void delegate(scope const(ubyte)[]) writer)
     {
-        shared(C)[][] buffer = alloc.makeMultidimensionalArray!(shared(C))(this._numTotalStreamAllThread, numRecvSamples);
-        scope(exit) alloc.disposeMultidimensionalArray(cast(C[][])buffer);
-
-        shared(NotifiedLazy!bool)*[] doneEvent = alloc.makeArray!(shared(NotifiedLazy!bool)*)(this.threadList.length);
-        scope(exit) alloc.dispose(doneEvent);
-
-        foreach(ref e; doneEvent) {
-            e = NotifiedLazy!bool.make(alloc);
-        }
-        scope(exit) foreach(ref e; doneEvent) NotifiedLazy!bool.dispose(cast(NotifiedLazy!bool*) e, alloc);
+        auto buffer = UniqueArray!(C, 2)(this._numTotalStreamAllThread, numRecvSamples);
+        auto doneEvent = UniqueArray!(shared(NotifiedLazy!bool)*)(this.threadList.length);
+        foreach(ref e; doneEvent.array) e = NotifiedLazy!bool.make();
+        scope(exit) foreach(ref e; doneEvent.array) NotifiedLazy!bool.dispose(cast(NotifiedLazy!bool*)e);
 
         size_t idx;
         foreach(size_t i, ThreadType t; this.threadList) {
@@ -243,16 +237,16 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
                 thread._request.pdone = pdone;
                 thread._request.buffer = buf;
                 thread._request.hasRequest = true;
-            }, cast(shared(C[][])) buffer[idx .. idx + t._numTotalStream], doneEvent[i]);
+            }, cast(shared(C[][])) buffer.array[idx .. idx + t._numTotalStream], doneEvent.array[i]);
 
             idx += t._numTotalStream;
         }
 
         // すべてのスレッドが終了するまで待つ
-        foreach(ref e; doneEvent) (cast()e).read();
+        foreach(ref e; doneEvent.array) e.read();
 
         // 返答する
-        foreach(i, shared(C)[] e; buffer) {
+        foreach(i, C[] e; buffer.array) {
             ulong[1] sizebuf = [e.length];
             writer(cast(ubyte[])sizebuf[]);
             writer(cast(ubyte[])e);
