@@ -205,7 +205,7 @@ void beginBurstTransmit(DeviceHandler handler)
 
     dev->md.start_of_burst = true;
     dev->md.end_of_burst = false;
-dev->streamer->send(dev->buffptrs, 0, dev->md, 0.01);
+    dev->streamer->send(dev->buffptrs, 0, dev->md, 0.01);
     dev->md.start_of_burst = false;
     dev->md.end_of_burst = false;
 }
@@ -237,7 +237,7 @@ uint64_t burstTransmit(DeviceHandler handler, void const* const* signals, uint64
     uint64_t num = dev->streamer->send(dev->buffptrs, num_samples, dev->md, 0.01);
 
     if(num == 0) {
-                std::cout << "[tx_burst.cpp] Cannot transmit from USRP" << std::endl;
+        std::cout << "[tx_burst.cpp] Cannot transmit from USRP" << std::endl;
     }
     return num;
 }
