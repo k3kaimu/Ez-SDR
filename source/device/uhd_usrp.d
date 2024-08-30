@@ -17,7 +17,7 @@ extern(C++, "uhd_usrp_tx_burst") nothrow @nogc
     DeviceHandler setupDevice(const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
     ulong numTxStream(DeviceHandler handler);
-    void setParam(DeviceHandler handler, const(char)* key, const(char)* jsonvalue);
+    void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
     void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
     void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
     void setNextCommandTime(DeviceHandler handler, long fullsecs, double fracsecs);
@@ -60,8 +60,7 @@ class UHD_USRPBurstTX : IDevice, /*IPPSSynchronizable,*/ IBurstTransmitter!(Comp
 
     void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) shared
     {
-        assert(q.length == 0, "additional arguments is not supported");
-        assert(0, "this is not implemented.");
+        .setParam(cast()this.handler, key.ptr, key.length, value.ptr, value.length, q.ptr, q.length);
     }
 
 

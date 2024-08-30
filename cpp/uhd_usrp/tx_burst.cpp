@@ -3,6 +3,9 @@
 #include <string>
 #include <format>
 #include <type_traits>
+#include <addinfo.hpp>
+#include <cassert>
+#include <string_view>
 
 
 namespace uhd_usrp_tx_burst
@@ -196,6 +199,63 @@ void setNextCommandTime(DeviceHandler handler, int64_t fullsecs, double fracsecs
     Device* dev = handler.dev;
     dev->md.has_time_spec = true;
     dev->md.time_spec = uhd::time_spec_t(fullsecs, fracsecs);
+}
+
+
+void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char const* jsonvalue_, uint64_t jsonvaluelen, uint8_t const* info, uint64_t infolen)
+{
+    Device* dev = handler.dev;
+    std::string_view key(key_, keylen);
+    std::string_view jsonvalue(jsonvalue_, jsonvaluelen);
+    nlohmann::json value = nlohmann::json::parse(jsonvalue);
+    auto addinfo = parseAdditionalInfo(info, infolen);
+
+    bool has_time_spec = addinfo.optCommandTimeInfo.size() > 0;
+    uhd::time_spec_t time = uhd::time_spec_t(addinfo.optCommandTimeInfo.back().nsecs / 1000000000, (addinfo.optCommandTimeInfo.back().nsecs % 1000000000)/1000000000.0);
+
+    int chindex = addinfo.optUSRPStreamerChannelInfo.size() > 0 ? addinfo.optUSRPStreamerChannelInfo.back().index : -1;
+
+    if(key == "freq") {
+        double freq = value.get<double>();
+
+        uhd::tune_request_t tune_request;
+        tune_request = uhd::tune_request_t(freq, dev->lo_offset);
+
+        bool intN = dev->tuningIntN;
+        if(value.contains("integerN"))
+            intN = value["integerN"].get<bool>();
+
+        if(intN)
+            tune_request.args = uhd::device_addr_t("mode_n=integer");
+
+        if(has_time_spec) dev->usrp->set_command_time(time);
+
+        if(chindex < 0) {
+            for(int i = 0; i < dev->channels.size(); ++i)
+                dev->usrp->set_tx_freq(tune_request, dev->channels[i]);
+        } else {
+            dev->usrp->set_tx_freq(tune_request, dev->channels[chindex]);
+        }
+
+        if(has_time_spec) dev->usrp->clear_command_time();
+
+        dev->freq = freq;
+        dev->tuningIntN = intN;
+    } else if(key == "gain") {
+        double gain = value.get<double>();
+
+        if(has_time_spec) dev->usrp->set_command_time(time);
+
+        if(chindex == -1) {
+            for(int i = 0; i < dev->channels.size(); ++i)
+                dev->usrp->set_tx_gain(gain, dev->channels[i]);
+        } else {
+            dev->usrp->set_tx_gain(gain, dev->channels[chindex]);
+        }
+
+        if(has_time_spec) dev->usrp->clear_command_time();
+        dev->gain = gain;
+    }
 }
 
 
