@@ -82,7 +82,7 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     void setLoopTransmitSignal(scope const C[][] signals, scope const(ubyte)[] q) @nogc
     in {
         assert(signals.length == this.numTxStream);
-assert(q.length == 0);
+        assert(q.length == 0);
     }
     do {
         foreach(i; 0 .. signals.length) {
