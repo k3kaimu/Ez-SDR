@@ -27,7 +27,7 @@ extern(C++, "uhd_usrp_tx_burst") nothrow @nogc
 }
 
 
-class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
+class UHD_USRPBurstTX : IDevice, /*IPPSSynchronizable,*/ IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
 {
     import multithread : SpinLock;
 
@@ -58,64 +58,74 @@ class UHD_USRPBurstTX : IDevice, IPPSSynchronizable, IBurstTransmitter!(Complex!
     size_t numRxStreamImpl() shared { return 0; }
 
 
-    void setParam(const(char)[] key, const(char)[] value) shared
+    void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) shared
+    {
+        assert(q.length == 0, "additional arguments is not supported");
+        assert(0, "this is not implemented.");
+    }
+
+
+    const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) shared { assert(q.length == 0, "additional arguments is not supported"); assert(0, "this is not implemented."); return null; }
+
+
+    void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) shared
     {
         assert(0, "this is not implemented.");
     }
 
 
-    const(char)[] getParam(const(char)[] key) shared { assert(0, "this is not implemented."); return null; }
+    // void setTimeNextPPS(DeviceTime t) shared
+    // {
+    //     spinLock.lock();
+    //     scope(exit) spinLock.unlock();     
+
+    //     .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
+    // }
 
 
-    void setTimeNextPPS(DeviceTime t) shared
+    // DeviceTime getTimeLastPPS() shared
+    // {
+    //     spinLock.lock();
+    //     scope(exit) spinLock.unlock();     
+
+    //     DeviceTime t;
+    //     .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
+    //     return t;
+    // }
+
+
+    // void setNextCommandTime(DeviceTime t) shared
+    // {
+    //     spinLock.lock();
+    //     scope(exit) spinLock.unlock();     
+
+    //     .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
+    // }
+
+
+    void beginBurstTransmit(scope const(ubyte)[] q) shared
     {
+        assert(q.length == 0, "additional arguments is not supported");
         spinLock.lock();
-        scope(exit) spinLock.unlock();     
-
-        .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
-    }
-
-
-    DeviceTime getTimeLastPPS() shared
-    {
-        spinLock.lock();
-        scope(exit) spinLock.unlock();     
-
-        DeviceTime t;
-        .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
-        return t;
-    }
-
-
-    void setNextCommandTime(DeviceTime t) shared
-    {
-        spinLock.lock();
-        scope(exit) spinLock.unlock();     
-
-        .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
-    }
-
-
-    void beginBurstTransmit() shared
-    {
-        spinLock.lock();
-        scope(exit) spinLock.unlock();   
+        scope(exit) spinLock.unlock();
 
         .beginBurstTransmit(cast()this.handler);
     }
 
 
-    void endBurstTransmit() shared
+    void endBurstTransmit(scope const(ubyte)[] q) shared
     {
+        assert(q.length == 0, "additional arguments is not supported");
         spinLock.lock();
-        scope(exit) spinLock.unlock();   
+        scope(exit) spinLock.unlock();
 
         .endBurstTransmit(cast()this.handler);
     }
 
 
-    void burstTransmit(scope const Complex!float[][] signals) shared
+    void burstTransmit(scope const Complex!float[][] signals, scope const(ubyte)[] q) shared
     {
+        assert(q.length == 0, "additional arguments is not supported");
         const(Complex!float)*[128] _tmp;
         foreach(i; 0 .. signals.length)
             _tmp[i] = signals[i].ptr;

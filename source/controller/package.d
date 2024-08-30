@@ -312,8 +312,9 @@ unittest
         void setup(JSONValue[string] configJSON) {}
         size_t numTxStreamImpl() shared { return 1; }
         size_t numRxStreamImpl() shared { return 0; }
-        synchronized void setParam(const(char)[] key, const(char)[] value) {}
-        synchronized const(char)[] getParam(const(char)[] key) { return null; }
+        synchronized void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) {}
+        synchronized const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { return null; }
+        synchronized void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) {}
     }
 
     class TestThread : ControllerThreadImpl!IDevice

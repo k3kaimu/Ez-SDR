@@ -38,63 +38,35 @@ interface IDevice
         return (cast(shared)this).numRxStreamImpl();
     }
 
-    void setParam(const(char)[] key, const(char)[] value) shared @nogc;
-    const(char)[] getParam(const(char)[] key) shared @nogc;
-}
+    void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) shared @nogc;
+    const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) shared @nogc;
 
-
-struct DeviceTime
-{
-    this(double time)
-    {
-        this.fullsecs = cast(long)time;
-        this.fracsecs = time - this.fullsecs;
-    }
-
-    long fullsecs;
-    double fracsecs;
-}
-
-unittest
-{
-    assert(DeviceTime(3.0).fullsecs == 3);
-    assert(DeviceTime(3.0).fracsecs == 0);
-
-    assert(DeviceTime(3.5).fullsecs == 3);
-    assert(DeviceTime(3.5).fracsecs == 0.5);
-}
-
-
-interface IPPSSynchronizable
-{
-    void setTimeNextPPS(DeviceTime) shared @nogc;
-    DeviceTime getTimeLastPPS() shared @nogc;
-    void setNextCommandTime(DeviceTime) shared @nogc;
+    void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) shared @nogc;
 }
 
 
 interface IBurstTransmitter(C) : IDevice
 {
-    void beginBurstTransmit() shared @nogc;
-    void endBurstTransmit() shared @nogc;
-    void burstTransmit(scope const C[][]) shared @nogc;
+    void beginBurstTransmit(scope const(ubyte)[] q) shared @nogc;
+    void endBurstTransmit(scope const(ubyte)[] q) shared @nogc;
+    void burstTransmit(scope const C[][] signal, scope const(ubyte)[] q) shared @nogc;
 }
 
 
 interface IContinuousReceiver(C) : IDevice
 {
-    void startContinuousReceive() shared @nogc;
-    void stopContinuousReceive() shared @nogc;
-    void singleReceive(scope C[][]) shared @nogc;
+    void startContinuousReceive(scope const(ubyte)[] q) shared @nogc;
+    void stopContinuousReceive(scope const(ubyte)[] q) shared @nogc;
+    void singleReceive(scope C[][], scope const(ubyte)[] q) shared @nogc;
 }
 
 
 interface ILoopTransmitter(C) : IDevice
 {
-    void setLoopTransmitSignal(scope const C[][]) shared @nogc;
-    void startLoopTransmit() shared @nogc;
-    void stopLoopTransmit() shared @nogc;
-    void performLoopTransmit() shared @nogc;
+    void setLoopTransmitSignal(scope const C[][], scope const(ubyte)[] q) shared @nogc;
+    void startLoopTransmit(scope const(ubyte)[] q) shared @nogc;
+    void stopLoopTransmit(scope const(ubyte)[] q) shared @nogc;
+    void performLoopTransmit(scope const(ubyte)[] q) shared @nogc;
 }
 
 
@@ -107,9 +79,10 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
 
 
     synchronized
-    void setLoopTransmitSignal(scope const C[][] signals) @nogc
+    void setLoopTransmitSignal(scope const C[][] signals, scope const(ubyte)[] q) @nogc
     in {
         assert(signals.length == this.numTxStream);
+assert(q.length == 0);
     }
     do {
         foreach(i; 0 .. signals.length) {
@@ -124,21 +97,21 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     }
 
 
-    void startLoopTransmit() shared @nogc
+    void startLoopTransmit(scope const(ubyte)[] q) shared @nogc
     {
-        this.beginBurstTransmit();
+        this.beginBurstTransmit(q);
     }
 
 
-    void stopLoopTransmit() shared @nogc
+    void stopLoopTransmit(scope const(ubyte)[] q) shared @nogc
     {
-        this.endBurstTransmit();
+        this.endBurstTransmit(q);
     }
 
 
-    void performLoopTransmit() shared @nogc
+    void performLoopTransmit(scope const(ubyte)[] q) shared @nogc
     {
-        this.burstTransmit(cast(C[][])(_loopSignals[]));
+        this.burstTransmit(cast(C[][])(_loopSignals[]), q);
     }
 
   private:

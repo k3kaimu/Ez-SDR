@@ -28,7 +28,7 @@ extern(C++, "looptx_rfnoc_replay_block") nothrow @nogc
 
 
 
-class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchronizable
+class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float)/*, IPPSSynchronizable*/
 {
     import std.experimental.allocator;
     import std.experimental.allocator.mallocator;
@@ -53,11 +53,13 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
     size_t numTxStreamImpl() shared nothrow @nogc { return 1; }
     size_t numRxStreamImpl() shared nothrow @nogc { return 0; }
 
-    void sync() { assert(0, "please implement"); }
+    // void sync() { assert(0, "please implement"); }
 
     synchronized
-    void setParam(const(char)[] key, const(char)[] value) @nogc
+    void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) @nogc
     {
+        assert(q.length == 0, "additional arguments is not supported");
+
         auto keybuf = makeUniqueArray!char(key.length + 1),
              valuebuf = makeUniqueArray!char(key.length + 1);
 
@@ -70,58 +72,73 @@ class UHDLoopTransmitterFromDRAM : ILoopTransmitter!(Complex!float), IPPSSynchro
 
 
     synchronized
-    const(char)[] getParam(const(char)[] key) { assert(0, "this is not implemented."); return null; }
+    const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { assert(q.length == 0, "additional arguments is not supported"); assert(0, "this is not implemented."); return null; }
 
 
     synchronized
-    void setLoopTransmitSignal(scope const Complex!float[][] signals)
+    void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer)
     {
+        assert(0, "this is not implemented yet.");
+    }
+
+
+    synchronized
+    void setLoopTransmitSignal(scope const Complex!float[][] signals, scope const(ubyte)[] q)
+    {
+        assert(q.length == 0, "additional arguments is not supported");
+
         const(void*)[1] arr = [signals[0].ptr];
         setTransmitSignal(cast()this.handler, arr.ptr, 4, signals[0].length);
     }
 
 
     synchronized
-    void startLoopTransmit()
+    void startLoopTransmit(scope const(ubyte)[] q)
     {
+        assert(q.length == 0, "additional arguments is not supported");
+
         .startTransmit(cast()this.handler);
     }
 
 
     synchronized
-    void stopLoopTransmit()
+    void stopLoopTransmit(scope const(ubyte)[] q)
     {
+        assert(q.length == 0, "additional arguments is not supported");
+
         .stopTransmit(cast()this.handler);
     }
 
 
-    void performLoopTransmit() shared
+    void performLoopTransmit(scope const(ubyte)[] q) shared
     {
+        assert(q.length == 0, "additional arguments is not supported");
+
         Thread.sleep(10.msecs);
     }
 
 
-    synchronized
-    void setTimeNextPPS(DeviceTime t)
-    {
-        .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
-    }
+    // synchronized
+    // void setTimeNextPPS(DeviceTime t)
+    // {
+    //     .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
+    // }
 
 
-    synchronized
-    DeviceTime getTimeLastPPS()
-    {
-        DeviceTime t;
-        .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
-        return t;
-    }
+    // synchronized
+    // DeviceTime getTimeLastPPS()
+    // {
+    //     DeviceTime t;
+    //     .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
+    //     return t;
+    // }
 
 
-    synchronized
-    void setNextCommandTime(DeviceTime t)
-    {
-        .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
-    }
+    // synchronized
+    // void setNextCommandTime(DeviceTime t)
+    // {
+    //     .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
+    // }
 
 
   private:

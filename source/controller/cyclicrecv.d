@@ -41,7 +41,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     {
         if(_isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.stopContinuousReceive();
+                d.stopContinuousReceive(null);
         }
 
         alloc.disposeMultidimensionalArray(cast(C[][])_receiveBuffers);
@@ -54,7 +54,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     {
         if(_isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.startContinuousReceive();
+                d.startContinuousReceive(null);
         }
     }
 
@@ -67,7 +67,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
         if(_isStreaming) {
             size_t idx;
             foreach(DeviceType d; this.deviceList){
-                d.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + d.numRxStream]);
+                d.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + d.numRxStream], null);
                 idx += d.numRxStream;
             }
 
@@ -97,7 +97,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     {
         if(_isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.stopContinuousReceive();
+                d.stopContinuousReceive(null);
         }
     }
 
@@ -107,7 +107,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     {
         if(_isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.startContinuousReceive();
+                d.startContinuousReceive(null);
         }
     }
 
@@ -229,7 +229,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
                 if(!thread._isStreaming) {
                     thread._isStreaming = true;
                     foreach(thread.DeviceType d; thread.deviceList)
-                        d.startContinuousReceive();
+                        d.startContinuousReceive(null);
                 }
 
                 assert(!thread._request.hasRequest);
@@ -293,7 +293,7 @@ unittest
         void setup(JSONValue[string] configJSON) {}
         size_t numTxStreamImpl() shared { return 0; }
         size_t numRxStreamImpl() shared { return atomicLoad(_numRxStream); }
-        synchronized void singleReceive(scope C[][] signal) {
+        synchronized void singleReceive(scope C[][] signal, scope const(ubyte)[] q) {
             foreach(i, e; signal) {
                 foreach(j; 0 .. e.length) {
                     e[j] = cast()buffer[i][(index + j) % $];
@@ -302,10 +302,11 @@ unittest
 
             index.atomicOp!"+="(signal[0].length);
         }
-        synchronized void startContinuousReceive() { assert(state != "start"); atomicStore(state, "start"); }
-        synchronized void stopContinuousReceive() { assert(state != "stop"); atomicStore(state, "stop"); }
-        synchronized void setParam(const(char)[] key, const(char)[] value) {}
-        synchronized const(char)[] getParam(const(char)[] key) { return null; }
+        synchronized void startContinuousReceive(scope const(ubyte)[] q) { assert(state != "start"); atomicStore(state, "start"); }
+        synchronized void stopContinuousReceive(scope const(ubyte)[] q) { assert(state != "stop"); atomicStore(state, "stop"); }
+        synchronized void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) {}
+        synchronized const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { return null; }
+        synchronized void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) {}
     }
 
     auto ctrl = new CyclicRXController!C();

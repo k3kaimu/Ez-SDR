@@ -50,7 +50,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     {
         if(isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.performLoopTransmit();
+                d.performLoopTransmit(null);
         }
     }
 
@@ -60,7 +60,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     {
         if(isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.stopLoopTransmit();
+                d.stopLoopTransmit(null);
         }
 
         isStreaming = false;
@@ -72,7 +72,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     {
         if(isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.stopLoopTransmit();
+                d.stopLoopTransmit(null);
         }
     }
 
@@ -82,7 +82,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     {
         if(isStreaming) {
             foreach(DeviceType d; this.deviceList)
-                d.startLoopTransmit();
+                d.startLoopTransmit(null);
         }
     }
 
@@ -179,7 +179,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                 this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
                     size_t idx;
                     foreach(thread.DeviceType d; thread.deviceList) {
-                        d.setLoopTransmitSignal(buf.array[idx .. idx + d.numTxStream]);
+                        d.setLoopTransmitSignal(buf.array[idx .. idx + d.numTxStream], null);
                         idx += d.numTxStream;
                     }
                 }, move(buffer));
@@ -191,7 +191,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                     foreach(j; 0 .. d.numTxStream) buffer[j] = parseAndAllocSignal();
 
                     t.invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
-                        thread.deviceList[0].setLoopTransmitSignal(buf.array);
+                        thread.deviceList[0].setLoopTransmitSignal(buf.array, null);
                     }, move(buffer));
                 }
             }
@@ -201,7 +201,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             foreach(ThreadType t; this.threadList)
                 t.invoke(function(shared(LoopTXControllerThread!C) thread){
                     if(!thread.isStreaming) {
-                        foreach(thread.DeviceType d; thread.deviceList) d.startLoopTransmit();
+                        foreach(thread.DeviceType d; thread.deviceList) d.startLoopTransmit(null);
                         thread.isStreaming = true;
                     }
                 });
@@ -210,7 +210,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             foreach(ThreadType t; this.threadList)
                 t.invoke(function(shared(LoopTXControllerThread!C) thread){
                     if(thread.isStreaming) {
-                        foreach(thread.DeviceType d; thread.deviceList) d.stopLoopTransmit();
+                        foreach(thread.DeviceType d; thread.deviceList) d.stopLoopTransmit(null);
                         thread.isStreaming = false;
                     }
                 });
@@ -247,7 +247,7 @@ unittest
         void setup(JSONValue[string] configJSON) {}
         size_t numTxStreamImpl() shared { return atomicLoad(_numTxStream); }
         size_t numRxStreamImpl() shared { return 0; }
-        synchronized void setLoopTransmitSignal(scope const C[][] signal) {
+        synchronized void setLoopTransmitSignal(scope const C[][] signal, scope const(ubyte)[] q) {
             import core.lifetime : move;
 
             auto newbuf = makeUniqueArray!(C, 2)(signal.length);
@@ -259,11 +259,12 @@ unittest
 
             move(newbuf, cast()_buffer);
         }
-        synchronized void startLoopTransmit() { assert(state != "start"); atomicStore(state, "start"); }
-        synchronized void stopLoopTransmit() { assert(state != "stop"); atomicStore(state, "stop"); }
-        synchronized void performLoopTransmit() { atomicOp!"+="(cntPerf, 1); Thread.sleep(1.msecs); }
-        synchronized void setParam(const(char)[] key, const(char)[] value) {}
-        synchronized const(char)[] getParam(const(char)[] key) { return null; }
+        synchronized void startLoopTransmit(scope const(ubyte)[] q) { assert(state != "start"); atomicStore(state, "start"); }
+        synchronized void stopLoopTransmit(scope const(ubyte)[] q) { assert(state != "stop"); atomicStore(state, "stop"); }
+        synchronized void performLoopTransmit(scope const(ubyte)[] q) { atomicOp!"+="(cntPerf, 1); Thread.sleep(1.msecs); }
+        synchronized void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) {}
+        synchronized const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { return null; }
+        synchronized void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) {}
     }
 
     auto ctrl = new LoopTXController!C();
