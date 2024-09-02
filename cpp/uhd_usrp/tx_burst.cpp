@@ -180,26 +180,26 @@ uint64_t numTxStream(DeviceHandler handler)
 }
 
 
-void setTimeNextPPS(DeviceHandler handler, long fullsec, double fracsec)
-{
-    handler.dev->usrp->set_time_next_pps(uhd::time_spec_t(fullsec, fracsec));
-}
+// void setTimeNextPPS(DeviceHandler handler, long fullsec, double fracsec)
+// {
+//     handler.dev->usrp->set_time_next_pps(uhd::time_spec_t(fullsec, fracsec));
+// }
 
 
-void getTimeLastPPS(DeviceHandler handler, long& fullsec, double& fracsec)
-{
-    auto time = handler.dev->usrp->get_time_last_pps();
-    fullsec = time.get_full_secs();
-    fracsec = time.get_frac_secs();
-}
+// void getTimeLastPPS(DeviceHandler handler, long& fullsec, double& fracsec)
+// {
+//     auto time = handler.dev->usrp->get_time_last_pps();
+//     fullsec = time.get_full_secs();
+//     fracsec = time.get_frac_secs();
+// }
 
 
-void setNextCommandTime(DeviceHandler handler, int64_t fullsecs, double fracsecs)
-{
-    Device* dev = handler.dev;
-    dev->md.has_time_spec = true;
-    dev->md.time_spec = uhd::time_spec_t(fullsecs, fracsecs);
-}
+// void setNextCommandTime(DeviceHandler handler, int64_t fullsecs, double fracsecs)
+// {
+//     Device* dev = handler.dev;
+//     dev->md.has_time_spec = true;
+//     dev->md.time_spec = uhd::time_spec_t(fullsecs, fracsecs);
+// }
 
 
 void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char const* jsonvalue_, uint64_t jsonvaluelen, uint8_t const* info, uint64_t infolen)
