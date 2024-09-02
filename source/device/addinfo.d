@@ -29,21 +29,21 @@ if(N == 1 || N == 2 || N == 4 || N == 8)
 }
 
 
-enum bool isAdditionalInfo(T) = is(typeof(delegate(T t){
+enum bool isOptArg(T) = is(typeof(delegate(T t){
     immutable uint tag = T.tag;
     size_t n = t.numBytes;
     t.writeTo(delegate(scope const(ubyte)[] bin){});
 }));
 
 
-void appendInfo(W, I)(ref W writer, I info)
+void putOptArg(W, T)(ref W writer, T optArg)
 {
-    ulong[1] size = [info.numBytes];
+    ulong[1] size = [optArg.numBytes];
     .put(writer, cast(ubyte[])size[]);
 
-    uint[1] tag = [I.tag];
+    uint[1] tag = [T.tag];
     .put(writer, cast(ubyte[])tag[]);
-    info.writeTo(writer);
+    optArg.writeTo(writer);
 }
 
 unittest
@@ -64,27 +64,27 @@ unittest
         }
     }
     
-    static assert(isAdditionalInfo!TestInfo);
+    static assert(isOptArg!TestInfo);
 
     TestInfo info1;
-    app.appendInfo(info1);
+    app.putOptArg(info1);
     assert(a.length == 8 + 4 + 2);
     assert(a == [2, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0xff, 0xff]);
 }
 
 
-void forEachInfo(Fn)(scope const(ubyte)[] binInfo, Fn fn)
+void forEachOptArg(Fn)(scope const(ubyte)[] binOptArgs, Fn fn)
 {
-    while(binInfo.length >= (8 + 4)) {
-        immutable ulong size = (cast(const(ulong)[])binInfo[0 .. 8])[0];
-        immutable uint tag = (cast(const(uint)[])binInfo[8 .. 12])[0];
-        fn(tag, binInfo[12 .. 12 + size]);
-        binInfo = binInfo[12 + size  .. $];
+    while(binOptArgs.length >= (8 + 4)) {
+        immutable ulong size = (cast(const(ulong)[])binOptArgs[0 .. 8])[0];
+        immutable uint tag = (cast(const(uint)[])binOptArgs[8 .. 12])[0];
+        fn(tag, binOptArgs[12 .. 12 + size]);
+        binOptArgs = binOptArgs[12 + size  .. $];
     }
 }
 
 
-mixin template PODAdditionalInfoWriter()
+mixin template PODOptArgWriter()
 {
     void writeTo(W)(ref W writer)
     {
@@ -102,7 +102,7 @@ struct CommandTimeInfo
     static immutable uint tag = crc32Of("CommandTimeInfo").toInteger;
     ulong nsec;
 
-    mixin PODAdditionalInfoWriter!();
+    mixin PODOptArgWriter!();
 }
 
 unittest
@@ -116,7 +116,7 @@ struct USRPStreamerChannelInfo
     static immutable uint tag = crc32Of("USRPStreamerChannelInfo").toInteger;
     uint index;
 
-    mixin PODAdditionalInfoWriter!();
+    mixin PODOptArgWriter!();
 }
 
 unittest

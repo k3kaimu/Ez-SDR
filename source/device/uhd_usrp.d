@@ -18,9 +18,9 @@ extern(C++, "uhd_usrp_tx_burst") nothrow @nogc
     void destroyDevice(ref DeviceHandler handler);
     ulong numTxStream(DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
-    void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
-    void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
-    void setNextCommandTime(DeviceHandler handler, long fullsecs, double fracsecs);
+    // void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
+    // void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
+    // void setNextCommandTime(DeviceHandler handler, long fullsecs, double fracsecs);
     void beginBurstTransmit(DeviceHandler handler);
     void endBurstTransmit(DeviceHandler handler);
     ulong burstTransmit(DeviceHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
