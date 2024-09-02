@@ -33,7 +33,46 @@ enum bool isOptArg(T) = is(typeof(delegate(T t){
     immutable uint tag = T.tag;
     size_t n = t.numBytes;
     t.writeTo(delegate(scope const(ubyte)[] bin){});
+
+    ubyte[] arr;
+    const T value = T.readFrom(arr);
 }));
+
+
+mixin template PODOptArgWriterAndReader()
+{
+    size_t numBytes() const
+    {
+        size_t num;
+        foreach(field; this.tupleof)
+            num += typeof(field).sizeof;
+
+        return num;
+    }
+
+    void writeTo(W)(ref W writer)
+    {
+        foreach(field; this.tupleof) {
+            ubyte[typeof(field).sizeof] bin;
+            *(cast(typeof(field)*)bin.ptr) = field;
+            .put(writer, bin[]);
+        }
+    }
+
+
+    static typeof(this) readFrom(const(ubyte)[] buffer)
+    {
+        typeof(this) dst;
+        foreach(ref field; dst.tupleof) {
+            enum fieldSize = typeof(field).sizeof;
+
+            (cast(ubyte*)&field)[0 .. fieldSize] = buffer[0 .. fieldSize];
+            buffer = buffer[fieldSize .. $];
+        }
+
+        return dst;
+    }
+}
 
 
 void putOptArg(W, T)(ref W writer, T optArg)
@@ -62,6 +101,9 @@ unittest
             ubyte[2] data = [0xff, 0xff];
             .put(writer, data[]);
         }
+
+
+        static TestInfo readFrom(const(ubyte)[] buffer) { return TestInfo.init; }
     }
     
     static assert(isOptArg!TestInfo);
@@ -73,7 +115,7 @@ unittest
 }
 
 
-void forEachOptArg(Fn)(scope const(ubyte)[] binOptArgs, Fn fn)
+void forEachOptArg(scope const(ubyte)[] binOptArgs, scope void delegate(uint, scope const(ubyte)[]) fn)
 {
     while(binOptArgs.length >= (8 + 4)) {
         immutable ulong size = (cast(const(ulong)[])binOptArgs[0 .. 8])[0];
@@ -84,25 +126,46 @@ void forEachOptArg(Fn)(scope const(ubyte)[] binOptArgs, Fn fn)
 }
 
 
-mixin template PODOptArgWriter()
+void parseOptArg(T)(scope const(ubyte)[] buffer, scope void delegate(scope const T value) dg)
 {
-    void writeTo(W)(ref W writer)
-    {
-        foreach(field; this.tupleof) {
-            ubyte[typeof(field).sizeof] bin;
-            *(cast(typeof(field)*)bin.ptr) = field;
-            .put(writer, bin[]);
-        }
-    }
+    dg(T.readFrom(buffer));
 }
 
+
+unittest
+{
+    static struct TestOptArg
+    {
+        static immutable uint tag = 1111;
+        int a;
+        mixin PODOptArgWriterAndReader!();
+    }
+
+    ubyte[] buffer;
+    auto app = appender(&buffer);
+    foreach(i; 0 .. 10) {
+        TestOptArg arg;
+        arg.a = i;
+        .putOptArg(app, arg);
+    }
+
+    size_t cnt;
+    buffer.forEachOptArg((tag, bin){
+        assert(tag == TestOptArg.tag);
+        bin.parseOptArg!TestOptArg((v){
+            assert(v.a == cnt);
+        });
+        ++cnt;
+    });
+    assert(cnt == 10);
+}
 
 struct CommandTimeInfo
 {
     static immutable uint tag = crc32Of("CommandTimeInfo").toInteger;
     ulong nsec;
 
-    mixin PODOptArgWriter!();
+    mixin PODOptArgWriterAndReader!();
 }
 
 unittest
