@@ -1,4 +1,4 @@
-module controller.looptx;
+module controller.cyclictx;
 
 import core.lifetime;
 import core.thread;
@@ -23,7 +23,7 @@ import multithread;
 
 
 
-class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
+class CyclicTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 {
     alias alloc = Mallocator.instance;
 
@@ -94,7 +94,7 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 }
 
 
-class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
+class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 {
     this()
     {
@@ -118,7 +118,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
     void spawnDeviceThreads()
     {
         if(_singleThread) {
-            auto thread = new LoopTXControllerThread!C();
+            auto thread = new CyclicTXControllerThread!C();
             foreach(e; _streamers)
                 thread.registerStreamer(cast()e);
 
@@ -126,7 +126,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             thread.start();
         } else {
             foreach(e; _streamers) {
-                auto thread = new LoopTXControllerThread!C();
+                auto thread = new CyclicTXControllerThread!C();
                 thread.registerStreamer(cast()e);
 
                 this.registerThread(thread);
@@ -140,7 +140,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
     void processMessage(scope const(ubyte)[] msgbin, void delegate(scope const(ubyte)[]) writer)
     {
         alias alloc = Mallocator.instance;
-        alias dbg = debugMsg!"LoopTXController";
+        alias dbg = debugMsg!"CyclicTXController";
         dbg.writefln("msgtype = 0x%X, msglen = %s [bytes]", msgbin[0], msgbin.length);
 
         auto reader = BinaryReader(msgbin);
@@ -177,7 +177,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                 UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(totStream);
                 foreach(i; 0 .. totStream) buffer[i] = parseAndAllocArray!C();
 
-                this.threadList[0].invoke(function(LoopTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
+                this.threadList[0].invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
                     size_t idx;
                     foreach(thread.StreamerType e; thread.streamers) {
                         e.setLoopTransmitSignal(buf.array[idx .. idx + e.numChannel], null);
@@ -191,7 +191,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
                     UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(e.numChannel);
                     foreach(j; 0 .. e.numChannel) buffer[j] = parseAndAllocArray!C();
 
-                    t.invoke(function(LoopTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
+                    t.invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
                         thread.streamers[0].setLoopTransmitSignal(buf.array, null);
                     }, move(buffer));
                 }
@@ -200,7 +200,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
 
         case 0b00010001:     // ループ送信の開始
             foreach(ThreadType t; this.threadList)
-                t.invoke(function(LoopTXControllerThread!C thread){
+                t.invoke(function(CyclicTXControllerThread!C thread){
                     if(!thread.isStreaming) {
                         foreach(thread.StreamerType e; thread.streamers) e.startLoopTransmit(null);
                         thread.isStreaming = true;
@@ -209,7 +209,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
             break;
         case 0b00010010:     // ループ送信の終了
             foreach(ThreadType t; this.threadList)
-                t.invoke(function(LoopTXControllerThread!C thread){
+                t.invoke(function(CyclicTXControllerThread!C thread){
                     if(thread.isStreaming) {
                         foreach(thread.StreamerType e; thread.streamers) e.stopLoopTransmit(null);
                         thread.isStreaming = false;
@@ -262,7 +262,7 @@ unittest
         void performLoopTransmit(scope const(ubyte)[] q) { ++cntPerf; Thread.sleep(1.msecs); }
     }
 
-    auto ctrl = new LoopTXController!C();
+    auto ctrl = new CyclicTXController!C();
     TestTransmitter[] devs = [new TestTransmitter(2), new TestTransmitter(1), new TestTransmitter(3)];
     ctrl.setup(devs.map!(a => cast(IStreamer) a).array(), null);
     ctrl.spawnDeviceThreads();

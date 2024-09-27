@@ -45,7 +45,7 @@ class ClientV3:
         self.sendMsg("@server", msg)
 
 
-class LoopTransmitter:
+class CyclicTransmitter:
     def __init__(self, client, target):
         self.client = client
         self.target = target
@@ -69,6 +69,17 @@ class LoopTransmitter:
     def transmit(self, signals):
         self.setTransmitSignal(signals)
         self.startTransmit()
+
+
+class CyclicReceiver:
+    def __init__(self, client, target):
+        self.client = client
+        self.target = target
+    
+    def receive(self, size):
+        msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
+        msg += sigdatafmt.valueToBytes(size, np.uint64)
+        self.client.sendMsg(self.target, msg)
 
 
 class SimpleClient:
@@ -208,7 +219,7 @@ class SimpleClient:
     def startTxStreaming(self, idx):
         self.sock.sendall(b'\x82')
         sigdatafmt.writeInt32ToSock(self.sock, idx)
-    
+
     def stopRxStreaming(self, idx):
         self.sock.sendall(b'\x83')
         sigdatafmt.writeInt32ToSock(self.sock, idx)

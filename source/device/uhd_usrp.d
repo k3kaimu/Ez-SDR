@@ -31,9 +31,12 @@ extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
     DeviceHandler setupDevice(const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
-    void beginBurstTransmit(TxStreamerHandler handler);
-    void endBurstTransmit(TxStreamerHandler handler);
-    ulong burstTransmit(TxStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
+    void beginBurstTransmitImpl(TxStreamerHandler handler);
+    void endBurstTransmitImpl(TxStreamerHandler handler);
+    ulong burstTransmitImpl(TxStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
+    void startContinuousReceiveImpl(RxStreamerHandler);
+    void stopContinuousReceiveImpl(RxStreamerHandler);
+    ulong continuousReceiveImpl(RxStreamerHandler, void** buffptr, ulong sizeofElement, ulong numSamples);
 
     TxStreamerHandler getTxStreamer(DeviceHandler, uint index);
     RxStreamerHandler getRxStreamer(DeviceHandler, uint index);
@@ -123,20 +126,14 @@ class UHDMultiUSRP : IDevice
         void beginBurstTransmit(scope const(ubyte)[] q)
         {
             assert(q.length == 0, "additional arguments is not supported");
-            _dev.spinLock.lock();
-            scope(exit) _dev.spinLock.unlock();
-
-            .beginBurstTransmit(_handler);
+            .beginBurstTransmitImpl(_handler);
         }
 
 
         void endBurstTransmit(scope const(ubyte)[] q)
         {
             assert(q.length == 0, "additional arguments is not supported");
-            _dev.spinLock.lock();
-            scope(exit) _dev.spinLock.unlock();
-
-            .endBurstTransmit(_handler);
+            .endBurstTransmitImpl(_handler);
         }
 
 
@@ -150,11 +147,7 @@ class UHDMultiUSRP : IDevice
             size_t remain = signals[0].length;
             while(remain != 0) {
                 size_t num;
-                {
-                    _dev.spinLock.lock();
-                    scope(exit) _dev.spinLock.unlock();
-                    num = .burstTransmit(_handler, cast(const(void)**)_tmp.ptr, C.sizeof, signals[0].length);
-                }
+                num = .burstTransmitImpl(_handler, cast(const(void)**)_tmp.ptr, C.sizeof, signals[0].length);
 
                 foreach(i; 0 .. signals.length)
                     _tmp[i] += num;
@@ -173,7 +166,7 @@ class UHDMultiUSRP : IDevice
     }
 
 
-    static class RxStreamerImpl(C) : IStreamer
+    static class RxStreamerImpl(C) : IStreamer, IContinuousReceiver!C
     {
         this(shared(UHDMultiUSRP) dev, RxStreamerHandler handler)
         {
@@ -184,6 +177,34 @@ class UHDMultiUSRP : IDevice
 
         shared(IDevice) device() shared @nogc { return _dev; }
         size_t numChannelImpl() shared @nogc { return _numCh; }
+
+
+        void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc
+        {
+            .startContinuousReceiveImpl(_handler);
+        }
+
+        void stopContinuousReceive(scope const(ubyte)[] optArgs) @nogc
+        {
+            .stopContinuousReceiveImpl(_handler);
+        }
+
+        void singleReceive(scope C[][] buffers, scope const(ubyte)[] optArgs) @nogc
+        {
+            const(C)*[128] _tmp;
+            foreach(i; 0 .. buffers.length)
+                _tmp[i] = buffers[i].ptr;
+
+            size_t remain = buffers[0].length;
+            while(remain != 0) {
+                size_t num = .continuousReceiveImpl(_handler, cast(void**)_tmp.ptr, C.sizeof, remain);
+
+                foreach(i; 0 .. buffers.length)
+                    _tmp[i] += num;
+                
+                remain -= num;
+            }
+        }
 
       private:
         shared(UHDMultiUSRP) _dev;

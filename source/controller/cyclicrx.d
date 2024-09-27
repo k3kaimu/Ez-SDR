@@ -1,4 +1,4 @@
-module controller.cyclicrecv;
+module controller.cyclicrx;
 
 import core.atomic;
 import core.sync.event;
@@ -153,7 +153,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     {
         foreach(i, e; rxs) {
             assert(e.numChannel > 0);
-            _streamers_tmp ~= enforce(cast(IContinuousReceiver!C) e, "The device#%s is not a IContinuousReceiver.".format(i));
+            _streamers_tmp ~= enforce(cast(IContinuousReceiver!C) e, "The streamer#%s is not a IContinuousReceiver.".format(i));
         }
 
         if("singleThread" in settings && settings["singleThread"].get!bool)

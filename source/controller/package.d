@@ -4,6 +4,7 @@ import core.thread;
 import core.lifetime;
 
 import std.complex;
+import std.exception;
 import std.socket;
 import std.json;
 import std.typecons;
@@ -31,12 +32,16 @@ interface IController
 
 IController newController(string type)
 {
-    import controller.looptx;
+    import controller.cyclictx;
+    import controller.cyclicrx;
 
     switch(type) {
-        case "LoopTX":
-            return new LoopTXController!(Complex!float)();
+        case "CyclicTX":
+            return new CyclicTXController!(Complex!float)();
+        case "CyclicRX":
+            return new CyclicRXController!(Complex!float)();
         default:
+            enforce(0, "Cannot find controller '" ~ type ~ "'.");
             return null;
     }
 
