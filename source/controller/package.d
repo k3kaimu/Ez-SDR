@@ -7,6 +7,7 @@ import std.complex;
 import std.socket;
 import std.json;
 import std.typecons;
+import std.traits;
 
 import device;
 import utils;
@@ -15,7 +16,7 @@ import multithread;
 
 interface IController
 {
-    void setup(LocalRef!(shared(IDevice))[], JSONValue[string]);
+    void setup(IStreamer[], JSONValue[string]);
 
     void spawnDeviceThreads();
     void killDeviceThreads();
@@ -77,9 +78,9 @@ interface IControllerThread
 このクラスのsynchronizedメソッドは，runメソッドを実行しているスレッドからしか呼び出せません．
 synchronizedではないsharedメソッドは他のスレッドから呼び出される可能性があります．
 */
-class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
+class ControllerThreadImpl(StreamerType_ : IStreamer) : IControllerThread
 {
-    alias DeviceType = shared(DeviceType_);
+    alias StreamerType = StreamerType_;
 
     import std.sumtype;
     import msgqueue;
@@ -92,7 +93,7 @@ class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
         _killSwitch = false;
         _resumeEvent.initialize(true, true);
         _taskList = SharedTaskList!(No.locked)();
-        _thread = new Thread(() { (cast(shared)this).run(); });
+        _thread = new Thread(&this.run);
     }
 
 
@@ -110,55 +111,66 @@ class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
     }
 
 
-    synchronized void run()
+    void run()
     {
-        DontCallOnOtherThread tag;
         Thread.getThis.priority = Thread.PRIORITY_MAX;
 
         () @nogc {
-            this.onInit(tag);
+            this.onInit();
             _state = State.PAUSE;
 
             (cast()_resumeEvent).wait();
 
-            this.onStart(tag);
+            this.onStart();
             _state = State.RUN;
 
             while(!_killSwitch) {
                 if(!_taskList.empty) _taskList.processAll();
-                this.onRunTick(tag);
+                this.onRunTick();
             }
-            this.onFinish(tag);
+            this.onFinish();
             _state = State.FINISH;
         }();
     }
 
 
     State state() shared @nogc { return atomicLoad(_state); }
+    State state() @nogc { return atomicLoad(_state); }
 
 
-    abstract void onInit(DontCallOnOtherThread) shared @nogc;
-    abstract void onRunTick(DontCallOnOtherThread) shared @nogc;
-    abstract void onStart(DontCallOnOtherThread) shared @nogc;
-    abstract void onFinish(DontCallOnOtherThread) shared @nogc;
-    abstract void onPause(DontCallOnOtherThread) shared @nogc;
-    abstract void onResume(DontCallOnOtherThread) shared @nogc;
+    abstract void onInit() @nogc;
+    abstract void onRunTick() @nogc;
+    abstract void onStart() @nogc;
+    abstract void onFinish() @nogc;
+    abstract void onPause() @nogc;
+    abstract void onResume() @nogc;
 
 
-    ReadOnlyArray!(shared(DeviceType)) deviceList() @nogc { return _devs.readOnlyArray; }
-    ReadOnlyArray!(shared(DeviceType)) deviceList() shared @nogc { return _devs.readOnlyArray; }
+    ReadOnlyArray!(StreamerType) streamers() @nogc { return _streamers.readOnlyArray; }
+    ReadOnlyArray!(shared(StreamerType)) streamers() shared @nogc { return _streamers.readOnlyArray; }
 
 
-    void registerDevice(shared DeviceType dev)
+    void registerStreamer(StreamerType s)
     {
-        _devs ~= dev;
+        _streamers ~= s;
     }
 
 
-    bool hasDevice(IDevice d) shared @nogc
+    bool hasDevice(shared(IDevice) d) shared @nogc
     {
-        foreach(e; _devs) {
-            if(e is cast(shared)d) return true;
+        foreach(e; _streamers) {
+            assert(e !is null);
+            if(e.device is d) return true;
+        }
+
+        return false;
+    }
+
+
+    bool hasStreamer(IStreamer s) shared @nogc
+    {
+        foreach(e; _streamers) {
+            if(e is cast(shared)s) return true;
         }
 
         return false;
@@ -174,13 +186,11 @@ class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
     void pause() shared @nogc
     {
         (cast()_resumeEvent).reset();
-        this.invoke(function(shared(ControllerThreadImpl) _this){
-            DontCallOnOtherThread tag;
-
-            _this.onPause(tag);
+        this.invoke(function(ControllerThreadImpl _this){
+            _this.onPause();
             _this._state = State.PAUSE;
             (cast()_this._resumeEvent).wait();
-            _this.onResume(tag);
+            _this.onResume();
             _this._state = State.RUN;
         });
     }
@@ -194,11 +204,13 @@ class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
 
     void invoke(this T, Callable, U...)(Callable fn, auto ref U args) shared @nogc
     {
-        _taskList.push(fn, cast(shared(T))this, forward!args);
-    }
+        static void impl(ref Callable fn, ref T this_, ref U args)
+        {
+            fn(cast(Unqual!T) this_, args);
+        }
 
-  protected:
-    static struct DontCallOnOtherThread {}
+        _taskList.push(&impl, move(fn), cast(T) this, forward!args);
+    }
 
 
   private:
@@ -206,8 +218,8 @@ class ControllerThreadImpl(DeviceType_ : IDevice) : IControllerThread
     bool _killSwitch;
     Event _resumeEvent;
     shared(SharedTaskList!(No.locked)) _taskList;
-    shared(DeviceType)[] _devs;
-    State _state;
+    StreamerType[] _streamers;
+    shared State _state;
 }
 
 
@@ -221,7 +233,7 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     this() {}
 
     abstract
-    void setup(LocalRef!(shared(IDevice))[], JSONValue[string]);
+    void setup(IStreamer[], JSONValue[string]);
 
 
     void registerThread(CtrlThread thread)
@@ -262,7 +274,7 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) responseWriter);
 
 
-    void applyToDeviceSync(IDevice dev, scope void delegate() dg)
+    void applyToDeviceSync(shared(IDevice) dev, scope void delegate() dg)
     {
         alias alloc = Mallocator.instance;
         bool[] stopList = alloc.makeArray!bool(_threads.length);
@@ -303,55 +315,62 @@ unittest
     import std.algorithm : map;
     import std.array : array;
 
-    class TestDevice : IDevice
-    {
-        string state;
-        this() { }
-        void construct() { state = "init"; }
-        void destruct() { state = "finished"; }
-        void setup(JSONValue[string] configJSON) {}
-        size_t numTxStreamImpl() shared { return 1; }
-        size_t numRxStreamImpl() shared { return 0; }
-        synchronized void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) {}
-        synchronized const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { return null; }
-        synchronized void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) {}
+    class TestDevice : IDevice {
+        void construct() {}
+        void destruct() {}
+        void setup(JSONValue[string]){}
+        IStreamer makeStreamer(string[] args) shared { return null; }
+        void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] optArgs) shared @nogc {}
+        const(char)[] getParam(const(char)[] key, scope const(ubyte)[] optArgs) shared @nogc { return null; }
+        void query(scope const(ubyte)[] optArgs, scope void delegate(scope const(ubyte)[]) writer) shared @nogc {}
     }
 
-    class TestThread : ControllerThreadImpl!IDevice
+    class TestStreamer : IStreamer
+    {
+        this(shared(TestDevice) d, string s = "init") { dev = d; state = s; }
+
+        shared(TestDevice) dev;
+        string state;
+        size_t numChannelImpl() shared @nogc { return 1; }
+        shared(IDevice) device() shared @nogc { return dev; }
+    }
+
+    class TestThread : ControllerThreadImpl!IStreamer
     {
         size_t count;
         this() { super(); }
-        override void onInit(DontCallOnOtherThread) shared {}
-        override void onRunTick(DontCallOnOtherThread) shared { count = count + 1; }
-        override void onStart(DontCallOnOtherThread) shared { assert(state == State.PAUSE); }
-        override void onFinish(DontCallOnOtherThread) shared { assert(state == State.RUN); }
-        override void onPause(DontCallOnOtherThread) shared { assert(state == State.RUN); }
-        override void onResume(DontCallOnOtherThread) shared { assert(state == State.PAUSE); }
+        override void onInit() {}
+        override void onRunTick() { count = count + 1; }
+        override void onStart() { assert(state == State.PAUSE); }
+        override void onFinish() { assert(state == State.RUN); }
+        override void onPause() { assert(state == State.RUN); }
+        override void onResume() { assert(state == State.PAUSE); }
 
         size_t countCallSync;
-        synchronized void callSync() @nogc { countCallSync = countCallSync + 1; }
+        void callSync() @nogc { countCallSync = countCallSync + 1; }
     }
 
     class TestController : ControllerImpl!TestThread
     {
-        shared(IDevice)[] devs;
+        IStreamer[] streamers;
 
         this() { super(); }
-        override void setup(LocalRef!(shared(IDevice))[] devs, JSONValue[string]) { this.devs = cast(shared)devs.map!"a.get".array(); }
+        override void setup(IStreamer[] streamers, JSONValue[string]) { this.streamers = streamers; }
         override void spawnDeviceThreads() {
-            foreach(d; devs) {
+            foreach(s; streamers) {
                 auto thread = new TestThread();
-                thread.registerDevice(d);
+                thread.registerStreamer(s);
                 this.registerThread(thread);
-                thread.start(d !is null ? true : false);
+                thread.start(s !is null ? true : false);
             }
         }
         override void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) responseWriter) {}
     }
 
+    shared dev = cast(shared) new TestDevice();
     auto ctrl = new TestController();
-    auto dev = new TestDevice();
-    ctrl.setup([localRef(cast(shared(IDevice))dev), LocalRef!(shared(IDevice))(null)], null);
+    auto testStreamer = new TestStreamer(dev);
+    ctrl.setup([testStreamer, new TestStreamer(null)], null);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 
@@ -360,7 +379,7 @@ unittest
     assert(!ctrl.threadList[1].hasDevice(dev));
     Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.RUN);
-    assert(ctrl.threadList[1].state == IControllerThread.State.PAUSE);
+    assert(ctrl.threadList[1].state == IControllerThread.State.RUN);
     ctrl.pauseDeviceThreads();
     Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.PAUSE);
@@ -382,7 +401,7 @@ unittest
 
     executed = false;
     auto thread0 = ctrl.threadList[0];
-    thread0.invoke(cast(shared)delegate(shared(TestThread) thread0){
+    thread0.invoke(cast(shared)delegate(TestThread thread0){
         assert(thread0.state == IControllerThread.State.RUN);
         executed = true;
     });
@@ -390,17 +409,17 @@ unittest
     assert(executed);
 
     assert(thread0.countCallSync == 0);
-    thread0.invoke(function(shared(TestThread) thread0) @nogc {
-        // callSyncはsynchronizedメソッドのため，
+    thread0.invoke(function(TestThread t) @nogc {
+        // callSyncはsharedメソッドではないため，
         // 他のスレッドから呼び出せないのでinvokeの中で呼び出す
-        thread0.callSync();
+        t.callSync();
     });
     Thread.sleep(1.msecs);
     assert(thread0.countCallSync == 1);
 
-    thread0.invoke(function(shared(TestThread) thread0, size_t num) @nogc {
+    thread0.invoke(function(TestThread t, size_t num) @nogc {
         foreach(i; 0 .. num)
-            thread0.callSync();
+            t.callSync();
     }, 10);
     Thread.sleep(1.msecs);
     assert(thread0.countCallSync == 11);
@@ -409,4 +428,11 @@ unittest
     Thread.sleep(1.msecs);
     assert(ctrl.threadList[0].state == IControllerThread.State.FINISH);
     assert(ctrl.threadList[1].state == IControllerThread.State.FINISH);
+}
+
+
+enum PredefinedCommandIDs : ubyte
+{
+    PAUSE_DEV_THREAD_WITH_OPTARGS = 0b_1000_0000,
+    RESUME_DEV_THREAD_WITH_OPTARGS,
 }

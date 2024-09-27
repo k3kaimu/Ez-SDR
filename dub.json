@@ -11,11 +11,11 @@
 	},
 	"preBuildCommands": [
         "clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
-		"clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/tx_burst.cpp",
+		"clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/multiusrp.cpp",
     ],
 	"sourceFiles": [
 		"looptx_rfnoc_replay_block.o",
-		"tx_burst.o",
+		"multiusrp.o",
 	],
 	"libs":[
 		"stdc++",

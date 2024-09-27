@@ -1,41 +1,35 @@
 {
     "version": 3,
     "devices": {
-        "USRP_TX0": {
-            "type": "USRP_TX",
+        "USRP0": {
+            "type": "MultiUSRP",
+            "mode": "TRX",
             "args": "addr0=192.168.44.34,send_frame_size=9000",
             "timesync": true,
-            "__comment__timeref": "external",
-            "__comment__clockref": "external",
-            "rate": 200e6,
-            "freq": 2.4e9,
-            "gain": 30,
-            "channels": "0",
-            "subdev": "A:0",
-            "ant": "TX/RX"
-        },
-        "USRP_RX0": {
-            "type": "USRP_RX",
-            "args": "addr0=192.168.44.34,recv_frame_size=9000",
-            "timesync": true,
-            "__comment__timeref": "external",
-            "__comment__clockref": "external",
-            "rate": 200e6,
-            "freq": 2.4e9,
-            "gain": 30,
-            "channels": "0",
-            "subdev": "A:0",
-            "ant": "RX2"
+            "timeref": "internal",
+            "clockref": "internal",
+            "tx-rate": 200e6,
+            "tx-freq": 2.4e9,
+            "tx-gain": 30,
+            "tx-subdev": "A:0",
+            "tx-ant": "TX/RX",
+            "rx-rate": 200e6,
+            "rx-freq": 2.4e9,
+            "rx-gain": 30,
+            "rx-subdev": "B:0",
+            "rx-ant": "RX2",
+            "tx-streamers": [ { "channels": [0] } ],
+            "rx-streamers": [ { "channels": [0] } ]
         }
     },
     "controllers": {
         "TX0": {
             "type": "LoopTX",
-            "devices": ["USRP_TX0"]
+            "streamers": ["USRP0:TX:0"]
         },
         "RX0": {
-            "type": "LoopRX",
-            "devices": ["USRP_RX0"]
+            "type": "ContRX",
+            "streamers": ["USRP0:RX:0"]
         }
     },
     "port": 8888

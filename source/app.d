@@ -146,12 +146,15 @@ void mainImpl(C)(JSONValue[string] settings){
 
         auto newctrl = newController(ctrlSettings["type"].str);
 
-        LocalRef!(shared(IDevice))[] devlist;
-        foreach(JSONValue devtag; ctrlSettings["devices"].array) {
-            devlist ~= devs[devtag.str];
+        IStreamer[] streamers;
+        foreach(JSONValue tag; ctrlSettings["streamers"].array) {
+            string tagstr = tag.str;
+            auto tagsplit = tagstr.split(":");
+            string devtag = tagsplit[0];
+            streamers ~= devs[devtag].makeStreamer(tagsplit[1 .. $]);
         }
 
-        newctrl.setup(devlist, ctrlSettings.object);
+        newctrl.setup(streamers, ctrlSettings.object);
         ctrls[tag] = newctrl;
     }
 

@@ -35,32 +35,32 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    void onInit(DontCallOnOtherThread) shared
+    void onInit()
     {
         isStreaming = false;
     }
 
 
     override
-    void onStart(DontCallOnOtherThread) shared { }
+    void onStart() { }
 
 
     override
-    void onRunTick(DontCallOnOtherThread) shared
+    void onRunTick()
     {
         if(isStreaming) {
-            foreach(DeviceType d; this.deviceList)
-                d.performLoopTransmit(null);
+            foreach(StreamerType e; this.streamers)
+                e.performLoopTransmit(null);
         }
     }
 
 
     override
-    void onFinish(DontCallOnOtherThread) shared
+    void onFinish()
     {
         if(isStreaming) {
-            foreach(DeviceType d; this.deviceList)
-                d.stopLoopTransmit(null);
+            foreach(StreamerType e; this.streamers)
+                e.stopLoopTransmit(null);
         }
 
         isStreaming = false;
@@ -68,27 +68,29 @@ class LoopTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 
     override
-    void onPause(DontCallOnOtherThread) shared
+    void onPause()
     {
         if(isStreaming) {
-            foreach(DeviceType d; this.deviceList)
-                d.stopLoopTransmit(null);
+            foreach(StreamerType e; this.streamers)
+                e.stopLoopTransmit(null);
         }
     }
 
 
     override
-    void onResume(DontCallOnOtherThread) shared
+    void onResume()
     {
         if(isStreaming) {
-            foreach(DeviceType d; this.deviceList)
-                d.startLoopTransmit(null);
+            foreach(StreamerType e; this.streamers)
+                e.startLoopTransmit(null);
         }
     }
 
 
   private:
     bool isStreaming = false;
+    UniqueArray!(ubyte) _addinfoOnNextResume;
+    UniqueArray!(ubyte) _addinfoOnNextPause;
 }
 
 
@@ -101,13 +103,11 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
 
 
     override
-    void setup(LocalRef!(shared(IDevice))[] devs, JSONValue[string] settings)
+    void setup(IStreamer[] streamers, JSONValue[string] settings)
     {
-        ILoopTransmitter!C[] tmplist;
-        foreach(i, ref LocalRef!(shared(IDevice)) e; devs) {
-            tmplist ~= enforce(cast(ILoopTransmitter!C) cast()(e.get), "The device#%s is not a ILoopTransmitter.".format(i));
+        foreach(i, e; streamers) {
+            _streamers ~= cast(shared) enforce(cast(ILoopTransmitter!C) e, "The streamer#%s is not a ILoopTransmitter.".format(i));
         }
-        _devs = cast(shared) tmplist;
 
         if("singleThread" in settings && settings["singleThread"].get!bool)
             _singleThread = true;
@@ -119,15 +119,15 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
     {
         if(_singleThread) {
             auto thread = new LoopTXControllerThread!C();
-            foreach(ref d; _devs)
-                thread.registerDevice(d);
+            foreach(e; _streamers)
+                thread.registerStreamer(cast()e);
 
             this.registerThread(thread);
             thread.start();
         } else {
-            foreach(d; _devs) {
+            foreach(e; _streamers) {
                 auto thread = new LoopTXControllerThread!C();
-                thread.registerDevice(d);
+                thread.registerStreamer(cast()e);
 
                 this.registerThread(thread);
                 thread.start();
@@ -147,51 +147,52 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
         if(reader.length < 1)
             return;
 
-        size_t cntStream = 0;
-        UniqueArray!C parseAndAllocSignal() {
-            if(!reader.canRead!size_t) { dbg.writefln("Cannot read %s-th signal length", cntStream); return typeof(return).init; }
-            immutable siglen = reader.read!size_t;
-            dbg.writefln("siglen = %s", siglen);
+        UniqueArray!T parseAndAllocArray(T)() {
+            if(!reader.canRead!size_t) { dbg.writeln("Cannot read array"); return typeof(return).init; }
+            immutable arrlen = reader.read!size_t;
+            dbg.writefln("arrlen = %s", arrlen);
 
-            if(!reader.canReadArray!C(siglen)) { dbg.writefln("Cannot read %s-th signal (len = %s)", cntStream, siglen); return typeof(return).init; }
-            const(C)[] arr = reader.readArray!C(siglen);
-            UniqueArray!C dst = makeUniqueArray!C(arr.length);
+            if(!reader.canReadArray!T(arrlen)) { dbg.writefln("Cannot read array (len = %s)", arrlen); return typeof(return).init; }
+            const(T)[] arr = reader.readArray!T(arrlen);
+            UniqueArray!T dst = makeUniqueArray!T(arr.length);
             dst.array[] = arr[];
             return move(dst);
         }
 
+
         switch(reader.read!ubyte) {
-        case 0b00001000:        // Resume Device Thread
+        case 0b00001000:        // Resume device thread with optArgs
+            
             this.resumeDeviceThreads();
             break;
 
-        case 0b00001001:
+        case 0b00001001:        // Pause device threads with optArgs
             this.pauseDeviceThreads();
             break;
 
         case 0b00010000:        // 送信信号の設定
             size_t totStream = 0;
-            foreach(d; _devs) totStream += d.numTxStream();
+            foreach(e; _streamers) totStream += e.numChannel();
             if(_singleThread) {
                 UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(totStream);
-                foreach(i; 0 .. totStream) buffer[i] = parseAndAllocSignal();
+                foreach(i; 0 .. totStream) buffer[i] = parseAndAllocArray!C();
 
-                this.threadList[0].invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
+                this.threadList[0].invoke(function(LoopTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
                     size_t idx;
-                    foreach(thread.DeviceType d; thread.deviceList) {
-                        d.setLoopTransmitSignal(buf.array[idx .. idx + d.numTxStream], null);
-                        idx += d.numTxStream;
+                    foreach(thread.StreamerType e; thread.streamers) {
+                        e.setLoopTransmitSignal(buf.array[idx .. idx + e.numChannel], null);
+                        idx += e.numChannel;
                     }
                 }, move(buffer));
             } else {
                 foreach(size_t i, this.ThreadType t; this.threadList) {
-                    assert(t.deviceList.length == 1);
-                    auto d = t.deviceList[0];
-                    UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(d.numTxStream);
-                    foreach(j; 0 .. d.numTxStream) buffer[j] = parseAndAllocSignal();
+                    assert(t.streamers.length == 1);
+                    auto e = t.streamers[0];
+                    UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(e.numChannel);
+                    foreach(j; 0 .. e.numChannel) buffer[j] = parseAndAllocArray!C();
 
-                    t.invoke(function(shared(LoopTXControllerThread!C) thread, ref UniqueArray!(C, 2) buf) {
-                        thread.deviceList[0].setLoopTransmitSignal(buf.array, null);
+                    t.invoke(function(LoopTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
+                        thread.streamers[0].setLoopTransmitSignal(buf.array, null);
                     }, move(buffer));
                 }
             }
@@ -199,18 +200,18 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
 
         case 0b00010001:     // ループ送信の開始
             foreach(ThreadType t; this.threadList)
-                t.invoke(function(shared(LoopTXControllerThread!C) thread){
+                t.invoke(function(LoopTXControllerThread!C thread){
                     if(!thread.isStreaming) {
-                        foreach(thread.DeviceType d; thread.deviceList) d.startLoopTransmit(null);
+                        foreach(thread.StreamerType e; thread.streamers) e.startLoopTransmit(null);
                         thread.isStreaming = true;
                     }
                 });
             break;
         case 0b00010010:     // ループ送信の終了
             foreach(ThreadType t; this.threadList)
-                t.invoke(function(shared(LoopTXControllerThread!C) thread){
+                t.invoke(function(LoopTXControllerThread!C thread){
                     if(thread.isStreaming) {
-                        foreach(thread.DeviceType d; thread.deviceList) d.stopLoopTransmit(null);
+                        foreach(thread.StreamerType e; thread.streamers) e.stopLoopTransmit(null);
                         thread.isStreaming = false;
                     }
                 });
@@ -222,7 +223,7 @@ class LoopTXController(C) : ControllerImpl!(LoopTXControllerThread!C)
 
 
   private:
-    shared(ILoopTransmitter!C)[] _devs;
+    shared(ILoopTransmitter!C)[] _streamers;
     bool _singleThread = false;
 }
 
@@ -233,21 +234,18 @@ unittest
     import std;
     alias C = Complex!float;
 
-    class TestDevice : ILoopTransmitter!C
+    class TestTransmitter : ILoopTransmitter!C
     {
         size_t _numTxStream;
         UniqueArray!(C, 2) _buffer;
-        string state;
+        string state = "init";
         size_t cntPerf;
 
         this(size_t n) { _numTxStream = n; }
 
-        void construct() { state = "init"; }
-        void destruct() { state = "finished"; }
-        void setup(JSONValue[string] configJSON) {}
-        size_t numTxStreamImpl() shared { return atomicLoad(_numTxStream); }
-        size_t numRxStreamImpl() shared { return 0; }
-        synchronized void setLoopTransmitSignal(scope const C[][] signal, scope const(ubyte)[] q) {
+        shared(IDevice) device() shared @nogc { return null; }
+        size_t numChannelImpl() shared @nogc { return atomicLoad(_numTxStream); }
+        void setLoopTransmitSignal(scope const C[][] signal, scope const(ubyte)[] q) {
             import core.lifetime : move;
 
             auto newbuf = makeUniqueArray!(C, 2)(signal.length);
@@ -259,18 +257,14 @@ unittest
 
             move(newbuf, cast()_buffer);
         }
-        synchronized void startLoopTransmit(scope const(ubyte)[] q) { assert(state != "start"); atomicStore(state, "start"); }
-        synchronized void stopLoopTransmit(scope const(ubyte)[] q) { assert(state != "stop"); atomicStore(state, "stop"); }
-        synchronized void performLoopTransmit(scope const(ubyte)[] q) { atomicOp!"+="(cntPerf, 1); Thread.sleep(1.msecs); }
-        synchronized void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) {}
-        synchronized const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { return null; }
-        synchronized void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) {}
+        void startLoopTransmit(scope const(ubyte)[] q) { assert(state != "start"); atomicStore(state, "start"); }
+        void stopLoopTransmit(scope const(ubyte)[] q) { assert(state != "stop"); atomicStore(state, "stop"); }
+        void performLoopTransmit(scope const(ubyte)[] q) { ++cntPerf; Thread.sleep(1.msecs); }
     }
 
     auto ctrl = new LoopTXController!C();
-    TestDevice[] devs = [new TestDevice(2), new TestDevice(1), new TestDevice(3)];
-    foreach(d; devs) d.construct();
-    ctrl.setup(devs.map!(a => localRef(cast(shared(IDevice))a)).array, null);
+    TestTransmitter[] devs = [new TestTransmitter(2), new TestTransmitter(1), new TestTransmitter(3)];
+    ctrl.setup(devs.map!(a => cast(IStreamer) a).array(), null);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 
@@ -301,9 +295,9 @@ unittest
     size_t cnt;
     foreach(id, d; devs) {
         assert(devs[id].state == "start");
-        assert(devs[id]._buffer.array.length == d.numTxStream);
+        assert(devs[id]._buffer.array.length == d.numChannel);
 
-        foreach(istream; 0 .. d.numTxStream) {
+        foreach(istream; 0 .. d.numChannel) {
             assert(devs[id]._buffer.array[istream][0] == C(cnt, cnt));
             ++cnt;
         }

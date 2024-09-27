@@ -1,33 +1,48 @@
 module device.uhd_usrp;
 
 import std.complex;
+import std.exception;
 import std.json;
 import std.string;
 
 import device;
 
 
-extern(C++, "uhd_usrp_tx_burst") nothrow @nogc
+extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
 {
     struct DeviceHandler
     {
         void* _payload;
     }
 
+
+    struct TxStreamerHandler
+    {
+        void* _payload;
+    }
+
+
+    struct RxStreamerHandler
+    {
+        void* _payload;
+    }
+
+
     DeviceHandler setupDevice(const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
-    ulong numTxStream(DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
-    // void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
-    // void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
-    // void setNextCommandTime(DeviceHandler handler, long fullsecs, double fracsecs);
-    void beginBurstTransmit(DeviceHandler handler);
-    void endBurstTransmit(DeviceHandler handler);
-    ulong burstTransmit(DeviceHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
+    void beginBurstTransmit(TxStreamerHandler handler);
+    void endBurstTransmit(TxStreamerHandler handler);
+    ulong burstTransmit(TxStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
+
+    TxStreamerHandler getTxStreamer(DeviceHandler, uint index);
+    RxStreamerHandler getRxStreamer(DeviceHandler, uint index);
+    ulong numTxStream(TxStreamerHandler handler);
+    ulong numRxStream(RxStreamerHandler handler);
 }
 
 
-class UHD_USRPBurstTX : IDevice, /*IPPSSynchronizable,*/ IBurstTransmitter!(Complex!float), ILoopTransmitter!(Complex!float)
+class UHDMultiUSRP : IDevice
 {
     import multithread : SpinLock;
 
@@ -46,18 +61,6 @@ class UHD_USRPBurstTX : IDevice, /*IPPSSynchronizable,*/ IBurstTransmitter!(Comp
     }
 
 
-    size_t numTxStreamImpl() shared
-    {
-        spinLock.lock();
-        scope(exit) spinLock.unlock();        
-
-        return .numTxStream(cast()this.handler);
-    }
-
-
-    size_t numRxStreamImpl() shared { return 0; }
-
-
     void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) shared
     {
         .setParam(cast()this.handler, key.ptr, key.length, value.ptr, value.length, q.ptr, q.length);
@@ -73,88 +76,123 @@ class UHD_USRPBurstTX : IDevice, /*IPPSSynchronizable,*/ IBurstTransmitter!(Comp
     }
 
 
-    // void setTimeNextPPS(DeviceTime t) shared
-    // {
-    //     spinLock.lock();
-    //     scope(exit) spinLock.unlock();     
-
-    //     .setTimeNextPPS(cast()this.handler, t.fullsecs, t.fracsecs);
-    // }
-
-
-    // DeviceTime getTimeLastPPS() shared
-    // {
-    //     spinLock.lock();
-    //     scope(exit) spinLock.unlock();     
-
-    //     DeviceTime t;
-    //     .getTimeLastPPS(cast()this.handler, t.fullsecs, t.fracsecs);
-    //     return t;
-    // }
-
-
-    // void setNextCommandTime(DeviceTime t) shared
-    // {
-    //     spinLock.lock();
-    //     scope(exit) spinLock.unlock();     
-
-    //     .setNextCommandTime(cast()this.handler, t.fullsecs, t.fracsecs);
-    // }
-
-
-    void beginBurstTransmit(scope const(ubyte)[] q) shared
+    IStreamer makeStreamer(string[] args) shared
     {
-        assert(q.length == 0, "additional arguments is not supported");
+        import std.conv;
+
+        // DeviceName:{TX|RX}:<Index>形式かどうかを判定する
+        immutable bool isValidFmt
+            = args.length == 2
+            && (args[0] == "TX" || args[0] == "RX");
+
+        immutable int index = ifThrown(args[1].to!int, -1);
+        enforce(isValidFmt && index >= 0, "Invalid streamer argument format. Please use {DeviceName}:{TX|RX}:{Index}.");
+
         spinLock.lock();
         scope(exit) spinLock.unlock();
 
-        .beginBurstTransmit(cast()this.handler);
-    }
-
-
-    void endBurstTransmit(scope const(ubyte)[] q) shared
-    {
-        assert(q.length == 0, "additional arguments is not supported");
-        spinLock.lock();
-        scope(exit) spinLock.unlock();
-
-        .endBurstTransmit(cast()this.handler);
-    }
-
-
-    void burstTransmit(scope const Complex!float[][] signals, scope const(ubyte)[] q) shared
-    {
-        assert(q.length == 0, "additional arguments is not supported");
-        const(Complex!float)*[128] _tmp;
-        foreach(i; 0 .. signals.length)
-            _tmp[i] = signals[i].ptr;
-
-        size_t remain = signals[0].length;
-        while(remain != 0) {
-            size_t num;
-            {
-                spinLock.lock();
-                scope(exit) spinLock.unlock();
-                num = .burstTransmit(cast()this.handler, cast(const(void)**)_tmp.ptr, (Complex!float).sizeof, signals[0].length);
-            }
-
-            foreach(i; 0 .. signals.length)
-                _tmp[i] += num;
-            
-            remain -= num;
+        if(args[0] == "TX") {
+            auto shndlr = getTxStreamer(cast() handler, index);
+            return new TxStreamerImpl!(Complex!float)(cast(shared) this, shndlr);
+        } else {
+            auto shndlr = getRxStreamer(cast() handler, index);
+            return new RxStreamerImpl!(Complex!float)(cast(shared) this, shndlr);
         }
     }
-
-
-    mixin LoopByBurst!(Complex!float);
 
 
   private:
     DeviceHandler handler;
     shared(SpinLock) spinLock;
+
+
+    static class TxStreamerImpl(C) : IStreamer, IBurstTransmitter!C, ILoopTransmitter!C
+    {
+        this(shared(UHDMultiUSRP) dev, TxStreamerHandler handler)
+        {
+            _dev = dev;
+            _handler = handler;
+            _numCh = .numTxStream(_handler);
+        }
+
+
+        shared(IDevice) device() shared @nogc { return _dev; }
+        size_t numChannelImpl() shared @nogc { return _numCh; }
+
+
+        void beginBurstTransmit(scope const(ubyte)[] q)
+        {
+            assert(q.length == 0, "additional arguments is not supported");
+            _dev.spinLock.lock();
+            scope(exit) _dev.spinLock.unlock();
+
+            .beginBurstTransmit(_handler);
+        }
+
+
+        void endBurstTransmit(scope const(ubyte)[] q)
+        {
+            assert(q.length == 0, "additional arguments is not supported");
+            _dev.spinLock.lock();
+            scope(exit) _dev.spinLock.unlock();
+
+            .endBurstTransmit(_handler);
+        }
+
+
+        void burstTransmit(scope const C[][] signals, scope const(ubyte)[] q)
+        {
+            assert(q.length == 0, "additional arguments is not supported");
+            const(C)*[128] _tmp;
+            foreach(i; 0 .. signals.length)
+                _tmp[i] = signals[i].ptr;
+
+            size_t remain = signals[0].length;
+            while(remain != 0) {
+                size_t num;
+                {
+                    _dev.spinLock.lock();
+                    scope(exit) _dev.spinLock.unlock();
+                    num = .burstTransmit(_handler, cast(const(void)**)_tmp.ptr, C.sizeof, signals[0].length);
+                }
+
+                foreach(i; 0 .. signals.length)
+                    _tmp[i] += num;
+                
+                remain -= num;
+            }
+        }
+
+
+        mixin LoopByBurst!C;
+
+      private:
+        shared(UHDMultiUSRP) _dev;
+        TxStreamerHandler _handler;
+        size_t _numCh;
+    }
+
+
+    static class RxStreamerImpl(C) : IStreamer
+    {
+        this(shared(UHDMultiUSRP) dev, RxStreamerHandler handler)
+        {
+            _dev = dev;
+            _handler = handler;
+            _numCh = .numRxStream(_handler);
+        }
+
+        shared(IDevice) device() shared @nogc { return _dev; }
+        size_t numChannelImpl() shared @nogc { return _numCh; }
+
+      private:
+        shared(UHDMultiUSRP) _dev;
+        RxStreamerHandler _handler;
+        size_t _numCh;
+    }
 }
 
 unittest
 {
-    UHD_USRPBurstTX a;
+    UHDMultiUSRP a;
 }

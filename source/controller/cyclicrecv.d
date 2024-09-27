@@ -30,45 +30,45 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
 
 
     override
-    void onInit(DontCallOnOtherThread) shared
+    void onInit()
     {
-        _receiveBuffers = alloc.makeMultidimensionalArray!(shared(C))(this._numTotalStream, _alignSize);
+        _receiveBuffers = alloc.makeMultidimensionalArray!C((cast(shared) this)._numTotalStream, _alignSize);
     }
 
 
     override
-    void onFinish(DontCallOnOtherThread) shared
+    void onFinish()
     {
         if(_isStreaming) {
-            foreach(DeviceType d; this.deviceList)
+            foreach(StreamerType d; this.streamers)
                 d.stopContinuousReceive(null);
         }
 
-        alloc.disposeMultidimensionalArray(cast(C[][])_receiveBuffers);
+        alloc.disposeMultidimensionalArray(_receiveBuffers);
         _receiveBuffers = null;
     }
 
 
     override
-    void onStart(DontCallOnOtherThread) shared
+    void onStart()
     {
         if(_isStreaming) {
-            foreach(DeviceType d; this.deviceList)
+            foreach(StreamerType d; this.streamers)
                 d.startContinuousReceive(null);
         }
     }
 
 
     override
-    void onRunTick(DontCallOnOtherThread) shared
+    void onRunTick()
     {
         // dbg.writefln("isStreaming=%s, alignSize=%s, _receiveBuffers.ptr=%s, _request.hasRequest=%s", _isStreaming, _alignSize, _receiveBuffers.ptr, _request.hasRequest);
 
         if(_isStreaming) {
             size_t idx;
-            foreach(DeviceType d; this.deviceList){
-                d.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + d.numRxStream], null);
-                idx += d.numRxStream;
+            foreach(StreamerType s; this.streamers){
+                s.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + s.numChannel], null);
+                idx += s.numChannel;
             }
 
             if(_request.hasRequest) {
@@ -93,21 +93,21 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
 
 
     override
-    void onPause(DontCallOnOtherThread) shared
+    void onPause()
     {
         if(_isStreaming) {
-            foreach(DeviceType d; this.deviceList)
-                d.stopContinuousReceive(null);
+            foreach(StreamerType s; this.streamers)
+                s.stopContinuousReceive(null);
         }
     }
 
 
     override
-    void onResume(DontCallOnOtherThread) shared
+    void onResume()
     {
         if(_isStreaming) {
-            foreach(DeviceType d; this.deviceList)
-                d.startContinuousReceive(null);
+            foreach(StreamerType s; this.streamers)
+                s.startContinuousReceive(null);
         }
     }
 
@@ -115,13 +115,13 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
   private:
     bool _isStreaming;
     size_t _alignSize;
-    shared(C)[][] _receiveBuffers;
+    C[][] _receiveBuffers;
     ReceiveRequest _request;
 
     size_t _numTotalStream() shared {
         size_t dst;
-        foreach(DeviceType d; this.deviceList)
-            dst += d.numRxStream;
+        foreach(shared(StreamerType) s; this.streamers)
+            dst += s.numChannel;
         
         return dst;
     }
@@ -149,15 +149,12 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
 
     override
-    void setup(LocalRef!(shared(IDevice))[] devs, JSONValue[string] settings)
+    void setup(IStreamer[] rxs, JSONValue[string] settings)
     {
-        IContinuousReceiver!C[] tmplist;
-        foreach(i, ref LocalRef!(shared(IDevice)) e; devs) {
-            assert(e.numRxStream > 0);
-            tmplist ~= enforce(cast(IContinuousReceiver!C) cast()(e.get), "The device#%s is not a IContinuousReceiver.".format(i));
+        foreach(i, e; rxs) {
+            assert(e.numChannel > 0);
+            _streamers_tmp ~= enforce(cast(IContinuousReceiver!C) e, "The device#%s is not a IContinuousReceiver.".format(i));
         }
-
-        _devs = cast(shared) tmplist;
 
         if("singleThread" in settings && settings["singleThread"].get!bool)
             _singleThread = true;
@@ -179,20 +176,22 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     {
         if(_singleThread) {
             auto thread = new CyclicRXControllerThread!C(this._alignSize, this._initStreaming);
-            foreach(ref d; _devs)
-                thread.registerDevice(d);
+            foreach(ref d; _streamers_tmp)
+                thread.registerStreamer(d);
 
             this.registerThread(thread);
             thread.start();
         } else {
-            foreach(d; _devs) {
+            foreach(d; _streamers_tmp) {
                 auto thread = new CyclicRXControllerThread!C(this._alignSize);
-                thread.registerDevice(d);
+                thread.registerStreamer(d);
 
                 this.registerThread(thread);
                 thread.start();
             }
         }
+
+        _streamers_tmp = null;
     }
 
 
@@ -225,17 +224,17 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
         size_t idx;
         foreach(size_t i, ThreadType t; this.threadList) {
-            t.invoke(function(shared(CyclicRXControllerThread!C) thread, shared(C[][]) buf, shared(NotifiedLazy!bool)* pdone){
+            t.invoke(function(CyclicRXControllerThread!C thread, shared(C[][]) buf, shared(NotifiedLazy!bool)* pdone){
                 if(!thread._isStreaming) {
                     thread._isStreaming = true;
-                    foreach(thread.DeviceType d; thread.deviceList)
-                        d.startContinuousReceive(null);
+                    foreach(thread.StreamerType s; thread.streamers)
+                        s.startContinuousReceive(null);
                 }
 
                 assert(!thread._request.hasRequest);
                 thread._request.remain = buf[0].length;
                 thread._request.pdone = pdone;
-                thread._request.buffer = buf;
+                thread._request.buffer = cast(shared(C)[][])buf;
                 thread._request.hasRequest = true;
             }, cast(shared(C[][])) buffer.array[idx .. idx + t._numTotalStream], doneEvent.array[i]);
 
@@ -258,7 +257,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     bool _singleThread = false;
     size_t _alignSize = 4096;
     bool _initStreaming = true;
-    shared(IContinuousReceiver!C)[] _devs;
+    IContinuousReceiver!C[] _streamers_tmp;
 
 
     size_t _numTotalStreamAllThread()
@@ -279,47 +278,42 @@ unittest
     import core.thread;
     alias C = Complex!float;
 
-    class TestDevice : IContinuousReceiver!C
+    class TestReceiver : IContinuousReceiver!C
     {
         size_t _numRxStream;
         C[][] buffer;
-        string state;
+        string state = "init";
         size_t index;
 
         this(size_t n, C[][] buf) { _numRxStream = n; buffer = buf; assert(buffer.length == _numRxStream); }
 
-        void construct() { state = "init"; }
-        void destruct() { state = "finished"; }
-        void setup(JSONValue[string] configJSON) {}
-        size_t numTxStreamImpl() shared { return 0; }
-        size_t numRxStreamImpl() shared { return atomicLoad(_numRxStream); }
-        synchronized void singleReceive(scope C[][] signal, scope const(ubyte)[] q) {
+
+        shared(IDevice) device() shared @nogc { return null; }
+        size_t numChannelImpl() shared @nogc { return _numRxStream; }
+        void singleReceive(scope C[][] signal, scope const(ubyte)[] q) @nogc {
             foreach(i, e; signal) {
                 foreach(j; 0 .. e.length) {
                     e[j] = cast()buffer[i][(index + j) % $];
                 }
             }
 
-            index.atomicOp!"+="(signal[0].length);
+            index += signal[0].length;
         }
-        synchronized void startContinuousReceive(scope const(ubyte)[] q) { assert(state != "start"); atomicStore(state, "start"); }
-        synchronized void stopContinuousReceive(scope const(ubyte)[] q) { assert(state != "stop"); atomicStore(state, "stop"); }
-        synchronized void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) {}
-        synchronized const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { return null; }
-        synchronized void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) {}
+        void startContinuousReceive(scope const(ubyte)[] q) @nogc { assert(state != "start"); atomicStore(state, "start"); }
+        void stopContinuousReceive(scope const(ubyte)[] q) @nogc { assert(state != "stop"); atomicStore(state, "stop"); }
     }
 
     auto ctrl = new CyclicRXController!C();
     
     // すべてのテストデバイスは，10の約数の周期の信号を生成している
-    TestDevice[] devs = [
-        new TestDevice(2, [[C(1, 1), C(2, 2)], [C(3, 3), C(4, 4)]]),            // 周期2
-        new TestDevice(1, [[C(5, 5), C(6, 6), C(7, 7), C(8, 8), C(9, 9)]]),     // 周期5
-        new TestDevice(3, [[C(10, 10)], [C(11, 11)], [C(12, 12)]])];            // 周期1
-    foreach(d; devs) d.construct();
+    TestReceiver[] devs = [
+        new TestReceiver(2, [[C(1, 1), C(2, 2)], [C(3, 3), C(4, 4)]]),            // 周期2
+        new TestReceiver(1, [[C(5, 5), C(6, 6), C(7, 7), C(8, 8), C(9, 9)]]),     // 周期5
+        new TestReceiver(3, [[C(10, 10)], [C(11, 11)], [C(12, 12)]])];            // 周期1
 
     // alignSize=10にすれば，かならず受信信号の先頭は上でデバイスに設定した配列の先頭になるため，先頭要素はランダムにならない
-    ctrl.setup(devs.map!(a => localRef(cast(shared(IDevice))a)).array, ["alignSize": JSONValue(10)]);
+    import std.algorithm : map;
+    ctrl.setup(devs.map!(a => cast(IStreamer) a).array(), ["alignSize": JSONValue(10)]);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 

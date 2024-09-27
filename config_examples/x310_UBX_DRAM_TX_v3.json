@@ -13,7 +13,7 @@
     "controllers": {
         "TX0": {
             "type": "LoopTX",
-            "devices": ["USRP_TX0"]
+            "streamers": ["USRP_TX0"]
         }
     },
     "port": 8888

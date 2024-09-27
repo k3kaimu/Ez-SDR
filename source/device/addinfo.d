@@ -174,15 +174,20 @@ unittest
 }
 
 
-struct USRPStreamerChannelInfo
-{
-    static immutable uint tag = crc32Of("USRPStreamerChannelInfo").toInteger;
-    uint index;
+// struct KeyValueOptArg(size_t keyN, T, string typename)
+// {
+//     static immutable uint tag = crc32Of(typename).toInteger;
+//     char[keyN] key;
+//     T value;
 
-    mixin PODOptArgWriter!();
-}
+//     mixin PODOptArgWriterAndReader!();
+// }
 
-unittest
-{
-    static assert(USRPStreamerChannelInfo.tag == 0x78640439);
-}
+// alias OptArgKeyValueInt8 = KeyValueOptArg!(16, long, "OptArgKeyValueInt8");
+// alias OptArgKeyValueFloat8 = KeyValueOptArg!(16, double, "OptArgKeyValueFloat8");
+
+
+// unittest
+// {
+//     static assert(ChanndelIndexInfo.tag == 0x78640439);
+// }

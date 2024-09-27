@@ -11,33 +11,8 @@ interface IDevice
     void construct();
     void destruct();
     void setup(JSONValue[string] configJSON);
-    size_t numTxStreamImpl() shared @nogc;
-    size_t numRxStreamImpl() shared @nogc;
 
-
-    final size_t numTxStream() @nogc
-    {
-        return (cast(shared)this).numTxStreamImpl();
-    }
-
-
-    final size_t numTxStream() shared @nogc
-    {
-        return this.numTxStreamImpl();
-    }
-
-
-    final size_t numRxStream() shared @nogc
-    {
-        return this.numRxStreamImpl();
-    }
-
-
-    final size_t numRxStream() @nogc
-    {
-        return (cast(shared)this).numRxStreamImpl();
-    }
-
+    IStreamer makeStreamer(string[] args) shared;
     void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] optArgs) shared @nogc;
     const(char)[] getParam(const(char)[] key, scope const(ubyte)[] optArgs) shared @nogc;
 
@@ -45,28 +20,38 @@ interface IDevice
 }
 
 
-interface IBurstTransmitter(C) : IDevice
+interface IStreamer
 {
-    void beginBurstTransmit(scope const(ubyte)[] optArgs) shared @nogc;
-    void endBurstTransmit(scope const(ubyte)[] optArgs) shared @nogc;
-    void burstTransmit(scope const C[][] signal, scope const(ubyte)[] optArgs) shared @nogc;
+    final size_t numChannel() shared @nogc { return this.numChannelImpl(); }
+    final size_t numChannel() @nogc { return (cast(shared)this).numChannelImpl(); }
+
+    size_t numChannelImpl() shared @nogc;
+    shared(IDevice) device() shared @nogc;
 }
 
 
-interface IContinuousReceiver(C) : IDevice
+interface IBurstTransmitter(C) : IStreamer
 {
-    void startContinuousReceive(scope const(ubyte)[] optArgs) shared @nogc;
-    void stopContinuousReceive(scope const(ubyte)[] optArgs) shared @nogc;
-    void singleReceive(scope C[][], scope const(ubyte)[] optArgs) shared @nogc;
+    void beginBurstTransmit(scope const(ubyte)[] optArgs) @nogc;
+    void endBurstTransmit(scope const(ubyte)[] optArgs) @nogc;
+    void burstTransmit(scope const C[][] signal, scope const(ubyte)[] optArgs) @nogc;
 }
 
 
-interface ILoopTransmitter(C) : IDevice
+interface IContinuousReceiver(C) : IStreamer
 {
-    void setLoopTransmitSignal(scope const C[][], scope const(ubyte)[] optArgs) shared @nogc;
-    void startLoopTransmit(scope const(ubyte)[] optArgs) shared @nogc;
-    void stopLoopTransmit(scope const(ubyte)[] optArgs) shared @nogc;
-    void performLoopTransmit(scope const(ubyte)[] optArgs) shared @nogc;
+    void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc;
+    void stopContinuousReceive(scope const(ubyte)[] optArgs) @nogc;
+    void singleReceive(scope C[][], scope const(ubyte)[] optArgs) @nogc;
+}
+
+
+interface ILoopTransmitter(C) : IStreamer
+{
+    void setLoopTransmitSignal(scope const C[][], scope const(ubyte)[] optArgs) @nogc;
+    void startLoopTransmit(scope const(ubyte)[] optArgs) @nogc;
+    void stopLoopTransmit(scope const(ubyte)[] optArgs) @nogc;
+    void performLoopTransmit(scope const(ubyte)[] optArgs) @nogc;
 }
 
 
@@ -78,7 +63,6 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
     alias _alloc = Mallocator.instance;
 
 
-    synchronized
     void setLoopTransmitSignal(scope const C[][] signals, scope const(ubyte)[] optArgs) @nogc
     in {
         assert(signals.length == this.numTxStream);
@@ -91,25 +75,25 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
                 _loopSignals[i] = null;
             }
 
-            _loopSignals[i] = cast(shared)_alloc.makeArray!C(signals[i].length);
+            _loopSignals[i] = _alloc.makeArray!C(signals[i].length);
             _loopSignals[i][] = signals[i][];
         }
     }
 
 
-    void startLoopTransmit(scope const(ubyte)[] optArgs) shared @nogc
+    void startLoopTransmit(scope const(ubyte)[] optArgs) @nogc
     {
         this.beginBurstTransmit(optArgs);
     }
 
 
-    void stopLoopTransmit(scope const(ubyte)[] optArgs) shared @nogc
+    void stopLoopTransmit(scope const(ubyte)[] optArgs) @nogc
     {
         this.endBurstTransmit(optArgs);
     }
 
 
-    void performLoopTransmit(scope const(ubyte)[] optArgs) shared @nogc
+    void performLoopTransmit(scope const(ubyte)[] optArgs) @nogc
     {
         this.burstTransmit(cast(C[][])(_loopSignals[]), optArgs);
     }
@@ -128,9 +112,9 @@ IDevice newDevice(string type)
         case "USRP_TX_LoopDRAM":
             import device.uhd_loop_tx_dram;
             return new UHDLoopTransmitterFromDRAM();
-        case "USRP_TX_Burst":
+        case "MultiUSRP":
             import device.uhd_usrp;
-            return new UHD_USRPBurstTX();
+            return new UHDMultiUSRP();
         default:
             writefln("Cannot file device type: %s", type);
             return null;
