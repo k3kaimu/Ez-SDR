@@ -189,7 +189,10 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
                     assert(t.streamers.length == 1);
                     auto e = t.streamers[0];
                     UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(e.numChannel);
-                    foreach(j; 0 .. e.numChannel) buffer[j] = parseAndAllocArray!C();
+                    foreach(j; 0 .. e.numChannel) {
+                        dbg.writefln("e.numChannel: %s, j: %s, buffer.length: %s", e.numChannel, j, buffer.length);
+                        buffer[j] = parseAndAllocArray!C();
+                    }
 
                     t.invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
                         thread.streamers[0].setLoopTransmitSignal(buf.array, null);

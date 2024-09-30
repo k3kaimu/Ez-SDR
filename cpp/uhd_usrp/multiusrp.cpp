@@ -323,6 +323,7 @@ TxStreamerHandler getTxStreamer(DeviceHandler handler, uint index)
     uhd::tx_streamer::sptr tx_stream = dev->usrp->get_tx_stream(stream_args);
     txstreamer->streamer = tx_stream;
     txstreamer->buffptrs.resize(channels.size());
+    txstreamer->numChannel = channels.size();
 
     uhd::tx_metadata_t md;
     md.has_time_spec = false;
@@ -346,6 +347,7 @@ RxStreamerHandler getRxStreamer(DeviceHandler handler, uint index)
     uhd::rx_streamer::sptr rx_stream = dev->usrp->get_rx_stream(stream_args);
     rxstreamer->streamer = rx_stream;
     rxstreamer->buffptrs.resize(channels.size());
+    rxstreamer->numChannel = channels.size();
 
     uhd::rx_metadata_t md;
     md.has_time_spec = false;

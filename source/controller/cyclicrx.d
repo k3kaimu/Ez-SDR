@@ -244,10 +244,16 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
         // すべてのスレッドが終了するまで待つ
         foreach(ref e; doneEvent.array) e.read();
 
+        static void rawWriteValue(T)(void delegate(scope const(ubyte)[]) writer, T value)
+        {
+            T[1] arr = [value];
+            writer(cast(ubyte[]) arr[]);
+        }
+
         // 返答する
+        rawWriteValue!ulong(writer, buffer.array.length);
         foreach(i, C[] e; buffer.array) {
-            ulong[1] sizebuf = [e.length];
-            writer(cast(ubyte[])sizebuf[]);
+            rawWriteValue!ulong(writer, e.length);
             writer(cast(ubyte[])e);
         }
     }

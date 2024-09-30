@@ -8,7 +8,7 @@ import multiprocessing as mp
 
 
 
-class ClientV3:
+class EzSDRClient:
     def __init__(self, ipaddr, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ipaddr = ipaddr
@@ -80,6 +80,13 @@ class CyclicReceiver:
         msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
         msg += sigdatafmt.valueToBytes(size, np.uint64)
         self.client.sendMsg(self.target, msg)
+
+        nbuf = sigdatafmt.readInt64FromSock(self.client.sock)
+        ret = []
+        for i in range(nbuf):
+            nsamples = sigdatafmt.readInt64FromSock(self.client.sock)
+            ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples))
+        return ret
 
 
 class SimpleClient:

@@ -33,6 +33,10 @@ def arrayToBytes(arr, dtype):
 def readInt32FromSock(sock):
     return int.from_bytes(sock.recv(4), 'little');
 
+# ソケットからInt64の値を読む
+def readInt64FromSock(sock):
+    return int.from_bytes(sock.recv(8), 'little');
+
 # ソケットにInt32の値を書き込む
 def writeInt32ToSock(sock, value):
     writeIntToSock(sock, value, np.uint32)

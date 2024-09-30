@@ -148,6 +148,8 @@ size_t rawWriteBuffer(Socket sock, scope const(void)[] buffer)
     size_t tot = 0;
     while(buffer.length != 0) {
         immutable size = sock.send(buffer);
+        enforce(size != Socket.ERROR, "Error on rawWriteBuffer");
+
         tot += size;
 
         if(size == 0)
