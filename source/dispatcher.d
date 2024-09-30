@@ -76,7 +76,52 @@ class MessageDispatcher
 
     void dispatchToDevice(ref LocalRef!(shared(IDevice)) dev, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
-        writeln("[WARNIGN] dispatchToDevice is not implemented yet.");
+        // writeln("[WARNIGN] dispatchToDevice is not implemented yet.");
+        dbg.writefln("msgbuf.length = %s", msgbuf.length);
+        if(msgbuf.length == 0) return;
+
+        auto reader = BinaryReader(msgbuf[1 .. $]);
+        dbg.writefln("msgbuf = %s", msgbuf);
+
+
+        switch(msgbuf[0]) {
+        case 0b00000000:        // setParam
+            size_t keylen = reader.read!ulong;
+            dbg.writefln("keylen = %s", keylen);
+            const(char)[] key = reader.readArray!char(keylen);
+            dbg.writefln("key = %s", key);
+            size_t valuelen = reader.read!ulong;
+            dbg.writefln("valuelen = %s", valuelen);
+            const(char)[] value = reader.readArray!char(valuelen);
+            dbg.writefln("value = %s", value);
+            
+            dev.get.setParam(key, value, null);
+            break;
+        case 0b00000001:        // getParam
+            size_t keylen = reader.read!ulong;
+            dbg.writefln("keylen = %s", keylen);
+            const(char)[] key = reader.readArray!char(keylen);
+            dbg.writefln("key = %s", key);
+
+            const(char)[] ret = dev.get.getParam(key, null);
+            {
+                ulong[1] len = [ret.length];
+                writer(cast(ubyte[]) len[]);
+            }
+            writer(cast(ubyte[]) ret);
+            break;
+        case 0b00000010:        // query
+            size_t qslen = reader.read!ulong;
+            dbg.writefln("qslen = %s", qslen);
+            const(char)[] qs = reader.readArray!char(qslen);
+            dbg.writefln("qs = %s", qs);
+
+            dev.get.query(cast(ubyte[]) qs, writer);
+            break;
+        default:
+            dbg.writefln("msgtype = %s is not supported.", msgbuf[0]);
+            break;
+        }
     }
 
 

@@ -44,6 +44,14 @@ class EzSDRClient:
         msg += target.encode(encoding="utf-8")
         self.sendMsg("@server", msg)
 
+    def setParamToDevice(self, target, key, value):
+        msg = sigdatafmt.valueToBytes(0b00000000, np.uint8)
+        msg += sigdatafmt.valueToBytes(len(key), np.uint64)
+        msg += key.encode(encoding="utf-8")
+        msg += sigdatafmt.valueToBytes(len(value), np.uint64)
+        msg += value.encode(encoding="utf-8")
+        return self.sendMsg(target, msg)
+
 
 class CyclicTransmitter:
     def __init__(self, client, target):

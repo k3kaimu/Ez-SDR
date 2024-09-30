@@ -31,10 +31,10 @@ extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
     DeviceHandler setupDevice(const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
-    void beginBurstTransmitImpl(TxStreamerHandler handler);
+    void beginBurstTransmitImpl(TxStreamerHandler handler, scope const(ubyte)* optArgs, ulong optArgsLength);
     void endBurstTransmitImpl(TxStreamerHandler handler);
     ulong burstTransmitImpl(TxStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
-    void startContinuousReceiveImpl(RxStreamerHandler);
+    void startContinuousReceiveImpl(RxStreamerHandler, scope const(ubyte)* optArgs, ulong optArgsLength);
     void stopContinuousReceiveImpl(RxStreamerHandler);
     ulong continuousReceiveImpl(RxStreamerHandler, void** buffptr, ulong sizeofElement, ulong numSamples);
 
@@ -126,7 +126,7 @@ class UHDMultiUSRP : IDevice
         void beginBurstTransmit(scope const(ubyte)[] q)
         {
             assert(q.length == 0, "additional arguments is not supported");
-            .beginBurstTransmitImpl(_handler);
+            .beginBurstTransmitImpl(_handler, q.ptr, q.length);
         }
 
 
@@ -181,7 +181,7 @@ class UHDMultiUSRP : IDevice
 
         void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc
         {
-            .startContinuousReceiveImpl(_handler);
+            .startContinuousReceiveImpl(_handler, optArgs.ptr, optArgs.length);
         }
 
         void stopContinuousReceive(scope const(ubyte)[] optArgs) @nogc

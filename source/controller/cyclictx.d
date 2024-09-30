@@ -28,7 +28,7 @@ class CyclicTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     alias alloc = Mallocator.instance;
 
 
-    this()
+    this(bool syncUSRP = false)
     {
         super();
     }
@@ -71,8 +71,10 @@ class CyclicTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onPause()
     {
         if(isStreaming) {
-            foreach(StreamerType e; this.streamers)
-                e.stopLoopTransmit(null);
+            foreach(StreamerType e; this.streamers) {
+                e.stopLoopTransmit(_addinfoOnNextPause.array);
+                _addinfoOnNextPause.resize(0);
+            }
         }
     }
 
@@ -81,8 +83,10 @@ class CyclicTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     void onResume()
     {
         if(isStreaming) {
-            foreach(StreamerType e; this.streamers)
-                e.startLoopTransmit(null);
+            foreach(StreamerType e; this.streamers) {
+                e.startLoopTransmit(_addinfoOnNextResume.array);
+                _addinfoOnNextResume.resize(0);
+            }
         }
     }
 
@@ -111,6 +115,9 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 
         if("singleThread" in settings && settings["singleThread"].get!bool)
             _singleThread = true;
+
+        if("syncmode" in settings && settings["syncmode"].get!string == "USRP")
+            _syncUSRP = true;
     }
 
 
@@ -118,7 +125,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
     void spawnDeviceThreads()
     {
         if(_singleThread) {
-            auto thread = new CyclicTXControllerThread!C();
+            auto thread = new CyclicTXControllerThread!C(_syncUSRP);
             foreach(e; _streamers)
                 thread.registerStreamer(cast()e);
 
@@ -126,7 +133,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
             thread.start();
         } else {
             foreach(e; _streamers) {
-                auto thread = new CyclicTXControllerThread!C();
+                auto thread = new CyclicTXControllerThread!C(_syncUSRP);
                 thread.registerStreamer(cast()e);
 
                 this.registerThread(thread);
@@ -162,7 +169,6 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 
         switch(reader.read!ubyte) {
         case 0b00001000:        // Resume device thread with optArgs
-            
             this.resumeDeviceThreads();
             break;
 
@@ -228,6 +234,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
   private:
     shared(ILoopTransmitter!C)[] _streamers;
     bool _singleThread = false;
+    bool _syncUSRP = false;
 }
 
 

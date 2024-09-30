@@ -380,8 +380,16 @@ uint64_t numRxStream(RxStreamerHandler handler)
 
 void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char const* jsonvalue_, uint64_t jsonvaluelen, uint8_t const* info, uint64_t infolen)
 {
-    // Device* dev = handler.dev;
-    // std::string_view key(key_, keylen);
+    Device* dev = handler.dev;
+    std::string_view key(key_, keylen);
+    std::string_view jsonstr(jsonvalue_, jsonvaluelen);
+    nlohmann::json value = nlohmann::json::parse(jsonstr);
+
+    if(key == "set_time_unknown_pps_to_zero") {
+        dev->usrp->set_time_unknown_pps(uhd::time_spec_t(double(0)));
+    }
+
+
     // std::string_view jsonvalue(jsonvalue_, jsonvaluelen);
     // nlohmann::json value = nlohmann::json::parse(jsonvalue);
     // auto addinfo = parseAdditionalInfo(info, infolen);
@@ -435,12 +443,21 @@ void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char con
 }
 
 
-void beginBurstTransmitImpl(TxStreamerHandler handler)
+void beginBurstTransmitImpl(TxStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
 {
     auto streamer = handler.streamer;
 
     streamer->md.start_of_burst = true;
     streamer->md.end_of_burst = false;
+
+    forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
+        if(tag == CommandTimeInfo::tag) {
+            assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
+            CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
+            streamer->md.has_time_spec = true;
+            streamer->md.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+        }
+    });
 }
 
 
@@ -475,13 +492,22 @@ uint64_t burstTransmitImpl(TxStreamerHandler handler, void const* const* signals
 }
 
 
-void startContinuousReceiveImpl(RxStreamerHandler handler)
+void startContinuousReceiveImpl(RxStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
 {
     // setup streaming
     uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
     stream_cmd.num_samps  = 0;
     stream_cmd.stream_now = true;
-    // stream_cmd.time_spec  = usrp->get_time_now() + uhd::time_spec_t(0.05);
+
+    forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
+        if(tag == CommandTimeInfo::tag) {
+            assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
+            CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
+            stream_cmd.stream_now = false;
+            stream_cmd.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+        }
+    });
+
     handler.streamer->streamer->issue_stream_cmd(stream_cmd);
 }
 

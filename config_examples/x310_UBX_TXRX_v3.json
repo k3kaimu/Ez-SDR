@@ -29,11 +29,13 @@
     "controllers": {
         "TX0": {
             "type": "CyclicTX",
-            "streamers": ["USRP0:TX:0"]
+            "streamers": ["USRP0:TX:0"],
+            "syncmode": "USRP"
         },
         "RX0": {
             "type": "CyclicRX",
-            "streamers": ["USRP0:RX:0"]
+            "streamers": ["USRP0:RX:0"],
+            "syncmode": "USRP"
         }
     },
     "port": 8888
