@@ -34,14 +34,24 @@ class EzSDRClient:
         sigdatafmt.writeIntToSock(self.sock, len(msg), np.uint64)
         self.sock.sendall(msg)
 
-    def startController(self, target):
-        msg = sigdatafmt.valueToBytes(0b00001000, np.uint8)
+    def resumeController(self, target):
+        msg = sigdatafmt.valueToBytes(0b00000001, np.uint8)
+        msg += sigdatafmt.valueToBytes(len(target), np.uint64)
         msg += target.encode(encoding="utf-8")
         self.sendMsg("@server", msg)
 
     def stopController(self, target):
-        msg = sigdatafmt.valueToBytes(0b00001001, np.uint8)
+        msg = sigdatafmt.valueToBytes(0b00000010, np.uint8)
+        msg += sigdatafmt.valueToBytes(len(target), np.uint64)
         msg += target.encode(encoding="utf-8")
+        self.sendMsg("@server", msg)
+
+    def resumeAllController(self):
+        msg = sigdatafmt.valueToBytes(0b00000011, np.uint8)
+        self.sendMsg("@server", msg)
+
+    def stopAllController(self):
+        msg = sigdatafmt.valueToBytes(0b00000100, np.uint8)
         self.sendMsg("@server", msg)
 
     def setParamToDevice(self, target, key, value):
@@ -58,36 +68,42 @@ class CyclicTransmitter:
         self.client = client
         self.target = target
 
-    def setTransmitSignal(self, signals):
+    def sendMsgWQ(self, msg, qs):
+        self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
+
+    def setTransmitSignal(self, signals, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
         for i in range(len(signals)):
             msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
             msg += sigdatafmt.arrayToBytes(signals, np.complex64)
         
-        self.client.sendMsg(self.target, msg)
+        self.sendMsgWQ(msg, qs)
     
-    def startTransmit(self):
+    def startTransmit(self, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
-        self.client.sendMsg(self.target, msg)
+        self.sendMsgWQ(msg, qs)
 
-    def stopTransmit(self):
+    def stopTransmit(self, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
-        self.client.sendMsg(self.target, msg)
+        self.sendMsgWQ(msg, qs)
     
-    def transmit(self, signals):
-        self.setTransmitSignal(signals)
-        self.startTransmit()
+    def transmit(self, signals, qs1=b'', qs2=b''):
+        self.setTransmitSignal(signals, qs1)
+        self.startTransmit(qs2)
 
 
 class CyclicReceiver:
     def __init__(self, client, target):
         self.client = client
         self.target = target
+
+    def sendMsgWQ(self, msg, qs):
+        self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
     
-    def receive(self, size):
+    def receive(self, size, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
         msg += sigdatafmt.valueToBytes(size, np.uint64)
-        self.client.sendMsg(self.target, msg)
+        self.sendMsgWQ(msg, qs)
 
         nbuf = sigdatafmt.readInt64FromSock(self.client.sock)
         ret = []

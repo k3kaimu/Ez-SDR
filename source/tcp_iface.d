@@ -90,7 +90,7 @@ void eventIOLoop(C, Alloc)(
                         char[] tag = cast(char[]) alloc.allocate(taglen.get);
                         scope(exit) alloc.deallocate(tag);
                         if(client.rawReadBuffer(tag) != taglen) continue Lconnect;
-                        dbg.writefln("tag = %s", taglen.get);
+                        dbg.writefln("tag = %s", tag);
 
                         auto msglen = client.rawReadValue!ulong();
                         if(msglen.isNull) continue Lconnect;

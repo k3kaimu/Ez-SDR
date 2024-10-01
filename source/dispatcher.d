@@ -5,6 +5,8 @@ import controller;
 import device;
 import utils;
 import multithread;
+import std.exception;
+import std.regex;
 
 
 class MessageDispatcher
@@ -20,13 +22,48 @@ class MessageDispatcher
 
     void dispatchToServer(scope const(char)[] target, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
-        if(msgbuf.length == 0) return;
-        switch(msgbuf[0]) {
-        case 0b00001000:    // すべてのコントローラーを動かす
+        dbg.writefln("msgbuf.length = %s", msgbuf.length);
+        dbg.writefln("msgbuf = %s", msgbuf);
+
+        auto reader = BinaryReader(msgbuf);
+        scope msgtypeid = reader.tryDeserialize!ubyte;
+        if(msgtypeid.isNull) {
+            dbg.writefln("[Error] cannot read msgtypeid");
+            return;
+        }
+
+        switch(msgtypeid.get) {
+        case 0b00000000:    // 設定ファイルを返す
+            enforce(0, "This command is not implemented yet.");
+            break;
+
+        case 0b00000001:    // regexに一致するコントローラを動かす
+            scope const(char)[] targetRegexString = reader.tryDeserializeArray!char.enforceIsNotNull("[Error] Cannot deserialize target regex string.").get;
+            auto re = regex(targetRegexString);
+            foreach(string tag, IController c; ctrls) {
+                if(tag.matchFirst(re)) {
+                    c.resumeDeviceThreads();
+                    dbg.writefln("Controller '%s' is resumed.", tag);
+                }
+            }
+            break;
+
+        case 0b00000010:    // regexに一致するコントローラを止める
+            scope const(char)[] targetRegexString = reader.tryDeserializeArray!char.enforceIsNotNull("[Error] Cannot deserialize target regex string.").get;
+            auto re = regex(targetRegexString);
+            foreach(string tag, IController c; ctrls) {
+                if(tag.matchFirst(re)) {
+                    c.pauseDeviceThreads();
+                    dbg.writefln("Controller '%s' is stopped.", tag);
+                }
+            }
+            break;
+
+        case 0b00000011:    // すべてのコントローラーを動かす
             foreach(t, c; ctrls)
                 c.resumeDeviceThreads();
             break;
-        case 0b00001001:    // すべてのコントローラーを止める
+        case 0b00000100:    // すべてのコントローラーを止める
             foreach(t, c; ctrls)
                 c.pauseDeviceThreads();
             break;

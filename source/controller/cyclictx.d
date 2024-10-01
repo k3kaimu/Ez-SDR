@@ -28,7 +28,7 @@ class CyclicTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
     alias alloc = Mallocator.instance;
 
 
-    this(bool syncUSRP = false)
+    this()
     {
         super();
     }
@@ -100,6 +100,9 @@ class CyclicTXControllerThread(C) : ControllerThreadImpl!(ILoopTransmitter!C)
 
 class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 {
+    alias dbg = debugMsg!"CyclicTXController";
+
+
     this()
     {
         super();
@@ -115,9 +118,6 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 
         if("singleThread" in settings && settings["singleThread"].get!bool)
             _singleThread = true;
-
-        if("syncmode" in settings && settings["syncmode"].get!string == "USRP")
-            _syncUSRP = true;
     }
 
 
@@ -125,7 +125,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
     void spawnDeviceThreads()
     {
         if(_singleThread) {
-            auto thread = new CyclicTXControllerThread!C(_syncUSRP);
+            auto thread = new CyclicTXControllerThread!C();
             foreach(e; _streamers)
                 thread.registerStreamer(cast()e);
 
@@ -133,7 +133,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
             thread.start();
         } else {
             foreach(e; _streamers) {
-                auto thread = new CyclicTXControllerThread!C(_syncUSRP);
+                auto thread = new CyclicTXControllerThread!C();
                 thread.registerStreamer(cast()e);
 
                 this.registerThread(thread);
@@ -147,12 +147,18 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
     void processMessage(scope const(ubyte)[] msgbin, void delegate(scope const(ubyte)[]) writer)
     {
         alias alloc = Mallocator.instance;
-        alias dbg = debugMsg!"CyclicTXController";
-        dbg.writefln("msgtype = 0x%X, msglen = %s [bytes]", msgbin[0], msgbin.length);
+        dbg.writefln("msgbin.length = %s [bytes]", msgbin.length);
+        dbg.writefln("msgbin = %s", msgbin);
 
         auto reader = BinaryReader(msgbin);
-        if(reader.length < 1)
-            return;
+        const(ubyte)[] subargs = reader.tryDeserializeArray!ubyte.enforceIsNotNull("Cannot read subargs").get;
+        dbg.writefln("subargs = %s", subargs);
+
+        UniqueArray!ubyte query = makeUniqueArray!ubyte(subargs.length);
+        query.array[] = subargs[];
+
+        ubyte msgtype = reader.tryDeserialize!ubyte.enforceIsNotNull("Cannot read msgtype").get;
+        dbg.writefln("msgtype = %s", msgtype);
 
         UniqueArray!T parseAndAllocArray(T)() {
             if(!reader.canRead!size_t) { dbg.writeln("Cannot read array"); return typeof(return).init; }
@@ -167,7 +173,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
         }
 
 
-        switch(reader.read!ubyte) {
+        switch(msgtype) {
         case 0b00001000:        // Resume device thread with optArgs
             this.resumeDeviceThreads();
             break;
@@ -183,13 +189,13 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
                 UniqueArray!(C, 2) buffer = makeUniqueArray!(C, 2)(totStream);
                 foreach(i; 0 .. totStream) buffer[i] = parseAndAllocArray!C();
 
-                this.threadList[0].invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!(C, 2) buf) {
+                this.threadList[0].invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!(C, 2) buf, ref UniqueArray!ubyte query) {
                     size_t idx;
                     foreach(thread.StreamerType e; thread.streamers) {
-                        e.setLoopTransmitSignal(buf.array[idx .. idx + e.numChannel], null);
+                        e.setLoopTransmitSignal(buf.array[idx .. idx + e.numChannel], query.array);
                         idx += e.numChannel;
                     }
-                }, move(buffer));
+                }, move(buffer), move(query));
             } else {
                 foreach(size_t i, this.ThreadType t; this.threadList) {
                     assert(t.streamers.length == 1);
@@ -209,24 +215,24 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 
         case 0b00010001:     // ループ送信の開始
             foreach(ThreadType t; this.threadList)
-                t.invoke(function(CyclicTXControllerThread!C thread){
+                t.invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!ubyte query){
                     if(!thread.isStreaming) {
-                        foreach(thread.StreamerType e; thread.streamers) e.startLoopTransmit(null);
+                        foreach(thread.StreamerType e; thread.streamers) e.startLoopTransmit(query.array);
                         thread.isStreaming = true;
                     }
-                });
+                }, query.dup);
             break;
         case 0b00010010:     // ループ送信の終了
             foreach(ThreadType t; this.threadList)
-                t.invoke(function(CyclicTXControllerThread!C thread){
+                t.invoke(function(CyclicTXControllerThread!C thread, ref UniqueArray!ubyte query){
                     if(thread.isStreaming) {
-                        foreach(thread.StreamerType e; thread.streamers) e.stopLoopTransmit(null);
+                        foreach(thread.StreamerType e; thread.streamers) e.stopLoopTransmit(query.array);
                         thread.isStreaming = false;
                     }
-                });
+                }, query.dup);
             break;
         default:
-            dbg.writefln("Unsupported msgtype %X", msgbin[0]);
+            dbg.writefln("Unsupported msgtype %s", msgtype);
         }
     }
 
@@ -234,7 +240,6 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
   private:
     shared(ILoopTransmitter!C)[] _streamers;
     bool _singleThread = false;
-    bool _syncUSRP = false;
 }
 
 

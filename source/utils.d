@@ -7,6 +7,8 @@ import std.stdio;
 import std.traits;
 import std.experimental.allocator;
 import std.meta;
+import std.typecons;
+import std.format;
 
 import multithread;
 
@@ -14,36 +16,44 @@ import multithread;
 
 template debugMsg(string tag)
 {
-    enum string _tag_ = "[" ~ tag ~ "] ";
+    enum string _tag_ = "[%s(%s): " ~ tag ~ "] ";
 
-    void writef(T...)(string fmt, T args)
+    void writef(string file = __FILE__, size_t line = __LINE__, T...)(string fmt, T args)
     {
-        debug std.stdio.writef(_tag_ ~ fmt, args);
+        debug {
+            string tag = std.format.format(_tag_, file, line);
+            std.stdio.writef(tag ~ fmt, args);
+        }
     }
 
-    void writef(string fmt, T...)(T args)
+    void writef(string fmt, string file = __FILE__, size_t line = __LINE__, T...)(T args)
     {
-        debug std.stdio.writef!(_tag_ ~ fmt)(args);
+        debug{
+            std.stdio.writef!(std.format.format(_tag_, file, line) ~ fmt)(file, line, args);
+        }
     }
 
-    void writefln(T...)(string fmt, T args)
+    void writefln(string file = __FILE__, size_t line = __LINE__, T...)(string fmt, T args)
     {
-        debug std.stdio.writefln(_tag_ ~ fmt, args);
+        debug{
+            string tag = std.format.format(_tag_, file, line);
+            std.stdio.writefln(tag ~ fmt, args);
+        }
     }
 
-    void writefln(string fmt, T...)(T args)
+    void writefln(string fmt, string file = __FILE__, size_t line = __LINE__, T...)(T args)
     {
-        debug std.stdio.writefln!(_tag_ ~ fmt)(args);
+        debug std.stdio.writefln!(std.format.format(_tag_, file, line) ~ fmt)(args);
     }
 
-    void write(T...)(T args)
+    void write(string file = __FILE__, size_t line = __LINE__, T...)(T args)
     {
-        debug std.stdio.write(_tag_, args);
+        debug std.stdio.write(std.format.format(_tag_, file, line), args);
     }
 
-    void writeln(T...)(T args)
+    void writeln(string file = __FILE__, size_t line = __LINE__, T...)(T args)
     {
-        debug std.stdio.writeln(_tag_, args);
+        debug std.stdio.writeln(std.format.format(_tag_, file, line), args);
     }
 }
 
@@ -122,6 +132,23 @@ struct BinaryReader
         const(E)[] dst = cast(const(E)[])cast(void[])(buffer[0 .. E.sizeof * n]);
         buffer = buffer[E.sizeof * n .. $];
         return dst;
+    }
+
+
+    Nullable!T tryDeserialize(T)()
+    {
+        if(!this.canRead!T) return typeof(return).init;
+        return typeof(return)(this.read!T);
+    }
+
+
+    Nullable!(const(E)[]) tryDeserializeArray(E)()
+    {
+        if(!this.canRead!ulong) return typeof(return).init;
+        immutable size_t len = cast(size_t) this.read!ulong;
+
+        if(!this.canReadArray!E(len)) return typeof(return).init;
+        return typeof(return)(this.readArray!E(len));
     }
 }
 
@@ -492,4 +519,19 @@ unittest
     assert(mv2.array[0].length == 2);
     assert(mv2.array[0][0] == 2 && mv2.array[0][1] == 4);
     assert(mv2.array[1][0] == 3 && mv2.array[1][1] == 6);
+}
+
+
+T enforceIsNotNull(T)(T value, lazy const(char)[] msg = null, string file = __FILE__, size_t line = __LINE__)
+if(is(typeof(value.isNull) == bool) || is(typeof(value is null) == bool))
+{
+    import std.exception :  enforce;
+
+    static if(is(typeof(value.isNull) == bool))
+        enforce(!value.isNull, msg, file, line);
+    else static if(is(typeof(value is null) == bool))
+        enforce(value is null, msg, file, line);
+    else static assert(0);
+
+    return value;
 }

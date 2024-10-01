@@ -147,11 +147,11 @@ void mainImpl(C)(JSONValue[string] settings){
         auto newctrl = newController(ctrlSettings["type"].str);
 
         IStreamer[] streamers;
-        foreach(JSONValue tag; ctrlSettings["streamers"].array) {
-            string tagstr = tag.str;
-            auto tagsplit = tagstr.split(":");
-            string devtag = tagsplit[0];
-            streamers ~= devs[devtag].makeStreamer(tagsplit[1 .. $]);
+        foreach(JSONValue namejson; ctrlSettings["streamers"].array) {
+            string name = namejson.str;
+            auto namesplit = name.split(":");
+            string devtag = namesplit[0];
+            streamers ~= devs[devtag].makeStreamer(namesplit[1 .. $]);
         }
 
         newctrl.setup(streamers, ctrlSettings.object);

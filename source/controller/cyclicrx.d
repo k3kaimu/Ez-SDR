@@ -198,15 +198,20 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     override
     void processMessage(scope const(ubyte)[] msgbin, void delegate(scope const(ubyte)[]) writer)
     {
-        dbg.writefln("msgtype = 0x%X, msglen = %s [bytes]", msgbin[0], msgbin.length);
+        dbg.writefln("msgbin.length = %s [bytes]", msgbin.length);
+        dbg.writefln("msgbin = %s", msgbin);
 
         auto reader = BinaryReader(msgbin);
-        if(reader.length < 1)
-            return;
+        const(ubyte)[] subargs = reader.tryDeserializeArray!ubyte.enforceIsNotNull("Cannot read subargs").get;
+        dbg.writefln("subargs = %s", subargs);
 
-        switch(reader.read!ubyte) {
+        ubyte msgtype = reader.tryDeserialize!ubyte.enforceIsNotNull("Cannot read msgtype").get;
+        dbg.writefln("msgtype = 0x%X", msgtype);
+
+        switch(msgtype) {
         case 0b00010000:        // 受信命令
-            processReceiveMessage(reader.read!(ulong), writer);
+            ulong siglen = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read receive signal length").get;
+            processReceiveMessage(siglen, writer);
             break;
         default:
             dbg.writefln("Unsupported msgtype %X", msgbin[0]);
