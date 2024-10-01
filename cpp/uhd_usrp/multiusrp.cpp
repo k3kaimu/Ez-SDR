@@ -60,8 +60,8 @@ struct Device
     uhd::usrp::multi_usrp::sptr usrp;
     Mode mode;
 
-    std::set<size_t> tx_channels;
-    std::set<size_t> rx_channels;
+    // std::set<size_t> tx_channels;
+    // std::set<size_t> rx_channels;
 
     // std::vector<TxStreamer*> txstreamers;
     // std::vector<RxStreamer*> rxstreamers;
@@ -74,35 +74,27 @@ struct DeviceHandler
 };
 
 
-void setupTx(Device& dev, nlohmann::json& config)
+void setupTxChannels(Device& dev, nlohmann::json& config)
 {
-    // always select the subdevice first, the channel mapping affects the other settings
-    {
-        std::string subdev = config.value("subdev", "");
-        if (subdev.size() > 0)
-            dev.usrp->set_tx_subdev_spec(subdev);
-    }
+    std::vector<int> channels = config["for-channels"].get<std::vector<int>>();
 
     // check used channels
-    for(auto& e: config["streamers"]) {
-        for(auto& chan_: e["channels"]) {
-            int chan = chan_.get<int>();
-            if (chan >= dev.usrp->get_tx_num_channels()) {
-                throw std::runtime_error("Invalid channel(s) specified.");
-            }
-
-            dev.tx_channels.insert(chan);
-        }
-    }
+    for(auto& chan: channels)
+        if (chan < 0 || chan >= dev.usrp->get_tx_num_channels())
+            throw std::runtime_error("Invalid channel(s) specified.");
 
     // set the tx sample rate
     {
         double rate = config.value("rate", -1.0);
-        std::cout << std::format("Setting TX Rate: {} Msps...", rate / 1e6) << std::endl;
-        dev.usrp->set_tx_rate(rate);
-        std::cout << std::format("Actual TX Rate: {} Msps...", dev.usrp->get_tx_rate() / 1e6)
-                << std::endl
-                << std::endl;
+        if(rate < 0) {
+            throw std::runtime_error("Please specify the sampling rate with 'rate'");
+        }
+
+        for(auto& e: channels) {
+            std::cout << std::format("Setting TX Rate: {} Msps for the channel #{}...", rate / 1e6, e) << std::endl;
+            dev.usrp->set_tx_rate(rate, e);
+            std::cout << std::format("Actual TX Rate: {} Msps for the channel #{}...", dev.usrp->get_tx_rate() / 1e6, e) << std::endl << std::endl;
+        }
     }
 
     // set the center frequency
@@ -111,14 +103,14 @@ void setupTx(Device& dev, nlohmann::json& config)
         bool has_int_n = config.contains("int_n");
         double lo_offset = config.value("lo_offset", 0.0);
 
-        if (freq < 0) {
+        if(freq < 0) {
             throw std::runtime_error("Please specify the center frequency with 'freq'");
         }
 
         std::cout << "Requesting TX Freq: " << freq / 1e6 << " MHz..." << std::endl;
         std::cout << "Requesting TX LO Offset: " << lo_offset / 1e6 << " MHz..." << std::endl;
 
-        for (auto& e: dev.tx_channels) {
+        for(auto& e: channels) {
             uhd::tune_request_t tune_request;
             tune_request = uhd::tune_request_t(freq, lo_offset);
 
@@ -137,7 +129,7 @@ void setupTx(Device& dev, nlohmann::json& config)
         double gain = config.value("gain", 0.0);
 
         std::cout << "Requesting TX Gain: " << gain << " dB ..." << std::endl;
-        for(auto& e: dev.tx_channels) {
+        for(auto& e: channels) {
             dev.usrp->set_tx_gain(gain, e);
 
             std::cout << "Actual TX Gain: " << (dev.usrp->get_tx_gain(e)) << " for the channel #" << e << "..."
@@ -153,7 +145,7 @@ void setupTx(Device& dev, nlohmann::json& config)
         if(bw > 0) {
             std::cout << "Requesting TX Bandwidth: " << (bw / 1e6) << " MHz..." << std::endl;
 
-            for(auto& e: dev.tx_channels) {
+            for(auto& e: channels) {
                 dev.usrp->set_tx_bandwidth(bw, e);
                 std::cout << "Actual TX Bandwidth: "
                         << dev.usrp->get_tx_bandwidth(e) / 1e6 << " MHz for the channel #" << e << "..."
@@ -165,34 +157,27 @@ void setupTx(Device& dev, nlohmann::json& config)
 }
 
 
-void setupRx(Device& dev, nlohmann::json& config)
+void setupRxChannels(Device& dev, nlohmann::json& config)
 {
-    // always select the subdevice first, the channel mapping affects the other settings
-    {
-        std::string subdev = config.value("subdev", "");
-        if (subdev.size() > 0)
-            dev.usrp->set_rx_subdev_spec(subdev);
-    }
+    std::vector<int> channels = config["for-channels"].get<std::vector<int>>();
 
-    for(auto& e: config["streamers"]) {
-        for(auto& chan_: e["channels"]) {
-            int chan = chan_.get<int>();
-            if (chan >= dev.usrp->get_rx_num_channels()) {
-                throw std::runtime_error("Invalid channel(s) specified.");
-            }
-
-            dev.rx_channels.insert(chan);
-        }
-    }
+    // check used channels
+    for(auto& chan: channels)
+        if (chan < 0 || chan >= dev.usrp->get_rx_num_channels())
+            throw std::runtime_error("Invalid channel(s) specified.");
 
     // set the tx sample rate
     {
         double rate = config.value("rate", -1.0);
-        std::cout << std::format("Setting RX Rate: {} Msps...", rate / 1e6) << std::endl;
-        dev.usrp->set_rx_rate(rate);
-        std::cout << std::format("Actual RX Rate: {} Msps...", dev.usrp->get_rx_rate() / 1e6)
-                << std::endl
-                << std::endl;
+        if(rate < 0) {
+            throw std::runtime_error("Please specify the sampling rate with 'rate'");
+        }
+
+        for(auto& e: channels) {
+            std::cout << std::format("Setting RX Rate: {} Msps for the channel #{}...", rate / 1e6, e) << std::endl;
+            dev.usrp->set_rx_rate(rate, e);
+            std::cout << std::format("Actual RX Rate: {} Msps for the channel #{}...", dev.usrp->get_rx_rate() / 1e6, e) << std::endl << std::endl;
+        }
     }
 
     // set the center frequency
@@ -208,7 +193,7 @@ void setupRx(Device& dev, nlohmann::json& config)
         std::cout << "Requesting RX Freq: " << freq / 1e6 << " MHz..." << std::endl;
         std::cout << "Requesting RX LO Offset: " << lo_offset / 1e6 << " MHz..." << std::endl;
 
-       for (auto& e: dev.tx_channels) {
+       for (auto& e: channels) {
             uhd::tune_request_t tune_request;
             tune_request = uhd::tune_request_t(freq, lo_offset);
 
@@ -226,7 +211,7 @@ void setupRx(Device& dev, nlohmann::json& config)
     {
         double gain = config.value("gain", 0.0);
 
-        for(auto& e: dev.rx_channels) {
+        for(auto& e: channels) {
             dev.usrp->set_rx_gain(gain, e);
 
             std::cout << "Actual RX Gain: " << (dev.usrp->get_rx_gain(e)) << " for the channel #" << e << "..."
@@ -242,7 +227,7 @@ void setupRx(Device& dev, nlohmann::json& config)
         if(bw > 0) {
             std::cout << "Requesting RX Bandwidth: " << (bw / 1e6) << " MHz..." << std::endl;
 
-            for(auto& e: dev.rx_channels) {
+            for(auto& e: channels) {
                 dev.usrp->set_rx_bandwidth(bw, e);
                 std::cout << "Actual RX Bandwidth: "
                         << dev.usrp->get_rx_bandwidth(e) / 1e6 << " MHz for the channel #" << e << "..."
@@ -251,17 +236,6 @@ void setupRx(Device& dev, nlohmann::json& config)
             }
         }
     }
-
-    // // create a transmit streamer
-    // uhd::stream_args_t stream_args("fc32"); // complex floats
-    // stream_args.channels             = channels;
-    // uhd::rx_streamer::sptr rx_stream = dev.usrp->get_rx_stream(stream_args);
-    // dev.rxstreamer.streamer = rx_stream;
-    // dev.rxstreamer.buffptrs.resize(channels.size());
-
-    // uhd::rx_metadata_t md;
-    // md.has_time_spec = false;
-    // dev.rxstreamer.md = md;
 }
 
 
@@ -270,8 +244,6 @@ DeviceHandler setupDevice(char const* configJSON)
     nlohmann::json config = nlohmann::json::parse(configJSON);
 
     std::string args = config.value("args", "");
-    std::string clockref = config.value("clockref", "");
-    std::string timeref = config.value("timeref", "");
 
     Device* dev = new Device;
     dev->config = config;
@@ -291,20 +263,48 @@ DeviceHandler setupDevice(char const* configJSON)
     }
 
     // Lock mboard clocks
-    if(clockref.size() > 0) {
-        usrp->set_clock_source(clockref);
+    if(config.contains("clockref")) {
+        auto clockrefs = config["clockref"].get<std::vector<std::string>>();
+        for(int i = 0; const auto& s: clockrefs)
+            usrp->set_clock_source(s, i);
     }
 
     // Set time source
-    if(timeref.size() > 0) {
-        usrp->set_time_source(timeref);
+    if(config.contains("timeref")) {
+        auto timerefs = config["timeref"].get<std::vector<std::string>>();
+        for(int i = 0; const auto& s: timerefs)
+            usrp->set_time_source(s, i);
     }
 
-    if(dev->mode == Mode::TX || dev->mode == Mode::TRX)
-        setupTx(*dev, config["tx"]);
+    if(dev->mode == Mode::TX || dev->mode == Mode::TRX) {
+        if(config.contains("tx-subdev")) {
+            auto subdevs = config["tx-subdev"].get<std::vector<std::string>>();
+            for(int i = 0; const auto& s: subdevs)
+                usrp->set_tx_subdev_spec(s, i);
+        }
 
-    if(dev->mode == Mode::RX || dev->mode == Mode::TRX)
-        setupRx(*dev, config["rx"]);
+        if(!config.contains("tx-channels"))
+            throw std::runtime_error("Cannot find 'tx-channels'");
+
+        for(auto& e: config["tx-channels"]) {
+            setupTxChannels(*dev, e);
+        }
+    }
+
+    if(dev->mode == Mode::RX || dev->mode == Mode::TRX) {
+        if(config.contains("rx-subdev")) {
+            auto subdevs = config["rx-subdev"].get<std::vector<std::string>>();
+            for(int i = 0; const auto& s: subdevs)
+                usrp->set_rx_subdev_spec(s, i);
+        }
+
+        if(!config.contains("rx-channels"))
+            throw std::runtime_error("Cannot find 'rx-channels'");
+
+        for(auto& e: config["rx-channels"]) {
+            setupRxChannels(*dev, e);
+        }
+    }
     
     return DeviceHandler{dev};
 }
@@ -313,7 +313,7 @@ DeviceHandler setupDevice(char const* configJSON)
 TxStreamerHandler getTxStreamer(DeviceHandler handler, uint index)
 {
     auto dev = handler.dev;
-    auto streamer_settings = dev->config["tx"]["streamers"][index];
+    auto streamer_settings = dev->config["tx-streamers"][index];
     TxStreamer* txstreamer = new TxStreamer;
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
@@ -337,7 +337,7 @@ TxStreamerHandler getTxStreamer(DeviceHandler handler, uint index)
 RxStreamerHandler getRxStreamer(DeviceHandler handler, uint index)
 {
     auto dev = handler.dev;
-    auto streamer_settings = dev->config["rx"]["streamers"][index];
+    auto streamer_settings = dev->config["rx-streamers"][index];
     RxStreamer* rxstreamer = new RxStreamer;
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
