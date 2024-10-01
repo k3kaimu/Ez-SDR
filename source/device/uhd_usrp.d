@@ -125,7 +125,6 @@ class UHDMultiUSRP : IDevice
 
         void beginBurstTransmit(scope const(ubyte)[] q)
         {
-            assert(q.length == 0, "additional arguments is not supported");
             .beginBurstTransmitImpl(_handler, q.ptr, q.length);
         }
 
@@ -186,11 +185,13 @@ class UHDMultiUSRP : IDevice
 
         void stopContinuousReceive(scope const(ubyte)[] optArgs) @nogc
         {
+            assert(optArgs.length == 0, "additional arguments is not supported");
             .stopContinuousReceiveImpl(_handler);
         }
 
         void singleReceive(scope C[][] buffers, scope const(ubyte)[] optArgs) @nogc
         {
+            assert(optArgs.length == 0, "additional arguments is not supported");
             const(C)*[128] _tmp;
             foreach(i; 0 .. buffers.length)
                 _tmp[i] = buffers[i].ptr;

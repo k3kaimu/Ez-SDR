@@ -450,12 +450,16 @@ void beginBurstTransmitImpl(TxStreamerHandler handler, uint8_t const* optArgs, u
     streamer->md.start_of_burst = true;
     streamer->md.end_of_burst = false;
 
+    // std::cout << "optArgsLength = " << optArgsLength << std::endl;
+
     forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
+        std::cout << "tagid = " << tag << std::endl;
         if(tag == CommandTimeInfo::tag) {
             assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
             CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
             streamer->md.has_time_spec = true;
             streamer->md.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+            std::cout << "[multiusrp.cpp] Transmit streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
         }
     });
 }
@@ -480,7 +484,7 @@ uint64_t burstTransmitImpl(TxStreamerHandler handler, void const* const* signals
     for(size_t i = 0; i < streamer->buffptrs.size(); ++i)
         streamer->buffptrs[i] = reinterpret_cast<std::complex<float> const*>(signals[i]);
 
-    uint64_t num = streamer->streamer->send(streamer->buffptrs, num_samples, streamer->md, 0.01);
+    uint64_t num = streamer->streamer->send(streamer->buffptrs, num_samples, streamer->md, 10.0);
 
     if(num > 0) {
         streamer->md.has_time_spec = false;
@@ -499,12 +503,15 @@ void startContinuousReceiveImpl(RxStreamerHandler handler, uint8_t const* optArg
     stream_cmd.num_samps  = 0;
     stream_cmd.stream_now = true;
 
+    // std::cout << "optArgsLength = " << optArgsLength << std::endl;
+
     forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
         if(tag == CommandTimeInfo::tag) {
             assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
             CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
             stream_cmd.stream_now = false;
             stream_cmd.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+            std::cout << "[multiusrp.cpp] Receive streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
         }
     });
 
@@ -516,13 +523,26 @@ void stopContinuousReceiveImpl(RxStreamerHandler handler)
 {
     uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
     handler.streamer->streamer->issue_stream_cmd(stream_cmd);
+
+    // バッファーに溜まっている受信データを破棄する
+    size_t numSamples = 128;
+    std::vector<std::vector<std::complex<float>>> rembuf(handler.streamer->numChannel);
+    for(size_t i = 0; i < handler.streamer->numChannel; ++i) {
+        std::vector<std::complex<float>> v(numSamples);
+        rembuf[i] = v;
+    }
+
+    size_t num = 0;
+    do {
+        num = handler.streamer->streamer->recv(rembuf, numSamples, handler.streamer->md, 0.1);
+    } while(num != 0);
 }
 
 
 uint64_t continuousReceiveImpl(RxStreamerHandler handler, void** buffptr, uint64_t sizeofElement, uint64_t numSamples)
 {
     uhd::ref_vector<void*> buf(buffptr, handler.streamer->numChannel);
-    return handler.streamer->streamer->recv(buf, numSamples, handler.streamer->md, 1.0);
+    return handler.streamer->streamer->recv(buf, numSamples, handler.streamer->md, 10.0);
 }
 
 

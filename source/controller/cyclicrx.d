@@ -2,6 +2,7 @@ module controller.cyclicrx;
 
 import core.atomic;
 import core.sync.event;
+import core.lifetime;
 
 import std.exception;
 import std.experimental.allocator;
@@ -204,6 +205,8 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
         auto reader = BinaryReader(msgbin);
         const(ubyte)[] subargs = reader.tryDeserializeArray!ubyte.enforceIsNotNull("Cannot read subargs").get;
         dbg.writefln("subargs = %s", subargs);
+        UniqueArray!ubyte query = makeUniqueArray!ubyte(subargs.length);
+        query.array[] = subargs[];
 
         ubyte msgtype = reader.tryDeserialize!ubyte.enforceIsNotNull("Cannot read msgtype").get;
         dbg.writefln("msgtype = 0x%X", msgtype);
@@ -211,8 +214,47 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
         switch(msgtype) {
         case 0b00010000:        // 受信命令
             ulong siglen = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read receive signal length").get;
-            processReceiveMessage(siglen, writer);
+            processReceiveMessage(siglen, move(query), writer);
             break;
+        
+        case 0b00010001:        // ループ受信の開始
+            foreach(size_t i, ThreadType t; this.threadList) {
+                t.invoke(function(CyclicRXControllerThread!C thread, ref UniqueArray!ubyte query){
+                    if(!thread._isStreaming) {
+                        thread._isStreaming = true;
+                        foreach(thread.StreamerType s; thread.streamers)
+                            s.startContinuousReceive(query.array);
+                    }
+                }, query.dup);
+            }
+            break;
+
+        case 0b00010010:        // ループ受信の終了
+            foreach(size_t i, ThreadType t; this.threadList) {
+                t.invoke(function(CyclicRXControllerThread!C thread, ref UniqueArray!ubyte query){
+                    if(thread._isStreaming) {
+                        thread._isStreaming = false;
+                        foreach(thread.StreamerType s; thread.streamers)
+                            s.stopContinuousReceive(query.array);
+                    }
+                }, query.dup);
+            }
+            break;
+
+        case 0b0010011:         // alignSizeの変更
+            enforce(query.length == 0, "Ignore subargs");
+            ulong newAlignSize = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read align size").get;
+            this._alignSize = newAlignSize;
+
+            foreach(size_t i, ThreadType t; this.threadList) {
+                t.invoke(function(CyclicRXControllerThread!C thread, ulong newAlignSize){
+                    thread._alignSize = newAlignSize;
+                    thread.alloc.disposeMultidimensionalArray(thread._receiveBuffers);
+                    thread._receiveBuffers = alloc.makeMultidimensionalArray!C((cast(shared) thread)._numTotalStream, thread._alignSize);
+                }, newAlignSize);
+            }
+            break;
+
         default:
             dbg.writefln("Unsupported msgtype %X", msgbin[0]);
             break;
@@ -220,7 +262,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     }
 
 
-    void processReceiveMessage(size_t numRecvSamples, void delegate(scope const(ubyte)[]) writer)
+    void processReceiveMessage(size_t numRecvSamples, UniqueArray!ubyte query, void delegate(scope const(ubyte)[]) writer)
     {
         auto buffer = UniqueArray!(C, 2)(this._numTotalStreamAllThread, numRecvSamples);
         auto doneEvent = UniqueArray!(shared(NotifiedLazy!bool)*)(this.threadList.length);
@@ -229,11 +271,11 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
         size_t idx;
         foreach(size_t i, ThreadType t; this.threadList) {
-            t.invoke(function(CyclicRXControllerThread!C thread, shared(C[][]) buf, shared(NotifiedLazy!bool)* pdone){
+            t.invoke(function(CyclicRXControllerThread!C thread, shared(C[][]) buf, shared(NotifiedLazy!bool)* pdone, ref UniqueArray!ubyte query){
                 if(!thread._isStreaming) {
                     thread._isStreaming = true;
                     foreach(thread.StreamerType s; thread.streamers)
-                        s.startContinuousReceive(null);
+                        s.startContinuousReceive(query.array);
                 }
 
                 assert(!thread._request.hasRequest);
@@ -241,7 +283,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
                 thread._request.pdone = pdone;
                 thread._request.buffer = cast(shared(C)[][])buf;
                 thread._request.hasRequest = true;
-            }, cast(shared(C[][])) buffer.array[idx .. idx + t._numTotalStream], doneEvent.array[i]);
+            }, cast(shared(C[][])) buffer.array[idx .. idx + t._numTotalStream], doneEvent.array[i], move(query));
 
             idx += t._numTotalStream;
         }

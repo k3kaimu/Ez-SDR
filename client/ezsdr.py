@@ -63,6 +63,13 @@ class EzSDRClient:
         return self.sendMsg(target, msg)
 
 
+def onTime(t):
+    nsec = int(t * 1000000000)
+    tag = 0x16C002AF
+    msg = sigdatafmt.valueToBytes(nsec, np.uint64)
+    return sigdatafmt.valueToBytes(len(msg), np.uint64) + sigdatafmt.valueToBytes(tag, np.uint32) + msg
+
+
 class CyclicTransmitter:
     def __init__(self, client, target):
         self.client = client
@@ -79,17 +86,17 @@ class CyclicTransmitter:
         
         self.sendMsgWQ(msg, qs)
     
-    def startTransmit(self, qs=b''):
+    def startTransmitLoop(self, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
         self.sendMsgWQ(msg, qs)
 
-    def stopTransmit(self, qs=b''):
+    def stopTransmitLoop(self, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
         self.sendMsgWQ(msg, qs)
     
     def transmit(self, signals, qs1=b'', qs2=b''):
         self.setTransmitSignal(signals, qs1)
-        self.startTransmit(qs2)
+        self.startTransmitLoop(qs2)
 
 
 class CyclicReceiver:
@@ -99,6 +106,14 @@ class CyclicReceiver:
 
     def sendMsgWQ(self, msg, qs):
         self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
+    
+    def startReceiveLoop(self, qs=b''):
+        msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
+        self.sendMsgWQ(msg, qs)
+
+    def stopReceiveLoop(self, qs=b''):
+        msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
+        self.sendMsgWQ(msg, qs)
     
     def receive(self, size, qs=b''):
         msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
@@ -111,6 +126,11 @@ class CyclicReceiver:
             nsamples = sigdatafmt.readInt64FromSock(self.client.sock)
             ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples))
         return ret
+
+    def changeAlignSize(self, value):
+        msg = sigdatafmt.valueToBytes(0b0010011, np.uint8)
+        msg += sigdatafmt.valueToBytes(value, np.uint64)
+        self.sendMsgWQ(msg, b'')
 
 
 class SimpleClient:

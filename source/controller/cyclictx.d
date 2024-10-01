@@ -231,6 +231,7 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
                     }
                 }, query.dup);
             break;
+
         default:
             dbg.writefln("Unsupported msgtype %s", msgtype);
         }
