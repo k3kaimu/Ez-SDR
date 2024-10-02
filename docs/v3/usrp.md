@@ -57,8 +57,8 @@ USRPを制御する最も一般的な方法は，`MultiUSRP`デバイスイン�
 
 各フィールドの意味は次の通りです．
 
-* `"type": "..."`：このデバイスインターフェイスが`MultiUSRP`であることを表します．
-* `"mode": "..."`：送信と受信の両方を扱うことを表します．もし，送信のみの場合は`"mode": "TX"`とし，受信のみの場合は`"mode": "RX"`としてください．
+* `"type": "MultiUSRP"`：このデバイスインターフェイスが`MultiUSRP`であることを表します．
+* `"mode": "..."`：このデバイスインターフェイスが送受信両方可能か，送信のみ可能か，受信のみ可能かを設定します．上記設定における`"TRX"`とは送信と受信の両方を扱うことを表します．もし，送信のみの場合は`"mode": "TX"`とし，受信のみの場合は`"mode": "RX"`としてください．
 * `"args": "..."`：今回は2台のUSRPを制御し，`send_frame_size=9000`というパラメータも指定しています．これらの記述方法は`uhd::usrp::multi_usrp::make`に従いますので，詳細は[https://files.ettus.com/manual/page_multiple.html#multiple_setup](https://files.ettus.com/manual/page_multiple.html#multiple_setup)や[https://files.ettus.com/manual/page_configuration.html#config_devaddr](https://files.ettus.com/manual/page_configuration.html#config_devaddr)を参照してください．
 * `"timeref": [...]`：PPS信号をUSRPの内部`"internal"`から取得するのか，外部`"external"`から取得するのか指定します．今回は2台のUSRPがあるので，それぞれで指定しています．この設定項目は省略可能です．
 * `"clockref": [...]`：10MHzの参照信号をUSRPの内部`"internal"`から取得するのか，外部`"external"`から取得するのか指定します．今回は2台のUSRPがあるので，それぞれで指定しています．この設定項目は省略可能です．
