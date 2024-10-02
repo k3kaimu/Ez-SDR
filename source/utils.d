@@ -314,6 +314,13 @@ struct UniqueArray(E, size_t dim = 1)
     {
         return this.moveAt(0);
     }
+
+
+    void opOpAssign(string op : "~")(UniqueArray!(E, dim-1) value)
+    {
+        this.resize(this.length + 1);
+        this[this.length - 1] = move(value);
+    }
   }
   else
   {
@@ -346,6 +353,13 @@ struct UniqueArray(E, size_t dim = 1)
     in(i < _array.length)
     {
         return move(this.array[i]);
+    }
+
+
+    void opOpAssign(string op : "~")(E value)
+    {
+        this.resize(this.length + 1);
+        this[this.length - 1] = move(value);
     }
   }
 
@@ -581,6 +595,15 @@ unittest
         assert(int2d.array[i][0] == (i + 2));
         assert(int2d.array[i][1] == (i + 2) * 2);
     }
+
+    int2d ~= move(mv1);
+    assert(int2d.length == 3);
+    foreach(i; 0 .. 2) {
+        assert(int2d.array[i][0] == (i + 2));
+        assert(int2d.array[i][1] == (i + 2) * 2);
+    }
+    assert(int2d.array[2][0] == 1);
+    assert(int2d.array[2][1] == 2);
 }
 
 
