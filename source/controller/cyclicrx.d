@@ -377,11 +377,13 @@ unittest
         // ループ受信の開始
         immutable(ubyte)[] responseBinary;
         ulong[1] numRecv = [73];
-        ctrl.processMessage([cast(ubyte)0b00010000] ~ cast(ubyte[])numRecv[], (const(ubyte)[] buf){
+        ubyte[8] subargsLengthBinary = [0, 0, 0, 0, 0, 0, 0, 0];
+        ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010000] ~ cast(ubyte[])numRecv[], (const(ubyte)[] buf){
             responseBinary ~= buf;
         });
 
         auto reader = BinaryReader(responseBinary);
+        assert(reader.read!ulong == ctrl._numTotalStreamAllThread);
         foreach(i; 0 .. ctrl._numTotalStreamAllThread) {
             assert(reader.read!ulong == 73);
             auto recv = reader.readArray!C(73);

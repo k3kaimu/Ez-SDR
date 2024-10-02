@@ -292,20 +292,21 @@ unittest
 
     C[][] txsignals = [[C(0, 0)], [C(1, 1)], [C(2, 2)], [C(3, 3)], [C(4, 4)], [C(5, 5)]];
     
+    ubyte[8] subargsLengthBinary = [0, 0, 0, 0, 0, 0, 0, 0];
     // ubyte[] txmsg = [cast(ubyte)0b0010000] ~ cast(ubyte[])txsignals;
-    ubyte[] txmsg = [cast(ubyte)0b0010000];
+    ubyte[] txmsg = subargsLengthBinary ~ [cast(ubyte)0b0010000];
     foreach(e; txsignals) {
         size_t[] len = [e.length];
         txmsg ~= cast(ubyte[])len;
         txmsg ~= cast(ubyte[])e;
     }
-    assert(txmsg.length == 1 + (8 + 8) * 6);
+    assert(txmsg.length == 8 + 1 + (8 + 8) * 6);
     
     // 信号の設定
     ctrl.processMessage(txmsg, (scope const(ubyte)[] buf){});
 
     // ループ送信の開始
-    ctrl.processMessage([cast(ubyte)0b00010001], (scope const(ubyte)[] buf){});
+    ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010001], (scope const(ubyte)[] buf){});
     Thread.sleep(10.msecs);
 
     size_t cnt;
@@ -334,17 +335,17 @@ unittest
     foreach(d; devs) assert(d.state == "start");
 
     // ループ送信している状態でループ送信開始命令を送っても無視
-    ctrl.processMessage([cast(ubyte)0b00010001], (scope const(ubyte)[] buf){});
+    ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010001], (scope const(ubyte)[] buf){});
     Thread.sleep(10.msecs);
     foreach(d; devs) assert(d.state == "start");
 
     // ループ送信の終了
-    ctrl.processMessage([cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
+    ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
     Thread.sleep(10.msecs);
     foreach(d; devs) assert(d.state == "stop");
     foreach(d; devs) assert(d.cntPerf > 0);
 
     // ループ送信が止まっている状態でループ送信停止命令を送っても無視
-    ctrl.processMessage([cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
+    ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
     Thread.sleep(10.msecs);
 }
