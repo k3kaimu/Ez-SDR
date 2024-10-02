@@ -310,18 +310,20 @@ struct UniqueArray(E, size_t dim = 1)
     }
 
 
-    UniqueArray!(E, dim) moveSlice(size_t i, size_t j)
-    in(i < j) in(i <= _array.length) in(j <= _array.length)
+    auto moveFront()
     {
-        auto ret = UniqueArray!(E, dim)(j - i);
-        foreach(k; i .. j) {
-            ret[k - i] = this.moveAt(k);
-        }
-        return ret;
+        return this.moveAt(0);
     }
   }
   else
   {
+    void opIndexAssign(E value, size_t i)
+    in(i < _array.length)
+    {
+        move(value, this.array[i]);
+    }
+
+
     ref inout(E) opIndex(size_t i) inout
     {
         return (cast(inout(ArrayType))this._array)[i];
@@ -332,7 +334,31 @@ struct UniqueArray(E, size_t dim = 1)
     {
         return (cast(typeof(return)[]) this._array)[i];
     }
+
+
+    auto moveFront()
+    {
+        return move(this.array[0]);
+    }
+
+
+    E moveAt(size_t i)
+    in(i < _array.length)
+    {
+        return move(this.array[i]);
+    }
   }
+
+
+    UniqueArray!(E, dim) moveSlice(size_t i, size_t j)
+    in(i < j) in(i <= _array.length) in(j <= _array.length)
+    {
+        auto ret = UniqueArray!(E, dim)(j - i);
+        foreach(k; i .. j) {
+            ret[k - i] = this.moveAt(k);
+        }
+        return ret;
+    }
 
 
     inout(ArrayType) array() inout { return cast(inout(ArrayType))_array; }
@@ -343,6 +369,18 @@ struct UniqueArray(E, size_t dim = 1)
     size_t length() const { return _array.length; }
     size_t length() const shared { return _array.length; }
     size_t length() immutable { return _array.length; }
+
+
+    void popFront()
+    in(this.length != 0)
+    {
+        auto remain = this.moveSlice(1, this.length);
+        auto remarr = cast(ArrayType)remain._array;
+        auto orgarr = cast(ArrayType)this._array;
+        
+        remain._array = cast(typeof(this._array)) orgarr;
+        this._array = cast(typeof(this._array)) remarr;
+    }
 
 
     void resize(size_t newlen)
@@ -519,6 +557,30 @@ unittest
     assert(mv2.array[0].length == 2);
     assert(mv2.array[0][0] == 2 && mv2.array[0][1] == 4);
     assert(mv2.array[1][0] == 3 && mv2.array[1][1] == 6);
+}
+
+unittest
+{
+    auto int2d = UniqueArray!(int, 2)(3, 2);
+    assert(int2d.array.length == 3);
+    assert(int2d.array[0].length == 2);
+    foreach(i; 0 .. 3) {
+        int2d.array[i][0] = (i + 1);
+        int2d.array[i][1] = (i + 1) * 2;
+    }
+
+    auto mv1 = int2d.moveFront();
+    assert(int2d.array[0].ptr == null);
+    assert(int2d.array[0].length == 0);
+    assert(mv1.array.length == 2);
+    assert(mv1.array[0] == 1 && mv1.array[1] == 2);
+
+    int2d.popFront();
+    assert(int2d.array.length == 2);
+    foreach(i; 0 .. 2) {
+        assert(int2d.array[i][0] == (i + 2));
+        assert(int2d.array[i][1] == (i + 2) * 2);
+    }
 }
 
 
