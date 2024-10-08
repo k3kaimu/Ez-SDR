@@ -39,6 +39,150 @@ class RestartWithConfigData : Exception
 }
 
 
+struct MessageBuilder
+{
+    enum ASYNC_ID = 0xFFFF_FFFF_FFFF_FFFF;
+
+    UniqueArray!char _src;
+    UniqueArray!char _dst;
+    ulong id;
+    UniqueArray!ubyte _payload;
+
+    this(scope string src, scope string dst, ulong id, scope const(ubyte)[] msg = null)
+    {
+        _src = UniqueArray!char(src);
+        _dst = UniqueArray!char(dst);
+        this.id = id;
+
+        if(msg !is null)
+            _payload = UniqueArray!ubyte(msg);
+    }
+
+    const(char)[] src() const { return _src.array; }
+    const(char)[] dst() const { return _dst.array; }
+    const(ubyte)[] payload() const { return _payload.array; }
+
+
+    void writeTo(scope void delegate(scope const(ubyte)[]) writer)
+    {
+        rawWriteValue!ulong(writer, this.src.length);
+        writer((cast(ubyte*)this.src.ptr)[0 .. this.src.length]);
+
+        rawWriteValue!ulong(writer, this.dst.length);
+        writer((cast(ubyte*)this.dst.ptr)[0 .. this.dst.length]);
+
+        rawWriteValue!ulong(writer, this.id);
+
+        rawWriteValue!ulong(writer, this.payload.length);
+        rawWriteValue!ulong(writer, this.payload);
+    }
+
+
+    static
+    MessageBuilder readFrom(scope void delegate(scope ubyte[]) reader)
+    {
+        MessageBuilder ret;
+        size_t srclen = rawReadValue!ulong(reader);
+        ret._src = UniqueArray!char(srclen);
+        reader(ret._src.array);
+
+        size_t dstlen = rawReadValue!ulong(reader);
+        ret._dst = UniqueArray!char(dstlen);
+        reader(ret._dst.array);
+
+        ret.id = rawReadValue!ulong();
+
+        size_t msglen = rawReadValue!ulong(reader);
+        ret._payload = UniqueArray!ubyte(msglen);
+        reader(ret._payload.array);
+
+        return ret;
+    }
+    
+
+    void put(scope in ubyte[] msg)
+    {
+        _payload.resize(_payload.length + msg.length);
+        _payload.array[$ - msg.length .. $] = msg[];
+    }
+
+    
+    MessageBuilder makeReply(string src = null, string dst = null) const
+    {
+        MessageBuilder ret;
+        ret._src = src is null ? this._dst.dup : UniqueArray!char(src);
+        ret._dst = dst is null ? this._src.dup : UniqueArray!char(dst);
+        ret.id = this.id;
+        return ret;
+    }
+
+
+    static
+    MessageBuilder makeAsyncMessage(string src, string dst)
+    {
+        MessageBuilder ret;
+        ret.src = UniqueArray!char(src);
+        ret.dst = UniqueArray!char(dst);
+        ret.id = ASYNC_ID;
+        return ret;
+    }
+}
+
+unittest
+{
+    MessageBuilder builder = MessageBuilder("SRC", "DST", 3);
+    assert(builder.src == "SRC");
+    assert(builder.dst == "DST");
+    assert(builder.id == 3);
+    assert(builder.payload.length == 0);
+
+    auto reply1 = builder.makeReply();
+    assert(reply1.src == "DST");
+    assert(reply1.dst == "SRC");
+    assert(reply1.id == 3);
+
+    auto reply2 = builder.makeReply("newSrc");
+    assert(reply2.src == "newSrc");
+    assert(reply2.dst == "SRC");
+    assert(reply2.id == 3);
+
+    auto reply3 = builder.makeReply(null, "newDst");
+    assert(reply3.src == "DST");
+    assert(reply3.dst == "newDst");
+    assert(reply3.id == 3);
+}
+
+unittest
+{
+    MessageBuilder builder = MessageBuilder("src", "dst", 3);
+    builder.put(cast(ubyte[])[1, 2, 3]);
+    assert(builder.payload == cast(ubyte[])[1, 2, 3]);
+
+    builder.put(cast(ubyte[])[4, 5, 6]);
+    assert(builder.payload == cast(ubyte[])[1, 2, 3, 4, 5, 6]);
+
+    ubyte[] msg;
+    builder.writeTo((scope const(ubyte)[] arr){ msg ~= arr; });
+
+    import utils;
+    BinaryReader reader = BinaryReader(msg);
+    assert(reader.tryDeserializeArray!char.enforceIsNotNull.get == "src");
+    assert(reader.tryDeserializeArray!char.enforceIsNotNull.get == "dst");
+    assert(reader.tryDeserialize!ulong.enforceIsNotNull.get == "src");
+    assert(reader.tryDeserializeArray!ubyte.enforceIsNotNull.get == cast(ubyte[])[1, 2, 3, 4, 5, 6]);
+
+    MessageBuilder parsed = MessageBuilder.readFrom((scope ubyte[] arr){
+        assert(arr.length <= msg.length);
+        arr[0 .. $] = msg[0 .. arr.length];
+        msg = msg[arr.length .. $];
+    });
+    assert(parsed.src == "src");
+    assert(parsed.dst == "dst");
+    assert(parsed.id == 3);
+    assert(parsed.payload == cast(ubyte[])[1, 2, 3, 4, 5, 6]);
+}
+
+
 /**
 TCPを監視して，イベントの処理をします
 */
@@ -251,4 +395,20 @@ void binaryDump(Socket sock, ref shared bool stop_signal_called)
 
         stdout.flush();
     }
+}
+
+
+private
+void rawWriteValue(T)(scope void delegate(scope const(ubyte)[]) writer, T value)
+{
+    writer((cast(ubyte*)&value)[0 .. T.sizeof]);
+}
+
+
+private
+T rawReadValue(T)(scope void delegate(scope ubyte[]) reader)
+{
+    T dst;
+    reader((cast(ubyte*)&dst)[0 .. T.sizeof]);
+    return dst;
 }
