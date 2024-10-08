@@ -18,7 +18,7 @@ def calc_delay(tx, rx):
     rxy = np.abs(np.fft.ifft(np.conj(tx_freq) * rx_freq))
     return np.argmax(rxy)
 
-# gdb --args ./multiusrp --tx-args="addr0=192.168.10.211" --rx-args="addr0=192.168.10.213" --tx-rate=1e6 --rx-rate=1e6 --tx-freq=2.45e9 --rx-freq=2.45e9 --tx-gain=10 --rx-gain=30 --clockref=external --timeref=external --timesync=true --tx-channels="0" --rx-channels="0" --port=8888
+
 with ezsdr.SimpleClient(IPADDR, PORT, 1, 1) as usrp:
     signals = [
         np.repeat(np.random.choice(qpsk_constellation, nSamples//4), 4),
