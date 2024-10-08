@@ -265,22 +265,28 @@ DeviceHandler setupDevice(char const* configJSON)
     // Lock mboard clocks
     if(config.contains("clockref")) {
         auto clockrefs = config["clockref"].get<std::vector<std::string>>();
-        for(int i = 0; const auto& s: clockrefs)
-            usrp->set_clock_source(s, i);
+        for(int i = 0; const auto& s: clockrefs){
+            if(s.size() != 0)
+                usrp->set_clock_source(s, i);
+        }
     }
 
     // Set time source
     if(config.contains("timeref")) {
         auto timerefs = config["timeref"].get<std::vector<std::string>>();
-        for(int i = 0; const auto& s: timerefs)
-            usrp->set_time_source(s, i);
+        for(int i = 0; const auto& s: timerefs){
+            if(s.size() != 0)
+                usrp->set_time_source(s, i);
+        }
     }
 
     if(dev->mode == Mode::TX || dev->mode == Mode::TRX) {
         if(config.contains("tx-subdev")) {
             auto subdevs = config["tx-subdev"].get<std::vector<std::string>>();
-            for(int i = 0; const auto& s: subdevs)
-                usrp->set_tx_subdev_spec(s, i);
+            for(int i = 0; const auto& s: subdevs){
+                if(s.size() != 0)
+                    usrp->set_tx_subdev_spec(s, i);
+            }
         }
 
         if(!config.contains("tx-channels"))
@@ -294,8 +300,10 @@ DeviceHandler setupDevice(char const* configJSON)
     if(dev->mode == Mode::RX || dev->mode == Mode::TRX) {
         if(config.contains("rx-subdev")) {
             auto subdevs = config["rx-subdev"].get<std::vector<std::string>>();
-            for(int i = 0; const auto& s: subdevs)
-                usrp->set_rx_subdev_spec(s, i);
+            for(int i = 0; const auto& s: subdevs){
+                if(s.size() != 0)
+                    usrp->set_rx_subdev_spec(s, i);
+            }
         }
 
         if(!config.contains("rx-channels"))
