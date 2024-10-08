@@ -12,7 +12,7 @@
             "tx-channels": [
                 {
                     "for-channels": [0],
-                    "rate": 200e6,
+                    "rate": 100e6,
                     "freq": 2.4e9,
                     "gain": 30,
                     "ant": "TX/RX"
@@ -21,7 +21,7 @@
             "rx-channels": [
                 {
                     "for-channels": [0],
-                    "rate": 200e6,
+                    "rate": 100e6,
                     "freq": 2.4e9,
                     "gain": 30,
                     "ant": "RX2"

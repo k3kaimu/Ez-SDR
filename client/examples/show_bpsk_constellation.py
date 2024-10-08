@@ -1,12 +1,12 @@
 import sys
 sys.path.append("..")
 
-import multiusrp
+import ezsdr
 import numpy as np
 import time
 import matplotlib.pyplot as plt
 from matplotlib import animation
-import scipy
+from scipy import signal
 
 # サーバーIPとポート番号
 IPADDR = "127.0.0.1";
@@ -31,7 +31,7 @@ def make_rrc_filter(Ntaps, Nos, beta):
     return hs
 
 
-with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
+with ezsdr.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
 
     signals = [
         np.repeat(np.random.choice(bpsk_constellation, nSamples//8), 8) * 0.1,
@@ -41,7 +41,7 @@ with multiusrp.SimpleClient(IPADDR, PORT, nTXUSRP, nRXUSRP) as usrp:
     print(rrcImpResp)
 
     signals = [
-        scipy.signal.lfilter(rrcImpResp, 1, signals[0])
+        signal.lfilter(rrcImpResp, 1, signals[0])
     ]
 
     usrp.changeRxAlignSize(nSamples)

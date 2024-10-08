@@ -81,12 +81,6 @@ class MessageDispatcher
     }
 
 
-    void dispatchToAllDevs(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
-    {
-        writefln("[WARNIGN] tag '@alldevs' is not implemented yet.", tag);
-    }
-
-
     void dispatchOtherRegex(scope const(char)[] tag, scope const(ubyte)[] msgbuf, scope void delegate(scope const(ubyte)[]) writer)
     {
         if(auto c = tag in ctrls)
@@ -171,7 +165,8 @@ class MessageDispatcher
         } else if(target == "@server") {
             this.dispatchToServer(target, msgbuf, writer);
         } else if(target == "@alldevs") {
-            this.dispatchToAllDevs(target, msgbuf, writer);
+            foreach(string key, LocalRef!(shared(IDevice)) d; devs)
+                this.dispatchToDevice(d, msgbuf, writer);
         } else if(target[0] == '/') {
             this.dispatchOtherRegex(target[1 .. $], msgbuf, writer);
         } else if(auto pdev = target in devs) {
