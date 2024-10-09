@@ -74,7 +74,7 @@ struct MessageBuilder
         rawWriteValue!ulong(writer, this.id);
 
         rawWriteValue!ulong(writer, this.payload.length);
-        rawWriteValue!ulong(writer, this.payload);
+        writer(this.payload);
     }
 
 
@@ -84,13 +84,13 @@ struct MessageBuilder
         MessageBuilder ret;
         size_t srclen = rawReadValue!ulong(reader);
         ret._src = UniqueArray!char(srclen);
-        reader(ret._src.array);
+        reader(cast(ubyte[]) ret._src.array);
 
         size_t dstlen = rawReadValue!ulong(reader);
         ret._dst = UniqueArray!char(dstlen);
-        reader(ret._dst.array);
+        reader(cast(ubyte[]) ret._dst.array);
 
-        ret.id = rawReadValue!ulong();
+        ret.id = rawReadValue!ulong(reader);
 
         size_t msglen = rawReadValue!ulong(reader);
         ret._payload = UniqueArray!ubyte(msglen);
@@ -100,7 +100,7 @@ struct MessageBuilder
     }
     
 
-    void put(scope in ubyte[] msg)
+    void put(scope const(ubyte)[] msg)
     {
         _payload.resize(_payload.length + msg.length);
         _payload.array[$ - msg.length .. $] = msg[];
@@ -118,13 +118,9 @@ struct MessageBuilder
 
 
     static
-    MessageBuilder makeAsyncMessage(string src, string dst)
+    MessageBuilder makeAsyncMessage(scope string src, scope string dst)
     {
-        MessageBuilder ret;
-        ret.src = UniqueArray!char(src);
-        ret.dst = UniqueArray!char(dst);
-        ret.id = ASYNC_ID;
-        return ret;
+        return MessageBuilder(src, dst, ASYNC_ID, null);
     }
 }
 
@@ -168,7 +164,7 @@ unittest
     BinaryReader reader = BinaryReader(msg);
     assert(reader.tryDeserializeArray!char.enforceIsNotNull.get == "src");
     assert(reader.tryDeserializeArray!char.enforceIsNotNull.get == "dst");
-    assert(reader.tryDeserialize!ulong.enforceIsNotNull.get == "src");
+    assert(reader.tryDeserialize!ulong.enforceIsNotNull.get == 3);
     assert(reader.tryDeserializeArray!ubyte.enforceIsNotNull.get == cast(ubyte[])[1, 2, 3, 4, 5, 6]);
 
     MessageBuilder parsed = MessageBuilder.readFrom((scope ubyte[] arr){
