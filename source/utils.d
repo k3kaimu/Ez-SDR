@@ -265,6 +265,16 @@ struct UniqueArray(E, size_t dim = 1)
     }
 
 
+  static if(dim == 1 && is(const(E) : E))
+  {
+    this(scope const(E)[] arr)
+    {
+        _array = cast(shared) alloc.makeArray!(ForeachType)(arr.length);
+        _array[0 .. $] = arr[0 .. $];
+    }
+  }
+
+
   static if(dim > 1)
   {
     this(size_t[dim] ns...)
@@ -399,6 +409,22 @@ struct UniqueArray(E, size_t dim = 1)
 
     void resize(size_t newlen)
     {
+        if(newlen == this._array.length)
+            return;
+
+        if(newlen == 0) {
+            if(_array.ptr is null) return;
+            ArrayType arr = cast(ArrayType)_array;
+            _disposeAll!(alloc, dim)(arr);
+            _array = null;
+            return;
+        }
+
+        if(this._array.length == 0 && this._array is null) {
+            _array = cast(shared) alloc.makeArray!(ForeachType)(newlen);
+            return;
+        }
+
         static if(dim > 1) if(newlen < _array.length) {
             foreach(i; newlen .. _array.length) {
                 auto ei = cast(ForeachType)_array[i];
@@ -509,6 +535,24 @@ unittest
     arr.resize(4);
     assert(arr.length == 4);
     assert(arr[0] == 1 && arr[1] == 2 && arr[2] == 0 && arr[3] == 0);
+    
+    arr.resize(2);
+    assert(arr.length == 2);
+    assert(arr[0] == 1 && arr[1] == 2);
+}
+
+unittest
+{
+    UniqueArray!int arr;
+    arr.resize(3);
+    assert(arr.length == 3);
+
+    UniqueArray!int arr2 = UniqueArray!int(2);
+    assert(arr2.length == 2);
+    arr2.resize(0);
+    assert(arr2.length == 0);
+    arr2.resize(3);
+    assert(arr2.length == 3);
 }
 
 unittest
