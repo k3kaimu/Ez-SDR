@@ -1,13 +1,5 @@
 module tcp_iface;
 
-// import core.sys.posix.netinet.in_;
-// import core.sys.posix.sys.ioctl;
-// import core.sys.posix.unistd;
-// import core.sys.posix.sys.time;
-
-// import core.stdc.stdlib;
-// import core.stdc.stdio;
-// import core.stdc.string;
 import core.thread;
 import core.atomic;
 
