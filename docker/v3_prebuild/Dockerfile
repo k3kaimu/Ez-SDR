@@ -39,7 +39,7 @@ RUN cp -r --parents \
 
 FROM ubuntu:24.04
 COPY --from=0 /bundle /bundle
-COPY --from=0 /opt/bladeRF /opt/bladeRF
+# COPY --from=0 /opt/bladeRF /opt/bladeRF
 ENV LD_LIBRARY_PATH=/bundle/lib/x86_64-linux-gnu:/bundle/usr/lib/x86_64-linux-gnu:/bundle/usr/local/lib
 WORKDIR /work
-CMD ["/bundle/usr/bin/ezsdr"]
+ENTRYPOINT ["/bundle/usr/bin/ezsdr"]
