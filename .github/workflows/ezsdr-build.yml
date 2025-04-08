@@ -31,7 +31,7 @@ jobs:
 
       - name: Build devenv
         run: |
-          docker build -f ./docker/devenv_uhd4.7/Dockerfile -t ezsdr_dev:latest .
+          docker buildx build -f ./docker/devenv_uhd4.7/Dockerfile -t ezsdr_dev:latest . --load
 
       # Dockerイメージのビルドとプッシュ
       - name: Build and Push Docker Image
