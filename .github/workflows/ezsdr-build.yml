@@ -29,9 +29,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build devenv
-        run: |
-          docker buildx build -f ./docker/devenv_uhd4.7/Dockerfile -t ezsdr_dev:latest . --load
+      - name: Build base image and load to local Docker
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./docker/devenv_uhd4.7/Dockerfile
+          outputs: type=docker
+          tags: ezsdr_dev:latest
 
       # Dockerイメージのビルドとプッシュ
       - name: Build and Push Docker Image
