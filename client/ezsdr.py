@@ -5,6 +5,7 @@ from collections import namedtuple
 import sigdatafmt
 import matplotlib.pyplot as plt
 import multiprocessing as mp
+import time
 
 
 
@@ -141,6 +142,25 @@ class CyclicReceiver:
         self.sendMsgWQ(msg, b'')
 
 
+def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.1, sleepTime=1):
+    for e in txlist:
+        e.stopTransmitLoop()
+    
+    for e in rxlist:
+        e.stopReceiveLoop()
+
+    for e in devs:
+        client.setParamToDevice(e, "set_time_unknown_pps_to_zero", "[]")
+
+    for e in txlist:
+        e.startTransmitLoop(onTime(loopStartTime))
+
+    for e in rxlist:
+        e.startReceiveLoop(onTime(loopStartTime))
+
+    time.sleep(sleepTime)
+
+
 class SimpleClient:
     def __init__(self, ipaddr, port, nTXUSRPs, nRXUSRPs):
         if type(nTXUSRPs) is int:
@@ -202,10 +222,12 @@ class SimpleClient:
         self.client.setParamToAllDevice("set_time_unknown_pps_to_zero", "[]")
 
         for e in self.txs:
-            e.startTransmitLoop(onTime(1))
+            e.startTransmitLoop(onTime(0.1))
 
         for e in self.rxs:
-            e.startReceiveLoop(onTime(1))
+            e.startReceiveLoop(onTime(0.1))
+
+        time.sleep(1)
 
 
     # def rxPowerThr(self, p, m):
