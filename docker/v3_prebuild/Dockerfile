@@ -1,4 +1,4 @@
-FROM ezsdr_dev:3.0.0
+FROM ezsdr_dev:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
