@@ -24,7 +24,7 @@ with ezsdr.SimpleClient(IPADDR, PORT, 1, 1) as usrp:
         np.repeat(np.random.choice(qpsk_constellation, nSamples//4), 4),
     ]
 
-    usrp.changeRxAlignSize(1000)
+    usrp.changeRxAlignSize(nSamples)
     usrp.transmit(signals)
 
     print("sync, wait and receive")
