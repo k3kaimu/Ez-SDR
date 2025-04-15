@@ -7,7 +7,7 @@
 
 ```sh
 $ docker pull ghcr.io/k3kaimu/ezsdr:latest
-$ cat setting.json | docker run -it --rm --init --net=host ghcr.io/k3kaimu/ezsdr:latest
+$ cat setting.json | docker run -i --rm --init --net=host ghcr.io/k3kaimu/ezsdr:latest
 ```
 
 ## Ez-SDRのアーキテクチャ
