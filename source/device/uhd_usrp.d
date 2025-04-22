@@ -140,6 +140,7 @@ class UHDMultiUSRP : IDevice
         {
             assert(q.length == 0, "additional arguments is not supported");
             const(C)*[128] _tmp;
+            assert(signals.length <= _tmp.length);
             foreach(i; 0 .. signals.length)
                 _tmp[i] = signals[i].ptr;
 
@@ -193,6 +194,7 @@ class UHDMultiUSRP : IDevice
         {
             assert(optArgs.length == 0, "additional arguments is not supported");
             const(C)*[128] _tmp;
+            assert(buffers.length <= _tmp.length);
             foreach(i; 0 .. buffers.length)
                 _tmp[i] = buffers[i].ptr;
 
