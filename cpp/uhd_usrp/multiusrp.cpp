@@ -5,6 +5,7 @@
 #include <format>
 #include <type_traits>
 #include "addinfo.hpp"
+#include "asynctaskpool.hpp"
 
 
 namespace uhd_usrp_multiusrp
@@ -59,6 +60,7 @@ struct Device
     nlohmann::json config;
     uhd::usrp::multi_usrp::sptr usrp;
     Mode mode;
+    AsyncTaskPool asyncTaskPool;
 
     // std::set<size_t> tx_channels;
     // std::set<size_t> rx_channels;
@@ -394,7 +396,10 @@ void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char con
     nlohmann::json value = nlohmann::json::parse(jsonstr);
 
     if(key == "set_time_unknown_pps_to_zero") {
-        dev->usrp->set_time_unknown_pps(uhd::time_spec_t(double(0)));
+        dev->asyncTaskPool.removeDone();
+        dev->asyncTaskPool.enqueue([dev](){
+            dev->usrp->set_time_unknown_pps(uhd::time_spec_t(double(0)));
+        });
     }
 
 
