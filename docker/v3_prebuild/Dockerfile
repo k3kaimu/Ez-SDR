@@ -1,5 +1,7 @@
 FROM ghcr.io/k3kaimu/uhd:v4.7
 
+WORKDIR /work
+
 # install bladeRF
 RUN <<EOF
     cd ~
@@ -49,14 +51,15 @@ RUN <<EOF
     echo 'source /dlang/ldc-1.39.0/activate' >> /root/.bashrc
 EOF
 
+# copy all files from the current directory to the container /work directory
+COPY . .
+
 RUN <<EOF
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
     source /dlang/ldc-1.39.0/activate
-    cd ~
-    git clone https://github.com/k3kaimu/Ez-SDR.git  ./ezsdr
-    cd ezsdr
+    cd /work
     dub build --build=release
-    cp ./ezsdr /usr/bin
+    cp /work/ezsdr /usr/bin
 EOF
 
 RUN mkdir /bundle
