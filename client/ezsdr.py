@@ -221,13 +221,14 @@ class SimpleClient:
 
         self.client.setParamToAllDevice("set_time_unknown_pps_to_zero", "[]")
 
+        time.sleep(3)
         for e in self.txs:
-            e.startTransmitLoop(onTime(0.1))
+            e.startTransmitLoop(onTime(3.0))
 
         for e in self.rxs:
-            e.startReceiveLoop(onTime(0.1))
+            e.startReceiveLoop(onTime(3.0))
 
-        time.sleep(1)
+        # time.sleep(1)
 
 
     # def rxPowerThr(self, p, m):
