@@ -9,7 +9,7 @@ import time
 IPADDR = "127.0.0.1";
 PORT = 8888;
 
-nSamples = 2**10
+nSamples = 2**15
 qpsk_constellation = np.array([1+1j, -1+1j, -1-1j, 1-1j]) / np.sqrt(2)
 
 def calc_delay(tx, rx):

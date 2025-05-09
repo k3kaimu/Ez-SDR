@@ -46,6 +46,13 @@ def writeIntToSock(sock, value, dtype):
     data = np.array([value], dtype=dtype).tobytes()
     sock.sendall(data)
 
+# ソケットから文字列を読む
+def readStringFromSock(sock, size):
+    data = bytearray()
+    while len(data) < size:
+        data += sock.recv(min(4096, size - len(data)))
+    return data.decode(encoding="utf-8")
+
 # ソケットに信号を書き込む
 def writeSignalToSock(sock, signal, withHeader = True):
     size = len(signal)

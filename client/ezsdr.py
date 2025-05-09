@@ -66,6 +66,19 @@ class EzSDRClient:
     def setParamToAllDevice(self, key, value):
         self.setParamToDevice("@alldevs", key, value)
 
+    def getParamFromDevice(self, target, key):
+        msg = sigdatafmt.valueToBytes(0b00000001, np.uint8)
+        msg += sigdatafmt.valueToBytes(len(key), np.uint64)
+        msg += key.encode(encoding="utf-8")
+        self.sendMsg(target, msg)
+
+        # Read the response
+        ret = sigdatafmt.readInt64FromSock(self.sock)
+        if ret == 0:
+            return None
+        else:
+            return sigdatafmt.readStringFromSock(self.sock, ret)
+
 
 def onTime(t):
     nsec = int(t * 1000000000)
@@ -220,13 +233,14 @@ class SimpleClient:
             e.stopReceiveLoop()
 
         self.client.setParamToAllDevice("set_time_unknown_pps_to_zero", "[]")
+        time.sleep(1)
+        self.client.getParamFromDevice("USRP0", "wait_set_time_unknown_pps")
 
-        time.sleep(3)
         for e in self.txs:
-            e.startTransmitLoop(onTime(3.0))
+            e.startTransmitLoop(onTime(0.2))
 
         for e in self.rxs:
-            e.startReceiveLoop(onTime(3.0))
+            e.startReceiveLoop(onTime(0.2))
 
         # time.sleep(1)
 

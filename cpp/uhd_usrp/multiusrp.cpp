@@ -4,17 +4,42 @@
 #include <string>
 #include <format>
 #include <type_traits>
+#include <shared_mutex>
 #include "addinfo.hpp"
+#include "../string.hpp"
 #include "../asynctaskpool.hpp"
+#include "../spinlock.hpp"
 
 
 namespace uhd_usrp_multiusrp
 {
 
 
+enum class Mode
+{
+    TX, RX, TRX
+};
+
+
+struct Device
+{
+    nlohmann::json config;
+    uhd::usrp::multi_usrp::sptr usrp;
+    Mode mode;
+    AsyncTaskPool asyncTaskPool;
+    std::shared_mutex timemtx;      // set_time_unknown_pps実行中に他の動作を抑制するためのmutex
+
+    // std::set<size_t> tx_channels;
+    // std::set<size_t> rx_channels;
+
+    // std::vector<TxStreamer*> txstreamers;
+    // std::vector<RxStreamer*> rxstreamers;
+};
+
 
 struct TxStreamer
 {
+    Device* dev;
     uhd::tx_streamer::sptr streamer;
     std::vector<std::complex<float> const*> buffptrs;
     int numChannel;
@@ -27,6 +52,7 @@ struct TxStreamer
 
 struct RxStreamer
 {
+    Device* dev;
     uhd::rx_streamer::sptr streamer;
     std::vector<std::complex<float> const*> buffptrs;
     int numChannel;
@@ -46,27 +72,6 @@ struct TxStreamerHandler
 struct RxStreamerHandler
 {
     RxStreamer* streamer;
-};
-
-
-enum class Mode
-{
-    TX, RX, TRX
-};
-
-
-struct Device
-{
-    nlohmann::json config;
-    uhd::usrp::multi_usrp::sptr usrp;
-    Mode mode;
-    AsyncTaskPool asyncTaskPool;
-
-    // std::set<size_t> tx_channels;
-    // std::set<size_t> rx_channels;
-
-    // std::vector<TxStreamer*> txstreamers;
-    // std::vector<RxStreamer*> rxstreamers;
 };
 
 
@@ -325,6 +330,7 @@ TxStreamerHandler getTxStreamer(DeviceHandler handler, uint index)
     auto dev = handler.dev;
     auto streamer_settings = dev->config["tx-streamers"][index];
     TxStreamer* txstreamer = new TxStreamer;
+    txstreamer->dev = dev;
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
 
@@ -349,6 +355,7 @@ RxStreamerHandler getRxStreamer(DeviceHandler handler, uint index)
     auto dev = handler.dev;
     auto streamer_settings = dev->config["rx-streamers"][index];
     RxStreamer* rxstreamer = new RxStreamer;
+    rxstreamer->dev = dev;
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
 
@@ -396,10 +403,21 @@ void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char con
     nlohmann::json value = nlohmann::json::parse(jsonstr);
 
     if(key == "set_time_unknown_pps_to_zero") {
+        std::cout << "[multiusrp.cpp] set_time_unknown_pps_to_zero" << std::endl;
         dev->asyncTaskPool.removeDone();
         dev->asyncTaskPool.enqueue([dev](){
+            std::cout << "[multiusrp.cpp] start set_time_unknown_pps_to_zero" << std::endl;
+            std::lock_guard<std::shared_mutex> lock(dev->timemtx);
             dev->usrp->set_time_unknown_pps(uhd::time_spec_t(double(0)));
+            std::cout << "[multiusrp.cpp] end set_time_unknown_pps_to_zero" << std::endl;
         });
+    }
+
+    if(key == "wait_set_time_unknown_pps") {
+        std::cout << "[multiusrp.cpp] wait_set_time_unknown_pps" << std::endl;
+        std::shared_lock<std::shared_mutex> lock(dev->timemtx);
+        dev->asyncTaskPool.removeDone();
+        std::cout << "[multiusrp.cpp] end wait_set_time_unknown_pps" << std::endl;
     }
 
 
@@ -456,6 +474,23 @@ void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char con
 }
 
 
+ezsdr::String getParam(DeviceHandler handler, char const* key_, ulong keylen, uint8_t const* info, ulong infolen)
+{
+    Device* dev = handler.dev;
+    std::string_view key(key_, keylen);
+    nlohmann::json value;
+
+    if(key == "wait_set_time_unknown_pps") {
+        std::cout << "[multiusrp.cpp] wait_set_time_unknown_pps" << std::endl;
+        std::shared_lock<std::shared_mutex> lock(dev->timemtx);
+        dev->asyncTaskPool.removeDone();
+        std::cout << "[multiusrp.cpp] end wait_set_time_unknown_pps" << std::endl;
+    }
+
+    return ezsdr::createString(value.dump());
+}
+
+
 void beginBurstTransmitImpl(TxStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
 {
     auto streamer = handler.streamer;
@@ -497,7 +532,13 @@ uint64_t burstTransmitImpl(TxStreamerHandler handler, void const* const* signals
     for(size_t i = 0; i < streamer->buffptrs.size(); ++i)
         streamer->buffptrs[i] = reinterpret_cast<std::complex<float> const*>(signals[i]);
 
-    uint64_t num = streamer->streamer->send(streamer->buffptrs, num_samples, streamer->md, 10.0);
+    uint64_t num;
+    if(streamer->md.has_time_spec) {
+        // std::shared_lock<std::shared_mutex> lock(streamer->dev->timemtx);
+        num = streamer->streamer->send(streamer->buffptrs, num_samples, streamer->md, 10.0);
+    } else {
+        num = streamer->streamer->send(streamer->buffptrs, num_samples, streamer->md, 10.0);
+    }
 
     if(num > 0) {
         streamer->md.has_time_spec = false;
@@ -528,7 +569,12 @@ void startContinuousReceiveImpl(RxStreamerHandler handler, uint8_t const* optArg
         }
     });
 
-    handler.streamer->streamer->issue_stream_cmd(stream_cmd);
+    if(stream_cmd.stream_now) {
+        handler.streamer->streamer->issue_stream_cmd(stream_cmd);
+    } else {
+        // std::shared_lock<std::shared_mutex> lock(handler.streamer->dev->timemtx);
+        handler.streamer->streamer->issue_stream_cmd(stream_cmd);
+    }
 }
 
 
@@ -557,7 +603,6 @@ uint64_t continuousReceiveImpl(RxStreamerHandler handler, void** buffptr, uint64
     uhd::ref_vector<void*> buf(buffptr, handler.streamer->numChannel);
     return handler.streamer->streamer->recv(buf, numSamples, handler.streamer->md, 10.0);
 }
-
 
 
 }

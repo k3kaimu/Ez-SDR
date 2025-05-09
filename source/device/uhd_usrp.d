@@ -6,6 +6,8 @@ import std.json;
 import std.string;
 
 import device;
+import cpp.string;
+import utils : UniqueArray;
 
 
 extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
@@ -31,6 +33,7 @@ extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
     DeviceHandler setupDevice(const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
+    String getParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(ubyte)* info, ulong infolen);
     void beginBurstTransmitImpl(TxStreamerHandler handler, scope const(ubyte)* optArgs, ulong optArgsLength);
     void endBurstTransmitImpl(TxStreamerHandler handler);
     ulong burstTransmitImpl(TxStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
@@ -42,6 +45,8 @@ extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
     RxStreamerHandler getRxStreamer(DeviceHandler, uint index);
     ulong numTxStream(TxStreamerHandler handler);
     ulong numRxStream(RxStreamerHandler handler);
+
+    // void waitDoneSyncPPS(DeviceHandler handler);
 }
 
 
@@ -70,7 +75,13 @@ class UHDMultiUSRP : IDevice
     }
 
 
-    const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) shared { assert(q.length == 0, "additional arguments is not supported"); assert(0, "this is not implemented."); return null; }
+    UniqueArray!char getParam(const(char)[] key, scope const(ubyte)[] q) shared {
+        String dst;
+        scope(exit) destroyString(dst);
+
+        dst = .getParam(cast()this.handler, key.ptr, key.length, q.ptr, q.length);
+        return typeof(return)(dst.toSlice());
+    }
 
 
     void query(scope const(ubyte)[] q, scope void delegate(scope const(ubyte)[]) writer) shared
@@ -125,6 +136,7 @@ class UHDMultiUSRP : IDevice
 
         void beginBurstTransmit(scope const(ubyte)[] q)
         {
+            // .waitDoneSyncPPS(cast() _dev.handler);
             .beginBurstTransmitImpl(_handler, q.ptr, q.length);
         }
 
@@ -181,6 +193,7 @@ class UHDMultiUSRP : IDevice
 
         void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc
         {
+            // .waitDoneSyncPPS(cast() _dev.handler);
             .startContinuousReceiveImpl(_handler, optArgs.ptr, optArgs.length);
         }
 

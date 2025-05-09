@@ -67,7 +67,7 @@ class UHDLoopTransmitterFromDRAM : IDevice
 
 
     synchronized
-    const(char)[] getParam(const(char)[] key, scope const(ubyte)[] q) { assert(q.length == 0, "additional arguments is not supported"); assert(0, "this is not implemented."); return null; }
+    UniqueArray!char getParam(const(char)[] key, scope const(ubyte)[] q) { assert(q.length == 0, "additional arguments is not supported"); assert(0, "this is not implemented."); return typeof(return).init; }
 
 
     synchronized

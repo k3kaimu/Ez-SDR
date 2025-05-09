@@ -134,12 +134,12 @@ class MessageDispatcher
             const(char)[] key = reader.readArray!char(keylen);
             dbg.writefln("key = %s", key);
 
-            const(char)[] ret = dev.get.getParam(key, null);
+            UniqueArray!char ret = dev.get.getParam(key, null);
             {
                 ulong[1] len = [ret.length];
                 writer(cast(ubyte[]) len[]);
             }
-            writer(cast(ubyte[]) ret);
+            writer(cast(ubyte[]) ret.array);
             break;
         case 0b00000010:        // query
             size_t qslen = reader.read!ulong;

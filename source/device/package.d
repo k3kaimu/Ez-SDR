@@ -4,6 +4,7 @@ import core.lifetime : forward;
 import std.json;
 import std.experimental.allocator.mallocator;
 import std.experimental.allocator;
+import utils : UniqueArray;
 
 
 interface IDevice
@@ -14,7 +15,7 @@ interface IDevice
 
     IStreamer makeStreamer(string[] args) shared;
     void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] optArgs) shared @nogc;
-    const(char)[] getParam(const(char)[] key, scope const(ubyte)[] optArgs) shared @nogc;
+    UniqueArray!char getParam(const(char)[] key, scope const(ubyte)[] optArgs) shared @nogc;
 
     void query(scope const(ubyte)[] optArgs, scope void delegate(scope const(ubyte)[]) writer) shared @nogc;
 }
