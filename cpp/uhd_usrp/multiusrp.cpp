@@ -137,6 +137,7 @@ void setupTxChannels(Device& dev, nlohmann::json& config)
 
         std::cout << "Requesting TX Gain: " << gain << " dB ..." << std::endl;
         for(auto& e: channels) {
+            std::cout << "Requesting TX Gain: " << gain << " dB for the channel #" << e << "..." << std::endl;
             dev.usrp->set_tx_gain(gain, e);
 
             std::cout << "Actual TX Gain: " << (dev.usrp->get_tx_gain(e)) << " for the channel #" << e << "..."
@@ -159,6 +160,31 @@ void setupTxChannels(Device& dev, nlohmann::json& config)
                         << std::endl
                         << std::endl;
             }
+        } else {
+            for(auto& e: channels) {
+                std::cout << "TX Bandwidth: " << dev.usrp->get_tx_bandwidth(e) / 1e6 << " MHz for the channel #" << e << "..."
+                        << std::endl
+                        << std::endl;
+            }
+        }
+    }
+
+    // set the antenna port
+    if(config.contains("ant")) {
+        std::string antenna = config["ant"].get<std::string>();
+        std::cout << "Requesting TX Antenna Port: " << antenna << "..." << std::endl;
+
+        for(auto& e: channels) {
+            dev.usrp->set_tx_antenna(antenna, e);
+            std::cout << "Actual TX Antenna Port: " << dev.usrp->get_tx_antenna(e) << " for the channel #" << e << "..."
+                    << std::endl
+                    << std::endl;
+        }
+    } else {
+        for(auto& e: channels) {
+            std::cout << "Antenna port: " << dev.usrp->get_tx_antenna(e) << " for the channel #" << e << "..."
+                    << std::endl
+                    << std::endl;
         }
     }
 }
@@ -219,6 +245,7 @@ void setupRxChannels(Device& dev, nlohmann::json& config)
         double gain = config.value("gain", 0.0);
 
         for(auto& e: channels) {
+            std::cout << "Requesting RX Gain: " << gain << " dB for the channel #" << e << "..." << std::endl;
             dev.usrp->set_rx_gain(gain, e);
 
             std::cout << "Actual RX Gain: " << (dev.usrp->get_rx_gain(e)) << " for the channel #" << e << "..."
@@ -241,6 +268,31 @@ void setupRxChannels(Device& dev, nlohmann::json& config)
                         << std::endl
                         << std::endl;
             }
+        } else {
+            for(auto& e: channels) {
+                std::cout << "RX Bandwidth: " << dev.usrp->get_rx_bandwidth(e) / 1e6 << " MHz for the channel #" << e << "..."
+                        << std::endl
+                        << std::endl;
+            }
+        }
+    }
+
+    // set the antenna port
+    if(config.contains("ant")) {
+        std::string antenna = config["ant"].get<std::string>();
+        std::cout << "Requesting RX Antenna Port: " << antenna << "..." << std::endl;
+
+        for(auto& e: channels) {
+            dev.usrp->set_rx_antenna(antenna, e);
+            std::cout << "Actual RX Antenna Port: " << dev.usrp->get_rx_antenna(e) << " for the channel #" << e << "..."
+                    << std::endl
+                    << std::endl;
+        }
+    } else {
+        for(auto& e: channels) {
+            std::cout << "Antenna port: " << dev.usrp->get_rx_antenna(e) << " for the channel #" << e << "..."
+                    << std::endl
+                    << std::endl;
         }
     }
 }
