@@ -155,7 +155,7 @@ class CyclicReceiver:
         self.sendMsgWQ(msg, b'')
 
 
-def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.1, sleepTime=1):
+def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.2, sleepTime=1):
     for e in txlist:
         e.stopTransmitLoop()
     
@@ -165,13 +165,14 @@ def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.1, sleepTime=
     for e in devs:
         client.setParamToDevice(e, "set_time_unknown_pps_to_zero", "[]")
 
+    time.sleep(sleepTime)
+    self.client.getParamFromDevice(devs[0], "wait_set_time_unknown_pps")
+
     for e in txlist:
         e.startTransmitLoop(onTime(loopStartTime))
 
     for e in rxlist:
         e.startReceiveLoop(onTime(loopStartTime))
-
-    time.sleep(sleepTime)
 
 
 class SimpleClient:
