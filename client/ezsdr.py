@@ -166,7 +166,7 @@ def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.2, sleepTime=
         client.setParamToDevice(e, "set_time_unknown_pps_to_zero", "[]")
 
     time.sleep(sleepTime)
-    self.client.getParamFromDevice(devs[0], "wait_set_time_unknown_pps")
+    client.getParamFromDevice(devs[0], "wait_set_time_unknown_pps")
 
     for e in txlist:
         e.startTransmitLoop(onTime(loopStartTime))
