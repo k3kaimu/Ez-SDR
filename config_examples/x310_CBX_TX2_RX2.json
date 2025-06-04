@@ -1,0 +1,57 @@
+{
+    "version": 3,
+    "devices": {
+        "USRP0": {
+            "type": "MultiUSRP",
+            "mode": "TRX",
+            "args": "addr0=192.168.40.2",
+            "timeref": ["internal"],
+            "clockref": ["internal"],
+            "tx-subdev": ["A:0 B:0"],
+            "rx-subdev": ["A:0 B:0"],
+            "tx-channels": [
+                {
+                    "for-channels": [0, 1],
+                    "rate": 10e6,
+                    "freq": 2.4e9,
+                    "gain": 10,
+                    "ant": "TX/RX"
+                }
+            ],
+            "rx-channels": [
+                {
+                    "for-channels": [0, 1],
+                    "rate": 10e6,
+                    "freq": 2.4e9,
+                    "gain": 10,
+                    "ant": "RX2"
+                }
+            ],
+            "tx-streamers": [ { "channels": [0] }, { "channels": [1] } ],
+            "rx-streamers": [ { "channels": [0] }, { "channels": [1] } ]
+        }
+    },
+    "controllers": {
+        "TX0": {
+            "type": "CyclicTX",
+            "streamers": ["USRP0:TX:0"],
+            "syncmode": "USRP"
+        },
+        "TX1": {
+            "type": "CyclicTX",
+            "streamers": ["USRP0:TX:1"],
+            "syncmode": "USRP"
+        },
+        "RX0": {
+            "type": "CyclicRX",
+            "streamers": ["USRP0:RX:0"],
+            "syncmode": "USRP"
+        },
+        "RX1": {
+            "type": "CyclicRX",
+            "streamers": ["USRP0:RX:1"],
+            "syncmode": "USRP"
+        }
+    },
+    "port": 8888
+}
