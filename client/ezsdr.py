@@ -8,76 +8,102 @@ import multiprocessing as mp
 import time
 
 
-
 class EzSDRClient:
     def __init__(self, ipaddr, port):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = None
         self.ipaddr = ipaddr
         self.port = port
+        self.enterCount = 0
 
     def __enter__(self):
-        if self.ipaddr is not None:
-            self.sock.__enter__();
-            self.sock.connect((self.ipaddr, self.port))
+        self.enterCount += 1
+        if self.enterCount > 1:
+            return self
+
+        try:
+            if self.sock is None:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            if self.ipaddr is not None:
+                self.sock.__enter__()
+                self.sock.connect((self.ipaddr, self.port))
+        except Exception as e:
+            self.enterCount = 0
+            raise e
+
         return self
 
     def __exit__(self, *args):
-        if self.ipaddr is not None:
+        if self.enterCount == 0:
+            return
+        
+        self.enterCount -= 1
+        if self.enterCount == 0:
+            self.sock.shutdown(socket.SHUT_RDWR)
             self.sock.close()
             self.sock.__exit__(args)
+            self.sock = None
 
-    def connect(self):
-        if self.ipaddr is not None:
-            self.sock.connect((self.ipaddr, self.port))
+    # def connect(self):
+    #     if self.ipaddr is not None:
+    #         self.sock.connect((self.ipaddr, self.port))
 
     def sendMsg(self, target, msg):
-        sigdatafmt.writeStringToSock(self.sock, target)
-        sigdatafmt.writeIntToSock(self.sock, len(msg), np.uint64)
-        self.sock.sendall(msg)
+        with self:
+            sigdatafmt.writeStringToSock(self.sock, target)
+            sigdatafmt.writeIntToSock(self.sock, len(msg), np.uint64)
+            self.sock.sendall(msg)
 
     def resumeController(self, target):
-        msg = sigdatafmt.valueToBytes(0b00000001, np.uint8)
-        msg += sigdatafmt.valueToBytes(len(target), np.uint64)
-        msg += target.encode(encoding="utf-8")
-        self.sendMsg("@server", msg)
+        with self:
+            msg = sigdatafmt.valueToBytes(0b00000001, np.uint8)
+            msg += sigdatafmt.valueToBytes(len(target), np.uint64)
+            msg += target.encode(encoding="utf-8")
+            self.sendMsg("@server", msg)
 
     def stopController(self, target):
-        msg = sigdatafmt.valueToBytes(0b00000010, np.uint8)
-        msg += sigdatafmt.valueToBytes(len(target), np.uint64)
-        msg += target.encode(encoding="utf-8")
-        self.sendMsg("@server", msg)
+        with self:
+            msg = sigdatafmt.valueToBytes(0b00000010, np.uint8)
+            msg += sigdatafmt.valueToBytes(len(target), np.uint64)
+            msg += target.encode(encoding="utf-8")
+            self.sendMsg("@server", msg)
 
     def resumeAllController(self):
-        msg = sigdatafmt.valueToBytes(0b00000011, np.uint8)
-        self.sendMsg("@server", msg)
+        with self:
+            msg = sigdatafmt.valueToBytes(0b00000011, np.uint8)
+            self.sendMsg("@server", msg)
 
     def stopAllController(self):
-        msg = sigdatafmt.valueToBytes(0b00000100, np.uint8)
-        self.sendMsg("@server", msg)
+        with self:
+            msg = sigdatafmt.valueToBytes(0b00000100, np.uint8)
+            self.sendMsg("@server", msg)
 
     def setParamToDevice(self, target, key, value):
-        msg = sigdatafmt.valueToBytes(0b00000000, np.uint8)
-        msg += sigdatafmt.valueToBytes(len(key), np.uint64)
-        msg += key.encode(encoding="utf-8")
-        msg += sigdatafmt.valueToBytes(len(value), np.uint64)
-        msg += value.encode(encoding="utf-8")
-        return self.sendMsg(target, msg)
+        with self:
+            msg = sigdatafmt.valueToBytes(0b00000000, np.uint8)
+            msg += sigdatafmt.valueToBytes(len(key), np.uint64)
+            msg += key.encode(encoding="utf-8")
+            msg += sigdatafmt.valueToBytes(len(value), np.uint64)
+            msg += value.encode(encoding="utf-8")
+            return self.sendMsg(target, msg)
 
     def setParamToAllDevice(self, key, value):
-        self.setParamToDevice("@alldevs", key, value)
+        with self:
+            self.setParamToDevice("@alldevs", key, value)
 
     def getParamFromDevice(self, target, key):
-        msg = sigdatafmt.valueToBytes(0b00000001, np.uint8)
-        msg += sigdatafmt.valueToBytes(len(key), np.uint64)
-        msg += key.encode(encoding="utf-8")
-        self.sendMsg(target, msg)
+        with self:
+            msg = sigdatafmt.valueToBytes(0b00000001, np.uint8)
+            msg += sigdatafmt.valueToBytes(len(key), np.uint64)
+            msg += key.encode(encoding="utf-8")
+            self.sendMsg(target, msg)
 
-        # Read the response
-        ret = sigdatafmt.readInt64FromSock(self.sock)
-        if ret == 0:
-            return None
-        else:
-            return sigdatafmt.readStringFromSock(self.sock, ret)
+            # Read the response
+            ret = sigdatafmt.readInt64FromSock(self.sock)
+            if ret == 0:
+                return None
+            else:
+                return sigdatafmt.readStringFromSock(self.sock, ret)
 
 
 def onTime(t):
@@ -93,27 +119,32 @@ class CyclicTransmitter:
         self.target = target
 
     def sendMsgWQ(self, msg, qs):
-        self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
+        with self.client:
+            self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
 
     def setTransmitSignal(self, signals, qs=b''):
-        msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
-        for i in range(len(signals)):
-            msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
-            msg += sigdatafmt.arrayToBytes(signals, np.complex64)
-        
-        self.sendMsgWQ(msg, qs)
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
+            for i in range(len(signals)):
+                msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
+                msg += sigdatafmt.arrayToBytes(signals, np.complex64)
+            
+            self.sendMsgWQ(msg, qs)
     
     def startTransmitLoop(self, qs=b''):
-        msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
-        self.sendMsgWQ(msg, qs)
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
+            self.sendMsgWQ(msg, qs)
 
     def stopTransmitLoop(self, qs=b''):
-        msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
-        self.sendMsgWQ(msg, qs)
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
+            self.sendMsgWQ(msg, qs)
     
     def transmit(self, signals, qs1=b'', qs2=b''):
-        self.setTransmitSignal(signals, qs1)
-        self.startTransmitLoop(qs2)
+        with self.client:
+            self.setTransmitSignal(signals, qs1)
+            self.startTransmitLoop(qs2)
 
 
 class CyclicReceiver:
@@ -122,37 +153,44 @@ class CyclicReceiver:
         self.target = target
 
     def sendMsgWQ(self, msg, qs):
-        self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
+        with self.client:
+            self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
     
     def startReceiveLoop(self, qs=b''):
-        msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
-        self.sendMsgWQ(msg, qs)
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010001, np.uint8)
+            self.sendMsgWQ(msg, qs)
 
     def stopReceiveLoop(self, qs=b''):
-        msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
-        self.sendMsgWQ(msg, qs)
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
+            self.sendMsgWQ(msg, qs)
     
     def receive(self, size, qs=b''):
-        self.receiveRequestOnly(size, qs)
-        return self.receiveResponseOnly()
+        with self.client:
+            self.receiveRequestOnly(size, qs)
+            return self.receiveResponseOnly()
 
     def receiveRequestOnly(self, size, qs=b''):
-        msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
-        msg += sigdatafmt.valueToBytes(size, np.uint64)
-        self.sendMsgWQ(msg, qs)
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
+            msg += sigdatafmt.valueToBytes(size, np.uint64)
+            self.sendMsgWQ(msg, qs)
 
     def receiveResponseOnly(self):
-        nbuf = sigdatafmt.readInt64FromSock(self.client.sock)
-        ret = []
-        for i in range(nbuf):
-            nsamples = sigdatafmt.readInt64FromSock(self.client.sock)
-            ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples))
-        return ret
+        with self.client:
+            nbuf = sigdatafmt.readInt64FromSock(self.client.sock)
+            ret = []
+            for i in range(nbuf):
+                nsamples = sigdatafmt.readInt64FromSock(self.client.sock)
+                ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples))
+            return ret
 
     def changeAlignSize(self, value):
-        msg = sigdatafmt.valueToBytes(0b0010011, np.uint8)
-        msg += sigdatafmt.valueToBytes(value, np.uint64)
-        self.sendMsgWQ(msg, b'')
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b0010011, np.uint8)
+            msg += sigdatafmt.valueToBytes(value, np.uint64)
+            self.sendMsgWQ(msg, b'')
 
 
 def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.2, sleepTime=1):
@@ -204,44 +242,48 @@ class SimpleClient:
     def __exit__(self, *args):
         self.client.__exit__(*args)
 
-    def connect(self):
-        self.client.connet()
+    # def connect(self):
+    #     self.client.connet()
 
     def transmit(self, signals, **kwargs):
-        tidx = kwargs.get("tidx", 0)
-        self.txs[tidx].transmit(signals)
+        with self.client:
+            tidx = kwargs.get("tidx", 0)
+            self.txs[tidx].transmit(signals)
 
     def receive(self, nsamples, **kwargs):
-        ridx = kwargs.get("ridx", 0)
+        with self.client:
+            ridx = kwargs.get("ridx", 0)
 
-        if ('onlyResponse' not in kwargs) or (not kwargs['onlyResponse']):
-            self.rxs[ridx].receiveRequestOnly(nsamples)
+            if ('onlyResponse' not in kwargs) or (not kwargs['onlyResponse']):
+                self.rxs[ridx].receiveRequestOnly(nsamples)
 
-        if ('onlyRequest' not in kwargs) or (not kwargs['onlyRequest']):
-            return self.rxs[ridx].receiveResponseOnly()
-        else:
-            return None
+            if ('onlyRequest' not in kwargs) or (not kwargs['onlyRequest']):
+                return self.rxs[ridx].receiveResponseOnly()
+            else:
+                return None
 
     def changeRxAlignSize(self, newAlign, **kwargs):
-        ridx = kwargs.get("ridx", 0)
-        self.rxs[ridx].changeAlignSize(newAlign)
+        with self.client:
+            ridx = kwargs.get("ridx", 0)
+            self.rxs[ridx].changeAlignSize(newAlign)
 
     def sync(self):
-        for e in self.txs:
-            e.stopTransmitLoop()
-        
-        for e in self.rxs:
-            e.stopReceiveLoop()
+        with self.client:
+            for e in self.txs:
+                e.stopTransmitLoop()
+            
+            for e in self.rxs:
+                e.stopReceiveLoop()
 
-        self.client.setParamToAllDevice("set_time_unknown_pps_to_zero", "[]")
-        time.sleep(1)
-        self.client.getParamFromDevice("USRP0", "wait_set_time_unknown_pps")
+            self.client.setParamToAllDevice("set_time_unknown_pps_to_zero", "[]")
+            time.sleep(1)
+            self.client.getParamFromDevice("USRP0", "wait_set_time_unknown_pps")
 
-        for e in self.txs:
-            e.startTransmitLoop(onTime(0.2))
+            for e in self.txs:
+                e.startTransmitLoop(onTime(0.2))
 
-        for e in self.rxs:
-            e.startReceiveLoop(onTime(0.2))
+            for e in self.rxs:
+                e.startReceiveLoop(onTime(0.2))
 
         # time.sleep(1)
 
