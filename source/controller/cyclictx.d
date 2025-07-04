@@ -20,6 +20,7 @@ import device;
 import msgqueue;
 import utils;
 import multithread;
+import types;
 
 
 
@@ -110,9 +111,11 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
 
 
     override
-    void setup(IStreamer[] streamers, JSONValue[string] settings)
+    void setup(string name, IStreamer[] streamers, JSONValue[string] settings)
     {
+        super.setup(name, streamers, settings);
         foreach(i, e; streamers) {
+            enforce(isSameStreamerElementType!C(e.elementType), "The streamer#%s is not a %s type.".format(i));
             _streamers ~= cast(shared) enforce(cast(ILoopTransmitter!C) e, "The streamer#%s is not a ILoopTransmitter.".format(i));
         }
 

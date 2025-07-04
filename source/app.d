@@ -106,15 +106,8 @@ void main(string[] args)
 }
 
 
-void mainImpl(C)(JSONValue[string] settings){
-    immutable cpufmt = ("cpufmt" in settings) ? settings["cpufmt"].str : "fc32";
-    immutable otwfmt = ("otwfmt" in settings) ? settings["otwfmt"].str : "sc16";
-
-    if(is(C == Complex!float))
-        enforce(cpufmt == "fc32");
-    else if(is(C == short[2]))
-        enforce(cpufmt == "sc16");
-
+void mainImpl(C)(JSONValue[string] settings)
+{
     LocalRef!(shared(IDevice))[string] devs;
     IController[string] ctrls;
     scope(exit) {
@@ -136,7 +129,7 @@ void mainImpl(C)(JSONValue[string] settings){
 
         auto newdev = newDevice(deviceSettings["type"].str);
         newdev.construct();
-        newdev.setup(deviceSettings.object);
+        newdev.setup(tag, deviceSettings.object);
         devs[tag] = cast(shared)newdev;
     }
 
@@ -151,10 +144,11 @@ void mainImpl(C)(JSONValue[string] settings){
             string name = namejson.str;
             auto namesplit = name.split(":");
             string devtag = namesplit[0];
-            streamers ~= devs[devtag].makeStreamer(namesplit[1 .. $]);
+            auto streamer = devs[devtag].makeStreamer(namesplit[1 .. $]);
+            streamers ~= streamer;
         }
 
-        newctrl.setup(streamers, ctrlSettings.object);
+        newctrl.setup(tag, streamers, ctrlSettings.object);
         ctrls[tag] = newctrl;
     }
 

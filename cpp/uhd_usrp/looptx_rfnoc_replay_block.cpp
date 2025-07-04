@@ -21,6 +21,7 @@ namespace looptx_rfnoc_replay_block
 
 struct Device
 {
+    std::string name;
     nlohmann::json config;
     std::string args;
     std::string tx_args;
@@ -56,6 +57,7 @@ struct DeviceHandler
 
 
 DeviceHandler setupDevice(
+    char const* name,
     char const* configJSON
 )
 {
@@ -78,6 +80,7 @@ DeviceHandler setupDevice(
     auto wire_format = "sc16";
 
     Device* dev = new Device;
+    dev->name = name;
     dev->config = config;
     dev->args = args;
     dev->tx_args = tx_args;

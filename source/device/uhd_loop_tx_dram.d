@@ -7,6 +7,7 @@ import std.string;
 
 import device;
 import utils;
+import types;
 
 extern(C++, "looptx_rfnoc_replay_block") nothrow @nogc
 {
@@ -15,7 +16,7 @@ extern(C++, "looptx_rfnoc_replay_block") nothrow @nogc
         void* _payload;
     }
 
-    DeviceHandler setupDevice(const(char)* configJSON);
+    DeviceHandler setupDevice(const(char)* name, const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
     void setTransmitSignal(DeviceHandler handler, const void** signals, ulong sample_size, ulong num_samples);
     void startTransmit(DeviceHandler handler);
@@ -44,9 +45,16 @@ class UHDLoopTransmitterFromDRAM : IDevice
     }
 
 
-    void setup(JSONValue[string] configJSON)
+    void setup(string name, JSONValue[string] configJSON)
     {
-        this.handler = .setupDevice(JSONValue(configJSON).toString().toStringz());
+        this._name = name;
+        this.handler = .setupDevice(name.toStringz(), JSONValue(configJSON).toString().toStringz());
+    }
+
+
+    string nameImpl() shared @nogc const
+    {
+        return this._name;
     }
 
 
@@ -80,18 +88,20 @@ class UHDLoopTransmitterFromDRAM : IDevice
     IStreamer makeStreamer(string[] args) shared
     in(args.length == 0)
     {
-        return new StreamerImpl(this);
+        return new StreamerImpl(this._name, this);
     }
 
 
   private:
+    string _name;
     DeviceHandler handler;
 
 
     static class StreamerImpl : ILoopTransmitter!(Complex!float)
     {
-        this(shared(UHDLoopTransmitterFromDRAM) dev)
+        this(string name, shared(UHDLoopTransmitterFromDRAM) dev)
         {
+            _name = name;
             _dev = dev;
         }
 
@@ -99,7 +109,16 @@ class UHDLoopTransmitterFromDRAM : IDevice
         shared(IDevice) device() shared { return _dev; }
 
 
+        string nameImpl() shared @nogc const { return _name; }
+
+
         size_t numChannelImpl() shared @nogc const { return 1; }
+
+
+        StreamerElementType elementTypeImpl() shared @nogc const
+        {
+            return StreamerElementType.ComplexFloat32;
+        }
 
 
         void setLoopTransmitSignal(scope const Complex!float[][] signals, scope const(ubyte)[] q)
@@ -136,6 +155,7 @@ class UHDLoopTransmitterFromDRAM : IDevice
 
 
       private:
+        string _name;
         shared(UHDLoopTransmitterFromDRAM) _dev;
     }
 }

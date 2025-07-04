@@ -9,6 +9,7 @@
 #include "../string.hpp"
 #include "../asynctaskpool.hpp"
 #include "../spinlock.hpp"
+#include "../ezsdr_enums.hpp"
 
 
 namespace uhd_usrp_multiusrp
@@ -23,6 +24,7 @@ enum class Mode
 
 struct Device
 {
+    std::string name;
     nlohmann::json config;
     uhd::usrp::multi_usrp::sptr usrp;
     Mode mode;
@@ -39,10 +41,12 @@ struct Device
 
 struct TxStreamer
 {
+    std::string name;
     Device* dev;
     uhd::tx_streamer::sptr streamer;
     std::vector<std::complex<float> const*> buffptrs;
     int numChannel;
+    ezsdr::StreamerElementType elementType;
 
     bool has_time_spec;
     uhd::time_spec_t time_spec;
@@ -52,10 +56,12 @@ struct TxStreamer
 
 struct RxStreamer
 {
+    std::string name;
     Device* dev;
     uhd::rx_streamer::sptr streamer;
     std::vector<std::complex<float> const*> buffptrs;
     int numChannel;
+    ezsdr::StreamerElementType elementType;
 
     bool has_time_spec;
     uhd::time_spec_t time_spec;
@@ -298,13 +304,14 @@ void setupRxChannels(Device& dev, nlohmann::json& config)
 }
 
 
-DeviceHandler setupDevice(char const* configJSON)
+DeviceHandler setupDevice(char const* name, char const* configJSON)
 {
     nlohmann::json config = nlohmann::json::parse(configJSON);
 
     std::string args = config.value("args", "");
 
     Device* dev = new Device;
+    dev->name = name;
     dev->config = config;
 
     uhd::usrp::multi_usrp::sptr usrp = uhd::usrp::multi_usrp::make(args);
@@ -377,21 +384,49 @@ DeviceHandler setupDevice(char const* configJSON)
 }
 
 
-TxStreamerHandler getTxStreamer(DeviceHandler handler, uint index)
+std::string _convertTypeString(std::string_view const& type)
+{
+    if(type == ezsdr::StreamerElementTypeString::ComplexFloat32) {
+        return "fc32";
+    } else if(type == ezsdr::StreamerElementTypeString::ComplexFloat64) {
+        return "fc64";
+    } else if(type == ezsdr::StreamerElementTypeString::ComplexInt16) {
+        return "sc16";
+    } else if(type == ezsdr::StreamerElementTypeString::ComplexInt8) {
+        return "sc8";
+    } else {
+        return "";
+    }
+}
+
+
+TxStreamerHandler getTxStreamer(char const* name, DeviceHandler handler, uint index)
 {
     auto dev = handler.dev;
     auto streamer_settings = dev->config["tx-streamers"][index];
+    if(!streamer_settings.is_object()) {
+        throw std::runtime_error(std::format("tx-streamers[{}] is not an object.", index));
+    }
+
     TxStreamer* txstreamer = new TxStreamer;
     txstreamer->dev = dev;
+    txstreamer->name = name;
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
 
-    uhd::stream_args_t stream_args("fc32"); // complex floats
+    std::string cpufmt = _convertTypeString(streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32));
+    std::string otwfmt = _convertTypeString(streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16));
+
+    if(cpufmt == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
+    if(otwfmt == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
+
+    uhd::stream_args_t stream_args(cpufmt, otwfmt);
     stream_args.channels             = channels;
     uhd::tx_streamer::sptr tx_stream = dev->usrp->get_tx_stream(stream_args);
     txstreamer->streamer = tx_stream;
     txstreamer->buffptrs.resize(channels.size());
     txstreamer->numChannel = channels.size();
+    txstreamer->elementType = ezsdr::convertStreamerElementType(cpufmt);
 
     uhd::tx_metadata_t md;
     md.has_time_spec = false;
@@ -402,21 +437,29 @@ TxStreamerHandler getTxStreamer(DeviceHandler handler, uint index)
 }
 
 
-RxStreamerHandler getRxStreamer(DeviceHandler handler, uint index)
+RxStreamerHandler getRxStreamer(char const* name, DeviceHandler handler, uint index)
 {
     auto dev = handler.dev;
     auto streamer_settings = dev->config["rx-streamers"][index];
     RxStreamer* rxstreamer = new RxStreamer;
     rxstreamer->dev = dev;
+    rxstreamer->name = name;
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
 
-    uhd::stream_args_t stream_args("fc32"); // complex floats
+    std::string cpufmt = _convertTypeString(streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32));
+    std::string otwfmt = _convertTypeString(streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16));
+
+    if(cpufmt == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
+    if(otwfmt == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
+
+    uhd::stream_args_t stream_args(cpufmt, otwfmt); // complex floats
     stream_args.channels             = channels;
     uhd::rx_streamer::sptr rx_stream = dev->usrp->get_rx_stream(stream_args);
     rxstreamer->streamer = rx_stream;
     rxstreamer->buffptrs.resize(channels.size());
     rxstreamer->numChannel = channels.size();
+    rxstreamer->elementType = ezsdr::convertStreamerElementType(cpufmt);
 
     uhd::rx_metadata_t md;
     md.has_time_spec = false;
@@ -444,6 +487,18 @@ uint64_t numTxStream(TxStreamerHandler handler)
 uint64_t numRxStream(RxStreamerHandler handler)
 {
     return handler.streamer->numChannel;
+}
+
+
+ezsdr::StreamerElementType getTxStreamerElementType(TxStreamerHandler handler)
+{
+    return handler.streamer->elementType;
+}
+
+
+ezsdr::StreamerElementType getRxStreamerElementType(RxStreamerHandler handler)
+{
+    return handler.streamer->elementType;
 }
 
 

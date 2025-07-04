@@ -8,6 +8,7 @@ import std.string;
 import device;
 import cpp.string;
 import utils : UniqueArray;
+import types;
 
 
 extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
@@ -30,7 +31,7 @@ extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
     }
 
 
-    DeviceHandler setupDevice(const(char)* configJSON);
+    DeviceHandler setupDevice(const(char)* name, const(char)* configJSON);
     void destroyDevice(ref DeviceHandler handler);
     void setParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(char)* jsonvalue_, ulong jsonvaluelen, const(ubyte)* info, ulong infolen);
     String getParam(DeviceHandler handler, const(char)* key_, ulong keylen, const(ubyte)* info, ulong infolen);
@@ -41,11 +42,12 @@ extern(C++, "uhd_usrp_multiusrp") nothrow @nogc
     void stopContinuousReceiveImpl(RxStreamerHandler);
     ulong continuousReceiveImpl(RxStreamerHandler, void** buffptr, ulong sizeofElement, ulong numSamples);
 
-    TxStreamerHandler getTxStreamer(DeviceHandler, uint index);
-    RxStreamerHandler getRxStreamer(DeviceHandler, uint index);
+    TxStreamerHandler getTxStreamer(const(char)*, DeviceHandler, uint index);
+    RxStreamerHandler getRxStreamer(const(char)*, DeviceHandler, uint index);
     ulong numTxStream(TxStreamerHandler handler);
     ulong numRxStream(RxStreamerHandler handler);
-
+    StreamerElementType getTxStreamerElementType(TxStreamerHandler handler);
+    StreamerElementType getRxStreamerElementType(RxStreamerHandler handler);
     // void waitDoneSyncPPS(DeviceHandler handler);
 }
 
@@ -63,9 +65,16 @@ class UHDMultiUSRP : IDevice
     }
 
 
-    void setup(JSONValue[string] configJSON)
+    void setup(string name, JSONValue[string] configJSON)
     {
-        this.handler = setupDevice(JSONValue(configJSON).toString().toStringz());
+        this._name = name;
+        this.handler = setupDevice(name.toStringz(), JSONValue(configJSON).toString().toStringz());
+    }
+
+
+    string nameImpl() shared @nogc const
+    {
+        return this._name;
     }
 
 
@@ -102,36 +111,77 @@ class UHDMultiUSRP : IDevice
         immutable int index = ifThrown(args[1].to!int, -1);
         enforce(isValidFmt && index >= 0, "Invalid streamer argument format. Please use {DeviceName}:{TX|RX}:{Index}.");
 
+        immutable string streamerName = format!"%s:%s:%s"(this._name, args[0], args[1]);
         spinLock.lock();
         scope(exit) spinLock.unlock();
 
         if(args[0] == "TX") {
-            auto shndlr = getTxStreamer(cast() handler, index);
-            return new TxStreamerImpl!(Complex!float)(cast(shared) this, shndlr);
+            auto shndlr = getTxStreamer(streamerName.toStringz(), cast() handler, index);
+            if(getTxStreamerElementType(shndlr) == StreamerElementType.ComplexFloat32)
+                return new TxStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
+            else if(getTxStreamerElementType(shndlr) == StreamerElementType.ComplexFloat64)
+                return new TxStreamerImpl!(Complex!double)(streamerName, cast(shared) this, shndlr);
+            else if(getTxStreamerElementType(shndlr) == StreamerElementType.ComplexInt16)
+                return new TxStreamerImpl!(ComplexInt!short)(streamerName, cast(shared) this, shndlr);
+            else if(getTxStreamerElementType(shndlr) == StreamerElementType.ComplexInt8)
+                return new TxStreamerImpl!(ComplexInt!byte)(streamerName, cast(shared) this, shndlr);
+            else {
+                enforce(0, "Unsupported type for TX streamer '%s', whose element type is '%s'.".format(streamerName, getTxStreamerElementType(shndlr)));
+                assert(0, "Unsupported type");
+            }
         } else {
-            auto shndlr = getRxStreamer(cast() handler, index);
-            return new RxStreamerImpl!(Complex!float)(cast(shared) this, shndlr);
+            auto shndlr = getRxStreamer(streamerName.toStringz(), cast() handler, index);
+            if(getRxStreamerElementType(shndlr) == StreamerElementType.ComplexFloat32)
+                return new RxStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
+            else if(getRxStreamerElementType(shndlr) == StreamerElementType.ComplexFloat64)
+                return new RxStreamerImpl!(Complex!double)(streamerName, cast(shared) this, shndlr);
+            else if(getRxStreamerElementType(shndlr) == StreamerElementType.ComplexInt16)
+                return new RxStreamerImpl!(ComplexInt!short)(streamerName, cast(shared) this, shndlr);
+            else if(getRxStreamerElementType(shndlr) == StreamerElementType.ComplexInt8)
+                return new RxStreamerImpl!(ComplexInt!byte)(streamerName, cast(shared) this, shndlr);
+            else {
+                enforce(0, "Unsupported type for RX streamer '%s', whose element type is '%s'.".format(streamerName, getRxStreamerElementType(shndlr)));
+                assert(0, "Unsupported type");
+            }
         }
     }
 
 
   private:
+    string _name;
     DeviceHandler handler;
     shared(SpinLock) spinLock;
 
 
     static class TxStreamerImpl(C) : IStreamer, IBurstTransmitter!C, ILoopTransmitter!C
     {
-        this(shared(UHDMultiUSRP) dev, TxStreamerHandler handler)
+        this(string name, shared(UHDMultiUSRP) dev, TxStreamerHandler handler)
         {
+            _name = name;
             _dev = dev;
             _handler = handler;
             _numCh = .numTxStream(_handler);
         }
 
 
+        string nameImpl() shared @nogc const { return _name; }
         shared(IDevice) device() shared @nogc { return _dev; }
         size_t numChannelImpl() shared @nogc const { return _numCh; }
+
+
+        StreamerElementType elementTypeImpl() shared @nogc const
+        {
+            static if(is(typeof(C.init.re) == float))
+                return StreamerElementType.ComplexFloat32;
+            else static if(is(typeof(C.init.re) == double))
+                return StreamerElementType.ComplexFloat64;
+            else static if(is(typeof(C.init.re) == short))
+                return StreamerElementType.ComplexInt16;
+            else static if(is(typeof(C.init.re) == byte))
+                return StreamerElementType.ComplexInt8;
+            else
+                static assert(0, "Unsupported type");
+        }
 
 
         void beginBurstTransmit(scope const(ubyte)[] q)
@@ -172,6 +222,7 @@ class UHDMultiUSRP : IDevice
         mixin LoopByBurst!C;
 
       private:
+        string _name;
         shared(UHDMultiUSRP) _dev;
         TxStreamerHandler _handler;
         size_t _numCh;
@@ -180,15 +231,32 @@ class UHDMultiUSRP : IDevice
 
     static class RxStreamerImpl(C) : IStreamer, IContinuousReceiver!C
     {
-        this(shared(UHDMultiUSRP) dev, RxStreamerHandler handler)
+        this(string name, shared(UHDMultiUSRP) dev, RxStreamerHandler handler)
         {
+            _name = name;
             _dev = dev;
             _handler = handler;
             _numCh = .numRxStream(_handler);
         }
 
+        string nameImpl() shared @nogc const { return _name; }
         shared(IDevice) device() shared @nogc { return _dev; }
         size_t numChannelImpl() shared @nogc const { return _numCh; }
+
+
+        StreamerElementType elementTypeImpl() shared @nogc const
+        {
+            static if(is(typeof(C.init.re) == float))
+                return StreamerElementType.ComplexFloat32;
+            else static if(is(typeof(C.init.re) == double))
+                return StreamerElementType.ComplexFloat64;
+            else static if(is(typeof(C.init.re) == short))
+                return StreamerElementType.ComplexInt16;
+            else static if(is(typeof(C.init.re) == byte))
+                return StreamerElementType.ComplexInt8;
+            else
+                static assert(0, "Unsupported type");
+        }
 
 
         void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc
@@ -223,6 +291,7 @@ class UHDMultiUSRP : IDevice
         }
 
       private:
+        string _name;
         shared(UHDMultiUSRP) _dev;
         RxStreamerHandler _handler;
         size_t _numCh;

@@ -13,6 +13,7 @@ import controller;
 import device;
 import multithread;
 import utils;
+import types;
 
 
 class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
@@ -150,10 +151,12 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
 
     override
-    void setup(IStreamer[] rxs, JSONValue[string] settings)
+    void setup(string name, IStreamer[] rxs, JSONValue[string] settings)
     {
+        super.setup(name, rxs, settings);
         foreach(i, e; rxs) {
             assert(e.numChannel > 0);
+            enforce(isSameStreamerElementType!C(e.elementType), "The streamer#%s is not a %s type.".format(i));
             _streamers_tmp ~= enforce(cast(IContinuousReceiver!C) e, "The streamer#%s is not a IContinuousReceiver.".format(i));
         }
 

@@ -13,12 +13,32 @@ import std.traits;
 import device;
 import utils;
 import multithread;
+import types;
+
+
+/++
+streamersのすべての要素が同じStreamerElementTypeを持つ場合はその型を返す
+そうでない場合はnullを返す
++/
+private Nullable!StreamerElementType checkStreamerElementType(IStreamer[] streamers)
+{
+    if(streamers.length == 0) return typeof(return).init;
+
+    auto type = streamers[0].elementType();
+    foreach(s; streamers) {
+        if(s.elementType() != type)
+            return typeof(return).init;
+    }
+
+    return typeof(return)(type);
+}
 
 
 interface IController
 {
-    void setup(IStreamer[], JSONValue[string]);
+    void setup(string name, IStreamer[], JSONValue[string]);
 
+    string name() const pure nothrow @safe @nogc;
     void spawnDeviceThreads();
     void killDeviceThreads();
 
@@ -36,8 +56,24 @@ IController newController(string type)
     import controller.cyclicrx;
 
     switch(type) {
+        case "CyclicTX:ComplexFloat32":
+            return new CyclicTXController!(Complex!float)();
+        case "CyclicTX:ComplexFloat64":
+            return new CyclicTXController!(Complex!double)();
+        case "CyclicTX:ComplexInt8":
+            return new CyclicTXController!(ComplexInt!byte)();
+        case "CyclicTX:ComplexInt16":
+            return new CyclicTXController!(ComplexInt!short)();
         case "CyclicTX":
             return new CyclicTXController!(Complex!float)();
+        case "CyclicRX:ComplexFloat32":
+            return new CyclicRXController!(Complex!float)();
+        case "CyclicRX:ComplexFloat64":
+            return new CyclicRXController!(Complex!double)();
+        case "CyclicRX:ComplexInt8":
+            return new CyclicRXController!(ComplexInt!byte)();
+        case "CyclicRX:ComplexInt16":
+            return new CyclicRXController!(ComplexInt!short)();
         case "CyclicRX":
             return new CyclicRXController!(Complex!float)();
         default:
@@ -237,8 +273,11 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 
     this() {}
 
-    abstract
-    void setup(IStreamer[], JSONValue[string]);
+
+    void setup(string name, IStreamer[], JSONValue[string])
+    {
+        _name = name;
+    }
 
 
     void registerThread(CtrlThread thread)
@@ -311,6 +350,7 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
 
 
   private:
+    string _name;
     shared(CtrlThread)[] _threads;
 }
 
@@ -360,7 +400,7 @@ unittest
         IStreamer[] streamers;
 
         this() { super(); }
-        override void setup(IStreamer[] streamers, JSONValue[string]) { this.streamers = streamers; }
+        override void setup(string name, IStreamer[] streamers, JSONValue[string] config) { super.setup(name, streamers, config); this.streamers = streamers; }
         override void spawnDeviceThreads() {
             foreach(s; streamers) {
                 auto thread = new TestThread();

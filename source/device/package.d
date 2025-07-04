@@ -5,13 +5,18 @@ import std.json;
 import std.experimental.allocator.mallocator;
 import std.experimental.allocator;
 import utils : UniqueArray;
+import types;
 
 
 interface IDevice
 {
     void construct();
     void destruct();
-    void setup(JSONValue[string] configJSON);
+    void setup(string name, JSONValue[string] configJSON);
+
+    string nameImpl() shared @nogc const;
+    final string name() shared @nogc const { return this.nameImpl(); }
+    final string name() @nogc const { return (cast(shared)this).nameImpl(); }
 
     IStreamer makeStreamer(string[] args) shared;
     void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] optArgs) shared @nogc;
@@ -23,10 +28,18 @@ interface IDevice
 
 interface IStreamer
 {
+    string nameImpl() shared @nogc const;
+    final string name() shared @nogc const { return this.nameImpl(); }
+    final string name() @nogc const { return (cast(shared)this).nameImpl(); }
+
     final size_t numChannel() shared @nogc const { return this.numChannelImpl(); }
     final size_t numChannel() @nogc const { return (cast(shared)this).numChannelImpl(); }
-
     size_t numChannelImpl() shared @nogc const;
+
+    final StreamerElementType elementType() shared @nogc { return this.elementTypeImpl(); }
+    final StreamerElementType elementType() @nogc { return (cast(shared)this).elementTypeImpl(); }
+    StreamerElementType elementTypeImpl() shared @nogc;
+
     shared(IDevice) device() shared @nogc;
 }
 
