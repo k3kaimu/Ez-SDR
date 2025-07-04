@@ -4,6 +4,7 @@ import core.atomic;
 import core.sync.event;
 import core.lifetime;
 
+import std.algorithm : min;
 import std.exception;
 import std.experimental.allocator;
 import std.format;
@@ -28,6 +29,8 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
         super();
         _alignSize = alignSize;
         _isStreaming = initStreaming;
+        _requestWaitQueue = new LockFreeSPSCQueue!(ReceiveRequest)(1024);
+        _requestDoneQueue = new LockFreeSPSCQueue!(ReceiveRequest)(1024);
     }
 
 
@@ -107,22 +110,35 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
             if(allDone)
                 _receiveDoneSamples[] = 0;
 
+            // 現在処理中のリクエストがなく，待機列にはあるならば，待機列からリクエストを取り出す
+            if(!_requestNow.hasRequest && !_requestWaitQueue.empty) {
+                ReceiveRequest req;
+                if(_requestWaitQueue.pop(req)) {
+                    _requestNow.buffer = cast(shared(C)[][]) req.buffer;
+                    _requestNow.remain = req.buffer[0].length;
+                    _requestNow.hasRequest = true;
+                }
+            }
+
             // 受信要求があり、かつすべてのバッファーが受信完了している場合は、受信したデータを要求されたバッファーに書き込む
-            if(_request.hasRequest && allDone) {
+            if(_requestNow.hasRequest && allDone) {
                 import std.algorithm : min;
-                size_t num = min(_request.remain, _alignSize);
-                // dbg.writefln("remain=%s, alignSize=%s, num=%s", _request.remain, _alignSize, num);
+                size_t num = min(_requestNow.remain, _alignSize);
+                // dbg.writefln("remain=%s, alignSize=%s, num=%s", _requestNow.remain, _alignSize, num);
 
                 foreach(i, e; _receiveBuffers)
-                    _request.buffer[i][$ - _request.remain .. $ - _request.remain + num] = e[0 .. num];
+                    _requestNow.buffer[i][$ - _requestNow.remain .. $ - _requestNow.remain + num] = e[0 .. num];
                 
-                cast()_request.remain -= num;
+                _requestNow.remain -= num;
 
-                if(_request.remain == 0) {
-                    _request.pdone.write(true);
-                    _request.hasRequest = false;
-                    _request.pdone = null;
-                    _request.buffer = null;
+                // リクエストが完了したら，完了キューに追加
+                if(_requestNow.remain == 0) {
+                    ReceiveRequest doneReq;
+                    doneReq.buffer = cast(shared) _requestNow.buffer;
+                    if(_requestDoneQueue.push(doneReq)) {
+                        _requestNow.hasRequest = false;
+                        _requestNow.buffer = null;
+                    }
                 }
             }
         }
@@ -151,7 +167,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     size_t _alignSize;
     C[][] _receiveBuffers;
     size_t[] _receiveDoneSamples;
-    ReceiveRequest _request;
+    // ReceiveRequest _request;
 
     size_t _numTotalStream() shared {
         size_t dst;
@@ -162,11 +178,21 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     }
 
     static struct ReceiveRequest {
-        shared(NotifiedLazy!bool)* pdone;
-        shared(C)[][] buffer;
-        size_t remain;
+        // shared(NotifiedLazy!bool)* pdone;
+        shared(C[][]) buffer;
+        // size_t remain;
+        // bool hasRequest = false;
+    }
+
+    shared LockFreeSPSCQueue!(ReceiveRequest) _requestWaitQueue;
+    shared LockFreeSPSCQueue!(ReceiveRequest) _requestDoneQueue;
+
+    static struct ReceiveRequestNowProcessing {
+        shared(C)[][] buffer = null;
+        size_t remain = 0;
         bool hasRequest = false;
     }
+    ReceiveRequestNowProcessing _requestNow;
 }
 
 
@@ -248,10 +274,8 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
         dbg.writefln("msgtype = 0x%X", msgtype);
 
         switch(msgtype) {
-        case 0b00010000:        // 受信命令
-            ulong siglen = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read receive signal length").get;
-            processReceiveMessage(siglen, move(query), writer);
-            break;
+        // case 0b00010000:
+        //     break;
         
         case 0b00010001:        // ループ受信の開始
             foreach(size_t i, ThreadType t; this.threadList) {
@@ -290,6 +314,25 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
             }
             break;
 
+        case 0b00010100:        // 受信要求
+            enforce(query.length == 0, "Ignore subargs");
+            size_t numRecvSamples = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read number of samples").get;
+            dbg.writefln("numRecvSamples = %s", numRecvSamples);
+
+            // 受信要求を各スレッドにプッシュする
+            this.pushReceiveRequest(numRecvSamples, writer);
+            break;
+
+        case 0b00010101:        // 受信結果の取得
+            enforce(query.length == 0, "Ignore subargs");
+            size_t maxResult = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read max result").get;
+            size_t minResult = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read min result").get;
+            dbg.writefln("maxResult = %s, minResult = %s", maxResult, minResult);
+
+            // 各スレッドから受信結果をポップする
+            this.popReceiveResult(maxResult, minResult, writer);
+            break;
+        
         default:
             dbg.writefln("Unsupported msgtype %X", msgbin[0]);
             break;
@@ -297,45 +340,91 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     }
 
 
-    void processReceiveMessage(size_t numRecvSamples, UniqueArray!ubyte query, void delegate(scope const(ubyte)[]) writer)
+    ThreadType.ReceiveRequest makeReceiveRequest(size_t numRecvSamples)
     {
-        auto buffer = UniqueArray!(C, 2)(this._numTotalStreamAllThread, numRecvSamples);
-        auto doneEvent = UniqueArray!(shared(NotifiedLazy!bool)*)(this.threadList.length);
-        foreach(ref e; doneEvent.array) e = NotifiedLazy!bool.make();
-        scope(exit) foreach(ref e; doneEvent.array) NotifiedLazy!bool.dispose(cast(NotifiedLazy!bool*)e);
+        // 受信要求を作成する
+        auto buffer = cast(shared) alloc.makeMultidimensionalArray!C(this._numTotalStreamAllThread, numRecvSamples);
+        auto req = ThreadType.ReceiveRequest(buffer);
+        return req;
+    }
 
-        size_t idx;
+
+    void disposeReceiveRequest(ref ThreadType.ReceiveRequest req)
+    {
+        // 受信要求を破棄する
+        if(req.buffer !is null) {
+            alloc.disposeMultidimensionalArray(cast(C[][]) req.buffer);
+            req.buffer = null;
+        }
+    }
+
+
+    void pushReceiveRequest(size_t numRecvSamples, scope void delegate(scope const(ubyte)[]) writer)
+    {
+        // まずは全てのスレッドのキューに空きがあるかを確認する
+        bool allNotFilled = true;
         foreach(size_t i, ThreadType t; this.threadList) {
-            t.invoke(function(CyclicRXControllerThread!C thread, shared(C[][]) buf, shared(NotifiedLazy!bool)* pdone, ref UniqueArray!ubyte query){
-                if(!thread._isStreaming) {
-                    thread._isStreaming = true;
-                    thread._startWithQuery(query.array);
+            if(t._requestWaitQueue.filled) {
+                allNotFilled = false;
+                break;
+            }
+        }
+
+        // 空きがなかったらクライアントに"F"を返す
+        if(!allNotFilled) {
+            writer(cast(ubyte[1])['F']);    // Failure
+            dbg.writefln("Cannot push receive request: all queues are filled.");
+            return;
+        }
+
+        foreach(size_t i, ThreadType t; this.threadList) {
+            // 各スレッドに受信要求を送る
+            auto req = this.makeReceiveRequest(numRecvSamples);
+            enforce(t._requestWaitQueue.push(req));
+        }
+
+        // すべてのスレッドに受信要求を送ったら成功を返す
+        writer(cast(ubyte[1])['S']);
+    }
+
+
+    void popReceiveResult(size_t maxResult, size_t minResult, scope void delegate(scope const(ubyte)[]) writer)
+    {
+        // すべてのスレッドから取り出せる結果の数を計算する
+        size_t numResult;
+        while(1) {
+            numResult = maxResult; // 初期値は最大数
+            foreach(size_t i, ThreadType t; this.threadList) {
+                size_t n = t._requestDoneQueue.length;
+                numResult = min(numResult, n);
+            }
+
+            // 最小数以上の結果が得られたらループを抜ける
+            if(numResult >= minResult)
+                break;
+
+            import core.thread : Thread;
+            Thread.yield(); // まだ結果が得られない場合は、スレッドを一時停止して待機する
+        }
+
+        // numResultをクライアントに返す
+        rawWriteValue!ulong(writer, numResult);
+
+        foreach(i; 0 .. numResult) {
+            rawWriteValue!ulong(writer, this._numTotalStreamAllThread);
+            foreach(size_t j, ThreadType t; this.threadList) {
+                // 各スレッドから受信結果を取り出す
+                ThreadType.ReceiveRequest req;
+                enforce(t._requestDoneQueue.pop(req));
+
+                foreach(i, C[] e; cast(C[][]) req.buffer) {
+                    rawWriteValue!ulong(writer, e.length);
+                    writer(cast(ubyte[])e);
                 }
 
-                assert(!thread._request.hasRequest);
-                thread._request.remain = buf[0].length;
-                thread._request.pdone = pdone;
-                thread._request.buffer = cast(shared(C)[][])buf;
-                thread._request.hasRequest = true;
-            }, cast(shared(C[][])) buffer.array[idx .. idx + t._numTotalStream], doneEvent.array[i], move(query));
-
-            idx += t._numTotalStream;
-        }
-
-        // すべてのスレッドが終了するまで待つ
-        foreach(ref e; doneEvent.array) e.read();
-
-        static void rawWriteValue(T)(void delegate(scope const(ubyte)[]) writer, T value)
-        {
-            T[1] arr = [value];
-            writer(cast(ubyte[]) arr[]);
-        }
-
-        // 返答する
-        rawWriteValue!ulong(writer, buffer.array.length);
-        foreach(i, C[] e; buffer.array) {
-            rawWriteValue!ulong(writer, e.length);
-            writer(cast(ubyte[])e);
+                // 受信要求を破棄する
+                this.disposeReceiveRequest(req);
+            }
         }
     }
 
@@ -355,6 +444,14 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
         }
 
         return dst;
+    }
+
+
+    private
+    static void rawWriteValue(T)(void delegate(scope const(ubyte)[]) writer, T value)
+    {
+            T[1] arr = [value];
+            writer(cast(ubyte[]) arr[]);
     }
 }
 

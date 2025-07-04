@@ -19,6 +19,9 @@ import controller;
 import dispatcher;
 
 
+immutable string ifaceVersion = "3.0.11";
+
+
 class RestartWithConfigData : Exception
 {
     string configJSON;
@@ -209,10 +212,26 @@ void eventIOLoop(C, Alloc)(
             Lconnect: while(!stop_signal_called) {
                 try {
                     Disposer.instance.tryDisposeAll();
-                    writeln("PLEASE COMMAND");
+                    writeln("Waiting for client connection...");
 
                     auto client = socket.accept();
-                    writeln("CONNECTED");
+                    writeln("Checking client...");
+
+                    // クライアントのバージョンチェック
+                    {
+                        size_t len = rawReadValue!ushort(client).enforceNotNull;
+                        string clientVersion = rawReadString(client, len).enforceNotNull;
+                        if(clientVersion != ifaceVersion) {
+                            writeln("Client interface version mismatch: expected ", ifaceVersion, ", got ", clientVersion);
+                            writeln("Disconnecting client...");
+                            client.close();
+                            continue Lconnect;
+                        } else {
+                            dbg.writefln("Client interface version: %s", clientVersion);
+                        }
+                    }
+
+                    writeln("Client connected");
 
                     while(!stop_signal_called && client.isAlive) {
                         auto taglen = client.rawReadValue!ushort();

@@ -14,6 +14,7 @@ class EzSDRClient:
         self.ipaddr = ipaddr
         self.port = port
         self.enterCount = 0
+        self.ifaceVersion = "3.0.11"
 
     def __enter__(self):
         self.enterCount += 1
@@ -27,6 +28,7 @@ class EzSDRClient:
             if self.ipaddr is not None:
                 self.sock.__enter__()
                 self.sock.connect((self.ipaddr, self.port))
+                sigdatafmt.writeStringToSock(self.sock, self.ifaceVersion)
         except Exception as e:
             self.enterCount = 0
             raise e
@@ -173,12 +175,22 @@ class CyclicReceiver:
 
     def receiveRequestOnly(self, size, qs=b''):
         with self.client:
-            msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
+            msg = sigdatafmt.valueToBytes(0b00010100, np.uint8)
             msg += sigdatafmt.valueToBytes(size, np.uint64)
             self.sendMsgWQ(msg, qs)
+            ack = sigdatafmt.readIntFromSock(self.client.sock, np.uint8)
+            if ack != 83:  # 'S' in ASCII
+                raise RuntimeError(f"Unexpected response: {ack}. Expected 'S' for .receiveRequestOnly().")
 
     def receiveResponseOnly(self):
         with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010101, np.uint8)
+            msg += sigdatafmt.valueToBytes(1, np.uint64)  # 最大でも1つだけ結果を取得
+            msg += sigdatafmt.valueToBytes(1, np.uint64)  # 最小は1にする（必ず1つは結果を得る）
+            self.sendMsgWQ(msg, b'')
+            nresp = sigdatafmt.readIntFromSock(self.client.sock, np.uint64) # 結果の数を取得
+            assert nresp == 1, f"Expected 1 response, got {nresp} at .receiveResponseOnly()"
+
             nbuf = sigdatafmt.readInt64FromSock(self.client.sock)
             ret = []
             for i in range(nbuf):

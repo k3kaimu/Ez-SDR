@@ -41,6 +41,15 @@ def readInt64FromSock(sock):
 def writeInt32ToSock(sock, value):
     writeIntToSock(sock, value, np.uint32)
 
+def readIntFromSock(sock, dtype):
+    # ソケットからデータを受信
+    data = bytearray()
+    while len(data) < np.dtype(dtype).itemsize:
+        data += sock.recv(min(4096, np.dtype(dtype).itemsize - len(data)))
+
+    # データを指定された型に変換して返す
+    return np.frombuffer(data, dtype=dtype)[0]
+
 # ソケットにIntの値を書き込む
 def writeIntToSock(sock, value, dtype):
     data = np.array([value], dtype=dtype).tobytes()
