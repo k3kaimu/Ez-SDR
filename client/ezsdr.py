@@ -200,6 +200,7 @@ def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.2, sleepTime=
     for e in rxlist:
         e.stopReceiveLoop()
 
+    time.sleep(1)
     for e in devs:
         client.setParamToDevice(e, "set_time_unknown_pps_to_zero", "[]")
 
@@ -275,6 +276,7 @@ class SimpleClient:
             for e in self.rxs:
                 e.stopReceiveLoop()
 
+            time.sleep(1)
             self.client.setParamToAllDevice("set_time_unknown_pps_to_zero", "[]")
             time.sleep(1)
             self.client.getParamFromDevice("USRP0", "wait_set_time_unknown_pps")
