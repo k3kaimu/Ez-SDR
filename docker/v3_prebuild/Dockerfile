@@ -58,6 +58,7 @@ RUN <<EOF
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
     source /dlang/ldc-1.39.0/activate
     cd /work
+    dub test
     dub build --build=release
     cp /work/ezsdr /usr/bin
 EOF
