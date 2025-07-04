@@ -9,7 +9,7 @@ import time
 IPADDR = "127.0.0.1";
 PORT = 8888;
 
-nSamples = 2**10
+nSamples = 2**20
 qpsk_constellation = np.array([1+1j, -1+1j, -1-1j, 1-1j]) / np.sqrt(2)
 
 def calc_delay(tx, rx):
@@ -43,8 +43,11 @@ with ezsdr.EzSDRClient("127.0.0.1", 8888) as client:
     # 同期して送受信を始める
     ezsdr.syncUSRPLoopTXRX(client, ["USRP0"], [TX0], [RX0])
 
-    for i in range(nReq):
+    idx = 0
+    while True:
         recv = RX0.receiveResponseOnly()[0]
+        RX0.receiveRequestOnly(nSamples-1)  # 次の受信リクエストを送る
         recv = np.hstack((recv, np.zeros(1, dtype=recv.dtype)))  # 1サンプル減ってる分を足す
         delay = calc_delay(signals[0], recv)
-        print(f"recv {i}: delay = {delay}, diff = {delay - i}")     # 連続受信しているなら，1サンプルずつずれるはず
+        print(f"recv {idx}: delay = {delay}, diff = {delay - idx}")     # 連続受信しているなら，1サンプルずつずれるはず
+        idx += 1
