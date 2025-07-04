@@ -1,5 +1,6 @@
 module device.uhd_usrp;
 
+import std.algorithm : min, max;
 import std.complex;
 import std.exception;
 import std.json;
@@ -198,24 +199,22 @@ class UHDMultiUSRP : IDevice
         }
 
 
-        void burstTransmit(scope const C[][] signals, scope const(ubyte)[] q)
-        {
+        void burstTransmit(scope const C[][] signals, scope const(ubyte)[] q, scope size_t[] txsamples)
+        in(signals.length > 0 && signals[0].length > 0)
+        in(signals.length == txsamples.length)
+        in(signals.length <= 128)
+        do {
             assert(q.length == 0, "additional arguments is not supported");
             const(C)*[128] _tmp;
-            assert(signals.length <= _tmp.length);
-            foreach(i; 0 .. signals.length)
+
+            size_t remain = size_t.max;
+            foreach(i; 0 .. signals.length) {
                 _tmp[i] = signals[i].ptr;
-
-            size_t remain = signals[0].length;
-            while(remain != 0) {
-                size_t num;
-                num = .burstTransmitImpl(_handler, cast(const(void)**)_tmp.ptr, C.sizeof, signals[0].length);
-
-                foreach(i; 0 .. signals.length)
-                    _tmp[i] += num;
-                
-                remain -= num;
+                remain = min(remain, signals[i].length);
             }
+
+            size_t num = .burstTransmitImpl(_handler, cast(const(void**))_tmp.ptr, C.sizeof, remain);
+            txsamples[] = num;
         }
 
 
@@ -271,23 +270,22 @@ class UHDMultiUSRP : IDevice
             .stopContinuousReceiveImpl(_handler);
         }
 
-        void singleReceive(scope C[][] buffers, scope const(ubyte)[] optArgs) @nogc
-        {
+        void singleReceive(scope C[][] buffers, scope const(ubyte)[] optArgs, scope size_t[] rxsamples) @nogc
+        in(buffers.length > 0 && buffers[0].length > 0)
+        in(buffers.length == rxsamples.length)
+        in(buffers.length <= 128)
+        do {
             assert(optArgs.length == 0, "additional arguments is not supported");
             const(C)*[128] _tmp;
-            assert(buffers.length <= _tmp.length);
-            foreach(i; 0 .. buffers.length)
+
+            size_t remain = size_t.max;
+            foreach(i; 0 .. buffers.length) {
                 _tmp[i] = buffers[i].ptr;
-
-            size_t remain = buffers[0].length;
-            while(remain != 0) {
-                size_t num = .continuousReceiveImpl(_handler, cast(void**)_tmp.ptr, C.sizeof, remain);
-
-                foreach(i; 0 .. buffers.length)
-                    _tmp[i] += num;
-                
-                remain -= num;
+                remain = min(remain, buffers[i].length);
             }
+
+            size_t num = .continuousReceiveImpl(_handler, cast(void**)_tmp.ptr, C.sizeof, remain);
+            rxsamples[] = num;
         }
 
       private:

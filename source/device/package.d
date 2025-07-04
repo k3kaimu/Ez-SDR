@@ -48,7 +48,7 @@ interface IBurstTransmitter(C) : IStreamer
 {
     void beginBurstTransmit(scope const(ubyte)[] optArgs) @nogc;
     void endBurstTransmit(scope const(ubyte)[] optArgs) @nogc;
-    void burstTransmit(scope const C[][] signal, scope const(ubyte)[] optArgs) @nogc;
+    void burstTransmit(scope const C[][] signal, scope const(ubyte)[] optArgs, scope size_t[] txsamples) @nogc;
 }
 
 
@@ -56,7 +56,7 @@ interface IContinuousReceiver(C) : IStreamer
 {
     void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc;
     void stopContinuousReceive(scope const(ubyte)[] optArgs) @nogc;
-    void singleReceive(scope C[][], scope const(ubyte)[] optArgs) @nogc;
+    void singleReceive(scope C[][], scope const(ubyte)[] optArgs, scope size_t[] rxsamples) @nogc;
 }
 
 
@@ -97,6 +97,7 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
 
     void startLoopTransmit(scope const(ubyte)[] optArgs) @nogc
     {
+        _doneSamples[] = 0;
         this.beginBurstTransmit(optArgs);
     }
 
@@ -109,11 +110,24 @@ mixin template LoopByBurst(C, size_t maxSlot = 32)
 
     void performLoopTransmit(scope const(ubyte)[] optArgs) @nogc
     {
-        this.burstTransmit(cast(C[][])(_loopSignals[]), optArgs);
+        immutable size_t numCh = this.numChannel();
+
+        C[][maxSlot] txsignals;
+        foreach(i; 0 .. numCh) {
+            txsignals[i] = _loopSignals[i][_doneSamples[i] ..  $];
+        }
+
+        size_t[maxSlot] dones;
+        this.burstTransmit(txsignals[0 .. numCh], optArgs, dones[0 .. numCh]);
+
+        _doneSamples[] += dones[];
+        foreach(i; 0 .. numCh)
+            _doneSamples[i] %= _loopSignals[i].length;
     }
 
   private:
     C[][maxSlot] _loopSignals;
+    size_t[maxSlot] _doneSamples;
 }
 
 

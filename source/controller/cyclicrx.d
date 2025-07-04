@@ -35,6 +35,8 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     void onInit()
     {
         _receiveBuffers = alloc.makeMultidimensionalArray!C((cast(shared) this)._numTotalStream, _alignSize);
+        _receiveDoneSamples = alloc.makeArray!size_t((cast(shared) this)._numTotalStream);
+        _receiveDoneSamples[] = 0;
     }
 
 
@@ -48,15 +50,25 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
 
         alloc.disposeMultidimensionalArray(_receiveBuffers);
         _receiveBuffers = null;
+        alloc.dispose(_receiveDoneSamples);
+        _receiveDoneSamples = null;
     }
 
 
     override
     void onStart()
     {
+        this._startWithQuery(null);
+    }
+
+
+    private void _startWithQuery(scope const(ubyte)[] query) @nogc
+    {
+        _receiveDoneSamples[] = 0; // 受信完了サンプル数を初期化
         if(_isStreaming) {
-            foreach(StreamerType d; this.streamers)
-                d.startContinuousReceive(null);
+            foreach(StreamerType d; this.streamers) {
+                d.startContinuousReceive(query);
+            }
         }
     }
 
@@ -69,11 +81,28 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
         if(_isStreaming) {
             size_t idx;
             foreach(StreamerType s; this.streamers){
-                s.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + s.numChannel], null);
+                size_t[32] dones;
+                assert(s.numChannel <= dones.length, "Too many channels in a single streamer.");
+                s.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + s.numChannel], null, dones[0 .. s.numChannel]);
                 idx += s.numChannel;
+                _receiveDoneSamples[idx .. idx + s.numChannel] += dones[0 .. s.numChannel];
             }
 
-            if(_request.hasRequest) {
+            // 全バッファーがすべて受信完了したかどうかを確認
+            bool allDone = true;
+            foreach(i, e; _receiveDoneSamples) {
+                if(e < _receiveBuffers[i].length) {
+                    allDone = false;
+                    break;
+                }
+            }
+
+            // 全バッファーがすべて受信完了していたら受信サンプル数を初期化
+            if(allDone)
+                _receiveDoneSamples[] = 0;
+
+            // 受信要求があり、かつすべてのバッファーが受信完了している場合は、受信したデータを要求されたバッファーに書き込む
+            if(_request.hasRequest && allDone) {
                 import std.algorithm : min;
                 size_t num = min(_request.remain, _alignSize);
                 // dbg.writefln("remain=%s, alignSize=%s, num=%s", _request.remain, _alignSize, num);
@@ -107,10 +136,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     override
     void onResume()
     {
-        if(_isStreaming) {
-            foreach(StreamerType s; this.streamers)
-                s.startContinuousReceive(null);
-        }
+        this._startWithQuery(null);
     }
 
 
@@ -118,6 +144,7 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
     bool _isStreaming;
     size_t _alignSize;
     C[][] _receiveBuffers;
+    size_t[] _receiveDoneSamples;
     ReceiveRequest _request;
 
     size_t _numTotalStream() shared {
@@ -225,8 +252,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
                 t.invoke(function(CyclicRXControllerThread!C thread, ref UniqueArray!ubyte query){
                     if(!thread._isStreaming) {
                         thread._isStreaming = true;
-                        foreach(thread.StreamerType s; thread.streamers)
-                            s.startContinuousReceive(query.array);
+                        thread._startWithQuery(query.array);
                     }
                 }, query.dup);
             }
@@ -277,8 +303,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
             t.invoke(function(CyclicRXControllerThread!C thread, shared(C[][]) buf, shared(NotifiedLazy!bool)* pdone, ref UniqueArray!ubyte query){
                 if(!thread._isStreaming) {
                     thread._isStreaming = true;
-                    foreach(thread.StreamerType s; thread.streamers)
-                        s.startContinuousReceive(query.array);
+                    thread._startWithQuery(query.array);
                 }
 
                 assert(!thread._request.hasRequest);
