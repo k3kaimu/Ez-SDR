@@ -41,7 +41,7 @@ StreamerElementType convertStreamerElementType(std::string_view const& type)
     } else if(type == StreamerElementTypeString::ComplexInt16) {
         return StreamerElementType::ComplexInt16;
     } else {
-        throw std::runtime_error("Invalid streamer element type.");
+        throw std::runtime_error("Invalid streamer element type: " + std::string(type));
     }
 }
 

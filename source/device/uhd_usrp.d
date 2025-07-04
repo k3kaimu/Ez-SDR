@@ -271,7 +271,11 @@ class UHDMultiUSRP : IDevice
         }
 
         void singleReceive(scope C[][] buffers, scope const(ubyte)[] optArgs, scope size_t[] rxsamples) @nogc
-        in(buffers.length > 0 && buffers[0].length > 0)
+        in(buffers.length > 0)
+        in{
+            foreach(e; buffers)
+                assert(e.length > 0, "each buffer must have at least one sample");
+        }
         in(buffers.length == rxsamples.length)
         in(buffers.length <= 128)
         do {
@@ -282,6 +286,11 @@ class UHDMultiUSRP : IDevice
             foreach(i; 0 .. buffers.length) {
                 _tmp[i] = buffers[i].ptr;
                 remain = min(remain, buffers[i].length);
+            }
+
+            if(remain == 0) {
+                import core.stdc.stdio : printf;
+                printf("Warning: No samples to receive. Some buffers are empty.\n");
             }
 
             size_t num = .continuousReceiveImpl(_handler, cast(void**)_tmp.ptr, C.sizeof, remain);

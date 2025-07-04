@@ -384,7 +384,7 @@ DeviceHandler setupDevice(char const* name, char const* configJSON)
 }
 
 
-std::string _convertTypeString(std::string_view const& type)
+std::string _convertTypeStringToUHD(std::string_view const& type)
 {
     if(type == ezsdr::StreamerElementTypeString::ComplexFloat32) {
         return "fc32";
@@ -414,13 +414,16 @@ TxStreamerHandler getTxStreamer(char const* name, DeviceHandler handler, uint in
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
 
-    std::string cpufmt = _convertTypeString(streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32));
-    std::string otwfmt = _convertTypeString(streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16));
+    auto cpufmt = streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32);
+    auto otwfmt = streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16);
 
-    if(cpufmt == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
-    if(otwfmt == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
+    std::string cpufmt_uhd = _convertTypeStringToUHD(cpufmt);
+    std::string otwfmt_uhd = _convertTypeStringToUHD(otwfmt);
 
-    uhd::stream_args_t stream_args(cpufmt, otwfmt);
+    if(cpufmt_uhd == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
+    if(otwfmt_uhd == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
+
+    uhd::stream_args_t stream_args(cpufmt_uhd, otwfmt_uhd);
     stream_args.channels             = channels;
     uhd::tx_streamer::sptr tx_stream = dev->usrp->get_tx_stream(stream_args);
     txstreamer->streamer = tx_stream;
@@ -447,13 +450,16 @@ RxStreamerHandler getRxStreamer(char const* name, DeviceHandler handler, uint in
 
     std::vector<size_t> channels = streamer_settings["channels"].get<std::vector<size_t>>();
 
-    std::string cpufmt = _convertTypeString(streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32));
-    std::string otwfmt = _convertTypeString(streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16));
+    auto cpufmt = streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32);
+    auto otwfmt = streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16);
 
-    if(cpufmt == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
-    if(otwfmt == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
+    std::string cpufmt_uhd = _convertTypeStringToUHD(cpufmt);
+    std::string otwfmt_uhd = _convertTypeStringToUHD(otwfmt);
 
-    uhd::stream_args_t stream_args(cpufmt, otwfmt); // complex floats
+    if(cpufmt_uhd == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
+    if(otwfmt_uhd == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
+
+    uhd::stream_args_t stream_args(cpufmt_uhd, otwfmt_uhd); // complex floats
     stream_args.channels             = channels;
     uhd::rx_streamer::sptr rx_stream = dev->usrp->get_rx_stream(stream_args);
     rxstreamer->streamer = rx_stream;

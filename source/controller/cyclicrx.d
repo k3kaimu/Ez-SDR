@@ -81,11 +81,17 @@ class CyclicRXControllerThread(C) : ControllerThreadImpl!(IContinuousReceiver!C)
         if(_isStreaming) {
             size_t idx;
             foreach(StreamerType s; this.streamers){
+                C[][32] _tmpbuffers;
                 size_t[32] dones;
                 assert(s.numChannel <= dones.length, "Too many channels in a single streamer.");
-                s.singleReceive(cast(C[][])_receiveBuffers[idx .. idx + s.numChannel], null, dones[0 .. s.numChannel]);
-                idx += s.numChannel;
+                foreach(i; 0 .. s.numChannel)
+                    _tmpbuffers[i] = _receiveBuffers[idx + i][_receiveDoneSamples[idx + i] .. $];
+
+                s.singleReceive(_tmpbuffers[0 .. s.numChannel], null, dones[0 .. s.numChannel]);
                 _receiveDoneSamples[idx .. idx + s.numChannel] += dones[0 .. s.numChannel];
+
+                // 次のスレッドへ
+                idx += s.numChannel;
             }
 
             // 全バッファーがすべて受信完了したかどうかを確認
