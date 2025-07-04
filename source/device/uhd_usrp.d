@@ -131,7 +131,7 @@ class UHDMultiUSRP : IDevice
 
 
         shared(IDevice) device() shared @nogc { return _dev; }
-        size_t numChannelImpl() shared @nogc { return _numCh; }
+        size_t numChannelImpl() shared @nogc const { return _numCh; }
 
 
         void beginBurstTransmit(scope const(ubyte)[] q)
@@ -188,7 +188,7 @@ class UHDMultiUSRP : IDevice
         }
 
         shared(IDevice) device() shared @nogc { return _dev; }
-        size_t numChannelImpl() shared @nogc { return _numCh; }
+        size_t numChannelImpl() shared @nogc const { return _numCh; }
 
 
         void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc

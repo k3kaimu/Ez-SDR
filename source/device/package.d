@@ -23,10 +23,10 @@ interface IDevice
 
 interface IStreamer
 {
-    final size_t numChannel() shared @nogc { return this.numChannelImpl(); }
-    final size_t numChannel() @nogc { return (cast(shared)this).numChannelImpl(); }
+    final size_t numChannel() shared @nogc const { return this.numChannelImpl(); }
+    final size_t numChannel() @nogc const { return (cast(shared)this).numChannelImpl(); }
 
-    size_t numChannelImpl() shared @nogc;
+    size_t numChannelImpl() shared @nogc const;
     shared(IDevice) device() shared @nogc;
 }
 

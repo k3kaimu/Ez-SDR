@@ -99,7 +99,7 @@ class UHDLoopTransmitterFromDRAM : IDevice
         shared(IDevice) device() shared { return _dev; }
 
 
-        size_t numChannelImpl() shared @nogc { return 1; }
+        size_t numChannelImpl() shared @nogc const { return 1; }
 
 
         void setLoopTransmitSignal(scope const Complex!float[][] signals, scope const(ubyte)[] q)
