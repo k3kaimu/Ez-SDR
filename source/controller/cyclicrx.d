@@ -531,7 +531,6 @@ unittest
         foreach(i; 0 .. ctrl._numTotalStreamAllThread) {
             assert(reader.read!ulong == 73);    // 受信サンプル数
             auto recv = reader.readArray!C(73);
-            writeln("!!!!!!recv: ", recv);
             foreach(j, e; recv) {
                 ulong x;
                 if(i == 0 || i == 1) x = i*2 + j%2 + 1;
