@@ -8,6 +8,7 @@
 	"license": "NYSL",
 	"dependencies": {
 		"lock-free": "~>0.1.2",
+		"libhackrf-d": "~>0.0.3",
 	},
 	"preBuildCommands": [
         "clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",

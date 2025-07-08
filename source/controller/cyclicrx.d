@@ -246,7 +246,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
             thread.start();
         } else {
             foreach(d; _streamers_tmp) {
-                auto thread = new CyclicRXControllerThread!C(this._alignSize);
+                auto thread = new CyclicRXControllerThread!C(this._alignSize, this._initStreaming);
                 thread.registerStreamer(d);
 
                 this.registerThread(thread);

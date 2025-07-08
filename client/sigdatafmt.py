@@ -6,7 +6,7 @@ import soundfile
 import io
 
 # ソケットから信号を読む
-def readSignalFromSock(sock, size = None):
+def readSignalFromSock(sock, size = None, dtype=np.complex64):
 
     if size is None:
         # 受信サンプルのサイズを取得
@@ -14,12 +14,11 @@ def readSignalFromSock(sock, size = None):
 
     # 受信サンプルを取得
     data = bytearray();
-    while len(data) < size*8:
-        data += sock.recv(min(4096, size*8 - len(data)));
+    while len(data) < size * dtype.itemsize:
+        data += sock.recv(min(4096, size*dtype.itemsize - len(data)));
 
     # バイト列を複素数I+jQの配列へ変換
-    data = np.frombuffer(data, dtype=np.float32);
-    data = data[::2] + data[1::2] * 1j;
+    data = np.frombuffer(data, dtype=dtype);
     return data;
 
 

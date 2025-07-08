@@ -367,9 +367,19 @@ if(isShareable!T)
         // 実際に読み込める要素数を決定
         immutable items_to_read = available_items < items.length ? available_items : items.length;
 
-        // 各アイテムを順番に読み込み
-        foreach(i; 0 .. items_to_read) {
-            move(cast()_data[(rpos + i) & (size - 1)], items[i]);
+        // 各アイテムを順番に読み込むが，これは効率が悪いのでリングバッファーの末尾までと，先頭からの二つに読み込みを分ける
+        // foreach(i; 0 .. items_to_read) {
+        //     move(cast()_data[(rpos + i) & (size - 1)], items[i]);
+        // }
+        immutable rpos_index = rpos & (size - 1);   // 読み込み開始位置
+        if(rpos_index < _data.length && rpos_index + items_to_read <= _data.length) {
+            // バッファーから直接読み込み
+            items[0 .. items_to_read] = cast()_data[rpos_index .. rpos_index + items_to_read];
+        } else {
+            // バッファーの末尾まで読み込み，残りは先頭から読み込み
+            immutable end_space = _data.length - rpos_index;
+            items[0 .. end_space] = cast()_data[rpos_index .. $];
+            items[end_space .. items_to_read] = cast()_data[0 .. (items_to_read - end_space)];
         }
 
         // 読み込み位置を更新

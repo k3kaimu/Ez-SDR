@@ -116,9 +116,10 @@ def onTime(t):
 
 
 class CyclicTransmitter:
-    def __init__(self, client, target):
+    def __init__(self, client, target, dtype=np.complex64):
         self.client = client
         self.target = target
+        self.dtype = dtype
 
     def sendMsgWQ(self, msg, qs):
         with self.client:
@@ -129,7 +130,7 @@ class CyclicTransmitter:
             msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
             for i in range(len(signals)):
                 msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
-                msg += sigdatafmt.arrayToBytes(signals, np.complex64)
+                msg += sigdatafmt.arrayToBytes(signals, self.dtype)
             
             self.sendMsgWQ(msg, qs)
     
@@ -145,14 +146,15 @@ class CyclicTransmitter:
     
     def transmit(self, signals, qs1=b'', qs2=b''):
         with self.client:
-            self.setTransmitSignal(signals, qs1)
+            self.setTransmitSignal(np.array(signals).astype(self.dtype), qs1)
             self.startTransmitLoop(qs2)
 
 
 class CyclicReceiver:
-    def __init__(self, client, target):
+    def __init__(self, client, target, dtype=np.complex64):
         self.client = client
         self.target = target
+        self.dtype = dtype
 
     def sendMsgWQ(self, msg, qs):
         with self.client:
@@ -195,7 +197,7 @@ class CyclicReceiver:
             ret = []
             for i in range(nbuf):
                 nsamples = sigdatafmt.readInt64FromSock(self.client.sock)
-                ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples))
+                ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples, dtype=self.dtype))
             return ret
 
     def changeAlignSize(self, value):

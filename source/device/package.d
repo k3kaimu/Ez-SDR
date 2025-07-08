@@ -143,6 +143,9 @@ IDevice newDevice(string type)
         case "MultiUSRP":
             import device.uhd_usrp;
             return new UHDMultiUSRP();
+        case "HackRF":
+            import device.hackrf;
+            return new HackRF();
         default:
             writefln("Cannot file device type: %s", type);
             return null;

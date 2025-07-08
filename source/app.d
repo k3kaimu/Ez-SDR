@@ -131,6 +131,7 @@ void mainImpl(C)(JSONValue[string] settings)
         newdev.construct();
         newdev.setup(tag, deviceSettings.object);
         devs[tag] = cast(shared)newdev;
+        std.stdio.stdout.flush();
     }
 
     // Controllerの構築
@@ -150,6 +151,7 @@ void mainImpl(C)(JSONValue[string] settings)
 
         newctrl.setup(tag, streamers, ctrlSettings.object);
         ctrls[tag] = newctrl;
+        std.stdio.stdout.flush();
     }
 
     {

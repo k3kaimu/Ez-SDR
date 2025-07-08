@@ -1,0 +1,38 @@
+{
+    "version": 3,
+    "devices": {
+        "HackRF_0": {
+            "type": "HackRF",
+            "mode": "TX",
+            "serial": "000000000000000066a062dc2597349f",
+            "rate": 20e6,
+            "bw": 20e6,
+            "freq": 2.4e9,
+            "useRFAmp": true,
+            "useANTPwr": false,
+            "gain": 47
+        },
+        "HackRF_1": {
+            "type": "HackRF",
+            "mode": "RX",
+            "serial": "0000000000000000675c62dc334a5bcf",
+            "rate": 20e6,
+            "bw": 20e6,
+            "freq": 2.4e9,
+            "useRFAmp": true,
+            "useANTPwr": false,
+            "gain": 40
+        }
+    },
+    "controllers": {
+        "TX0": {
+            "type": "CyclicTX:ComplexInt8",
+            "streamers": ["HackRF_0"]
+        },
+        "RX0": {
+            "type": "CyclicRX:ComplexInt8",
+            "streamers": ["HackRF_1"]
+        }
+    },
+    "port": 8888
+}
