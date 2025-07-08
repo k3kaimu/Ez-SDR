@@ -79,6 +79,48 @@ unittest
 }
 
 
+/// 配列の一括コピー（buffer1[] = buffer2[];）が安全に使える型かどうかをチェック
+enum bool isMemcopyable(T) = __traits(isPOD, T);
+
+unittest
+{
+    import std.complex;
+    
+    // プリミティブ型
+    static assert(isMemcopyable!int);
+    static assert(isMemcopyable!float);
+    static assert(isMemcopyable!double);
+    static assert(isMemcopyable!char);
+    
+    // Complex型
+    static assert(isMemcopyable!(Complex!double));
+    
+    // 構造体
+    struct Point { int x, y; }
+    static assert(isMemcopyable!Point);
+    
+    // ポインタ
+    static assert(isMemcopyable!(int*));
+    
+    // 静的配列
+    static assert(isMemcopyable!(int[10]));
+    
+    // デストラクタを持つ構造体
+    struct WithDestructor { 
+        int x; 
+        ~this() {} 
+    }
+    static assert(!isMemcopyable!WithDestructor);
+    
+    // postblitを持つ構造体
+    struct WithPostblit {
+        int x;
+        this(this) {}
+    }
+    static assert(!isMemcopyable!WithPostblit);
+}
+
+
 /// Locked Queue
 final class LockQueue(T)
 if(isShareable!T)
@@ -169,8 +211,16 @@ if(isShareable!T)
 {
     import core.atomic;
 
-    this(size_t size = 4096 / T.sizeof)
+    this(size_t minimumSize = 4096 / T.sizeof)
     {
+        import std.math : nextPow2;
+
+        if(minimumSize == 0)
+            minimumSize = 1;
+
+        // minimumSizeは2のべき乗でなければならない
+        // 2のべき乗ではないなら，最も近い2のべき乗に切り上げる
+        size_t size = (minimumSize & (minimumSize - 1)) == 0 ? minimumSize : nextPow2(minimumSize);
         _data.length = size;
     }
 
@@ -235,6 +285,84 @@ if(isShareable!T)
         return true;
     }
 
+
+  static if(isMemcopyable!T)
+  {
+    /// 複数のアイテムを一度にキューに追加する
+    /// 返り値: 実際に追加できたアイテムの数
+    size_t push(scope T[] items) shared
+    {
+        if(items.length == 0) return 0;
+
+        immutable wpos = _wpos.atomicLoad!(MemoryOrder.raw);
+        immutable size = _data.length;
+
+        // 利用可能なスペースを確認
+        immutable rpos_cached = _rpos.atomicLoad!(MemoryOrder.acq);
+        immutable available_space = size - (wpos - rpos_cached);
+        
+        if(available_space == 0) {
+            return 0;
+        }
+
+        // 実際に書き込める要素数を決定
+        immutable items_to_write = available_space < items.length ? available_space : items.length;
+        
+        
+
+        // 以下のforeachのように各アイテムを順番に書き込みするが，これは効率が悪いのでリングバッファーの末尾までと，先頭からの二つに書き込みを分ける
+        // foreach(i; 0 .. items_to_write) {
+        //     move(items[i], cast()_data[(wpos + i) & (size - 1)]);
+        // }
+        immutable wpos_index = wpos & (size - 1);   // 書き込み開始位置
+        if(wpos_index < _data.length && wpos_index + items_to_write <= _data.length) {
+            // バッファーに直接書き込み
+            cast()_data[wpos_index .. wpos_index + items_to_write] = items[0 .. items_to_write];
+        } else {
+            // バッファーの末尾まで書き込み，残りは先頭から書き込み
+            immutable end_space = _data.length - wpos_index;
+            cast()_data[wpos_index .. $] = items[0 .. end_space];
+            cast()_data[0 .. (items_to_write - end_space)] = items[end_space .. items_to_write];
+        }
+
+        // 書き込み位置を更新
+        _wpos.atomicStore!(MemoryOrder.rel)(wpos + items_to_write);
+        return items_to_write;
+    }
+
+
+    /// 複数のアイテムを一度にキューから取得する
+    /// 返り値: 実際に取得できたアイテムの数
+    size_t pop(scope T[] items) shared
+    {
+        if(items.length == 0) return 0;
+
+        immutable rpos = _rpos.atomicLoad!(MemoryOrder.raw);
+        immutable size = _data.length;
+
+        // 利用可能なデータを確認
+        immutable wpos_cached = _wpos.atomicLoad!(MemoryOrder.acq);
+        immutable available_items = wpos_cached - rpos;
+
+        if(available_items == 0) {
+            return 0;
+        }
+
+        // 実際に読み込める要素数を決定
+        immutable items_to_read = available_items < items.length ? available_items : items.length;
+
+        // 各アイテムを順番に読み込み
+        foreach(i; 0 .. items_to_read) {
+            move(cast()_data[(rpos + i) & (size - 1)], items[i]);
+        }
+
+        // 読み込み位置を更新
+        _rpos.atomicStore!(MemoryOrder.rel)(rpos + items_to_read);
+        return items_to_read;
+    }
+
+  }
+
   private:
     T[] _data;
     align(64) size_t _rpos;
@@ -264,6 +392,53 @@ unittest
             assert(result == n);
         }
     }
+}
+
+
+unittest
+{
+    // 複数アイテムのpush/popテスト
+    shared(LockFreeSPSCQueue!size_t) queue = new LockFreeSPSCQueue!size_t(1024);
+    
+    // 空のキューから読み込みテスト
+    size_t[] readBuffer = new size_t[10];
+    assert(queue.pop(readBuffer) == 0);
+    
+    // 複数アイテム書き込みテスト
+    size_t[] writeData = [1, 2, 3, 4, 5];
+    assert(queue.push(writeData) == 5);
+    assert(queue.length == 5);
+    
+    // 部分読み込みテスト
+    size_t[] partialRead = new size_t[3];
+    assert(queue.pop(partialRead) == 3);
+    assert(partialRead == [1, 2, 3]);
+    assert(queue.length == 2);
+    
+    // 残りを読み込み
+    size_t[] remainingRead = new size_t[10];
+    assert(queue.pop(remainingRead) == 2);
+    assert(remainingRead[0 .. 2] == [4, 5]);
+    assert(queue.length == 0);
+    
+    // 大量データのテスト
+    size_t[] largeWrite = new size_t[1000];
+    foreach(i; 0 .. 1000) largeWrite[i] = i;
+    assert(queue.push(largeWrite) == 1000);
+    
+    size_t[] largeRead = new size_t[1000];
+    assert(queue.pop(largeRead) == 1000);
+    foreach(i; 0 .. 1000) assert(largeRead[i] == i);
+    
+    // キューが満杯の場合のテスト
+    size_t[] oversizeWrite = new size_t[2000];
+    foreach(i; 0 .. 2000) oversizeWrite[i] = i + 1000;
+    assert(queue.push(oversizeWrite) == 1024); // キューサイズまでしか書き込めない
+    
+    // 空配列のテスト
+    size_t[] emptyArray;
+    assert(queue.push(emptyArray) == 0);
+    assert(queue.pop(emptyArray) == 0);
 }
 
 
