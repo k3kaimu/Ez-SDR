@@ -340,10 +340,10 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
     }
 
 
-    ThreadType.ReceiveRequest makeReceiveRequest(size_t numRecvSamples)
+    ThreadType.ReceiveRequest makeReceiveRequest(size_t numStream, size_t numRecvSamples)
     {
         // 受信要求を作成する
-        auto buffer = cast(shared) alloc.makeMultidimensionalArray!C(this._numTotalStreamAllThread, numRecvSamples);
+        auto buffer = cast(shared) alloc.makeMultidimensionalArray!C(numStream, numRecvSamples);
         auto req = ThreadType.ReceiveRequest(buffer);
         return req;
     }
@@ -379,7 +379,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
         foreach(size_t i, ThreadType t; this.threadList) {
             // 各スレッドに受信要求を送る
-            auto req = this.makeReceiveRequest(numRecvSamples);
+            auto req = this.makeReceiveRequest(t._numTotalStream, numRecvSamples);
             enforce(t._requestWaitQueue.push(req));
         }
 
