@@ -286,11 +286,27 @@ if(isShareable!T)
     }
 
 
+    void clear()
+    {
+        // キューが空になるまでポップする
+        while(!(cast(shared) this).empty) {
+            T item;
+            (cast(shared) this).pop(item);
+        }
+
+        // リングバッファーの読み書き位置をリセット
+        _rpos.atomicStore!(MemoryOrder.rel)(0);
+        _wpos.atomicStore!(MemoryOrder.rel)(0);
+        _rpos_cached = 0;
+        _wpos_cached = 0;
+    }
+
+
   static if(isMemcopyable!T)
   {
     /// 複数のアイテムを一度にキューに追加する
     /// 返り値: 実際に追加できたアイテムの数
-    size_t push(scope T[] items) shared
+    size_t push(U : T)(scope U[] items) shared
     {
         if(items.length == 0) return 0;
 
