@@ -363,10 +363,11 @@ unittest
     class TestDevice : IDevice {
         void construct() {}
         void destruct() {}
-        void setup(JSONValue[string]){}
+        void setup(string, JSONValue[string]){}
+        string nameImpl() shared const @nogc { return "TestDevice"; }
         IStreamer makeStreamer(string[] args) shared { return null; }
         void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] optArgs) shared @nogc {}
-        const(char)[] getParam(const(char)[] key, scope const(ubyte)[] optArgs) shared @nogc { return null; }
+        UniqueArray!char getParam(const(char)[] key, scope const(ubyte)[] optArgs) shared @nogc { return typeof(return).init; }
         void query(scope const(ubyte)[] optArgs, scope void delegate(scope const(ubyte)[]) writer) shared @nogc {}
     }
 
@@ -376,7 +377,10 @@ unittest
 
         shared(TestDevice) dev;
         string state;
-        size_t numChannelImpl() shared @nogc { return 1; }
+
+        string nameImpl() shared @nogc const { return "TestStreamer"; }
+        StreamerElementType elementTypeImpl() shared @nogc { return StreamerElementType.ComplexFloat32; }
+        size_t numChannelImpl() shared const @nogc { return 1; }
         shared(IDevice) device() shared @nogc { return dev; }
     }
 
@@ -415,7 +419,7 @@ unittest
     shared dev = cast(shared) new TestDevice();
     auto ctrl = new TestController();
     auto testStreamer = new TestStreamer(dev);
-    ctrl.setup([testStreamer, new TestStreamer(null)], null);
+    ctrl.setup("TestController", [testStreamer, new TestStreamer(null)], null);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 

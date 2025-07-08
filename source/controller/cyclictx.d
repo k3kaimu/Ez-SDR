@@ -262,8 +262,10 @@ unittest
 
         this(size_t n) { _numTxStream = n; }
 
+        string nameImpl() shared const @nogc { return "TestTransmitter"; }
+        StreamerElementType elementTypeImpl() shared @nogc { return StreamerElementType.ComplexFloat32; }
         shared(IDevice) device() shared @nogc { return null; }
-        size_t numChannelImpl() shared @nogc { return atomicLoad(_numTxStream); }
+        size_t numChannelImpl() shared const @nogc { return atomicLoad(_numTxStream); }
         void setLoopTransmitSignal(scope const C[][] signal, scope const(ubyte)[] q) {
             import core.lifetime : move;
 
@@ -283,7 +285,7 @@ unittest
 
     auto ctrl = new CyclicTXController!C();
     TestTransmitter[] devs = [new TestTransmitter(2), new TestTransmitter(1), new TestTransmitter(3)];
-    ctrl.setup(devs.map!(a => cast(IStreamer) a).array(), null);
+    ctrl.setup("TestTXController", devs.map!(a => cast(IStreamer) a).array(), null);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 

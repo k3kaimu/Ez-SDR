@@ -55,6 +55,7 @@ EOF
 COPY . .
 
 RUN <<EOF
+    set -e
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
     source /dlang/ldc-1.39.0/activate
     cd /work

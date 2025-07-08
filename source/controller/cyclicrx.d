@@ -471,14 +471,16 @@ unittest
 
         this(size_t n, C[][] buf) { _numRxStream = n; buffer = buf; assert(buffer.length == _numRxStream); }
 
-
+        string nameImpl() shared const @nogc { return "TestReceiver"; }
+        StreamerElementType elementTypeImpl() shared @nogc { return StreamerElementType.ComplexFloat32; }
         shared(IDevice) device() shared @nogc { return null; }
-        size_t numChannelImpl() shared @nogc { return _numRxStream; }
-        void singleReceive(scope C[][] signal, scope const(ubyte)[] q) @nogc {
+        size_t numChannelImpl() shared const @nogc { return _numRxStream; }
+        void singleReceive(scope C[][] signal, scope const(ubyte)[] q, scope size_t[] rxsamples) @nogc {
             foreach(i, e; signal) {
                 foreach(j; 0 .. e.length) {
                     e[j] = cast()buffer[i][(index + j) % $];
                 }
+                rxsamples[i] = e.length;
             }
 
             index += signal[0].length;
@@ -497,7 +499,7 @@ unittest
 
     // alignSize=10にすれば，かならず受信信号の先頭は上でデバイスに設定した配列の先頭になるため，先頭要素はランダムにならない
     import std.algorithm : map;
-    ctrl.setup(devs.map!(a => cast(IStreamer) a).array(), ["alignSize": JSONValue(10)]);
+    ctrl.setup("TestRXController", devs.map!(a => cast(IStreamer) a).array(), ["alignSize": JSONValue(10)]);
     ctrl.spawnDeviceThreads();
     scope(exit) ctrl.killDeviceThreads();
 
@@ -509,15 +511,27 @@ unittest
         immutable(ubyte)[] responseBinary;
         ulong[1] numRecv = [73];
         ubyte[8] subargsLengthBinary = [0, 0, 0, 0, 0, 0, 0, 0];
-        ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010000] ~ cast(ubyte[])numRecv[], (const(ubyte)[] buf){
+
+        // 受信要求
+        ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010100] ~ cast(ubyte[])numRecv[], (const(ubyte)[] buf){
+            responseBinary ~= buf;
+        });
+
+        ulong[2] minmaxRecv = [1, 1];
+
+        // 受信結果の取得
+        ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010101] ~ cast(ubyte[])minmaxRecv[], (const(ubyte)[] buf){
             responseBinary ~= buf;
         });
 
         auto reader = BinaryReader(responseBinary);
-        assert(reader.read!ulong == ctrl._numTotalStreamAllThread);
+        assert(reader.read!ubyte == 'S'); // 成功
+        assert(reader.read!ulong == 1); // 受信結果の数
+        assert(reader.read!ulong == ctrl._numTotalStreamAllThread);     // 受信ストリームの数
         foreach(i; 0 .. ctrl._numTotalStreamAllThread) {
-            assert(reader.read!ulong == 73);
+            assert(reader.read!ulong == 73);    // 受信サンプル数
             auto recv = reader.readArray!C(73);
+            writeln("!!!!!!recv: ", recv);
             foreach(j, e; recv) {
                 ulong x;
                 if(i == 0 || i == 1) x = i*2 + j%2 + 1;
