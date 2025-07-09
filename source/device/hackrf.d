@@ -124,6 +124,13 @@ class HackRF : IDevice
             }
         }
 
+        // clkoutの設定
+        if(auto p = "clkout" in configJSON) {
+            hackrf_set_clkout_enable(_device, p.get!bool ? 1 : 0)
+                .enforceHackRFError("hackrf_set_clkout_enable failed.");
+            writefln("\tclkout set: %s", p.get!bool);
+        }
+
         if(auto p = "bufferSize" in configJSON) {
             _bufferSize = cast(size_t) p.get!ulong;
             writefln("\tbuffer size set: %s", _bufferSize);
