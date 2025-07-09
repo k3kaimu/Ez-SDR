@@ -8,6 +8,10 @@ import multiprocessing as mp
 import time
 
 
+complex_int8 = np.dtype([('real', np.int8), ('imag', np.int8)])
+complex_int16 = np.dtype([('real', np.int16), ('imag', np.int16)])
+
+
 class EzSDRClient:
     def __init__(self, ipaddr, port):
         self.sock = None
@@ -115,22 +119,63 @@ def onTime(t):
     return sigdatafmt.valueToBytes(len(msg), np.uint64) + sigdatafmt.valueToBytes(tag, np.uint32) + msg
 
 
+
+def typeConvert(signals, dtype_in, dtype_out):
+    if dtype_in == dtype_out:
+        return signals
+
+    if dtype_in == np.complex64 and dtype_out == np.complex128:
+        return signals.astype(np.complex128)
+    elif dtype_in == np.complex128 and dtype_out == np.complex64:
+        return signals.astype(np.complex64)
+    elif dtype_in == complex_int8 and dtype_out == complex_int16:
+        return signals.astype(complex_int16)
+    elif dtype_in == complex_int16 and dtype_out == complex_int8:
+        return signals.astype(complex_int8)
+    elif dtype_in == complex_int8:
+        signals = signals['real'] / 127.0 + 1j * signals['imag'] / 127.0
+        signals = signals.astype(np.complex128)
+        return typeConvert(signals, np.complex128, dtype_out)
+    elif dtype_in == complex_int16:
+        signals = signals['real'] / 32767.0 + 1j * signals['imag'] / 32767.0
+        signals = signals.astype(np.complex128)
+        return typeConvert(signals, np.complex128, dtype_out)
+    elif dtype_out == complex_int8:
+        dst = np.zeros(signals.shape, dtype=complex_int8)
+        dst['real'] = (np.real(signals) * 127).astype(np.int8)
+        dst['imag'] = (np.imag(signals) * 127).astype(np.int8)
+        return dst
+    elif dtype_out == complex_int16:
+        dst = np.zeros(signals.shape, dtype=complex_int16)
+        dst['real'] = (np.real(signals) * 32767).astype(np.int16)
+        dst['imag'] = (np.imag(signals) * 32767).astype(np.int16)
+        return signals
+    else:
+        raise ValueError(f"Unsupported type conversion from {dtype_in} to {dtype_out}.")
+    
+
+
+
 class CyclicTransmitter:
-    def __init__(self, client, target, dtype=np.complex64):
+    def __init__(self, client, target, dtype_wire=np.complex64, dtype_cpu=np.complex64):
         self.client = client
         self.target = target
-        self.dtype = dtype
+        self.dtype_wire = dtype_wire
+        self.dtype_cpu = dtype_cpu
 
     def sendMsgWQ(self, msg, qs):
         with self.client:
             self.client.sendMsg(self.target, sigdatafmt.valueToBytes(len(qs), np.uint64) + qs + msg)
 
     def setTransmitSignal(self, signals, qs=b''):
+        signals = np.array(signals, dtype=self.dtype_cpu)
+        signals = typeConvert(signals, self.dtype_cpu, self.dtype_wire)
+
         with self.client:
             msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
             for i in range(len(signals)):
                 msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
-                msg += sigdatafmt.arrayToBytes(signals, self.dtype)
+                msg += sigdatafmt.arrayToBytes(signals, self.dtype_wire)
             
             self.sendMsgWQ(msg, qs)
     
@@ -146,15 +191,16 @@ class CyclicTransmitter:
     
     def transmit(self, signals, qs1=b'', qs2=b''):
         with self.client:
-            self.setTransmitSignal(np.array(signals).astype(self.dtype), qs1)
+            self.setTransmitSignal(signals, qs1)
             self.startTransmitLoop(qs2)
 
 
 class CyclicReceiver:
-    def __init__(self, client, target, dtype=np.complex64):
+    def __init__(self, client, target, dtype_wire=np.complex64, dtype_cpu=np.complex64):
         self.client = client
         self.target = target
-        self.dtype = dtype
+        self.dtype_wire = dtype_wire
+        self.dtype_cpu = dtype_cpu
 
     def sendMsgWQ(self, msg, qs):
         with self.client:
@@ -169,7 +215,7 @@ class CyclicReceiver:
         with self.client:
             msg = sigdatafmt.valueToBytes(0b00010010, np.uint8)
             self.sendMsgWQ(msg, qs)
-    
+
     def receive(self, size, qs=b''):
         with self.client:
             self.receiveRequestOnly(size, qs)
@@ -197,8 +243,10 @@ class CyclicReceiver:
             ret = []
             for i in range(nbuf):
                 nsamples = sigdatafmt.readInt64FromSock(self.client.sock)
-                ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples, dtype=self.dtype))
-            return ret
+                ret.append(sigdatafmt.readSignalFromSock(self.client.sock, nsamples, dtype=self.dtype_wire))
+            
+            ret = np.array(ret, dtype=self.dtype_wire)
+            return typeConvert(ret, self.dtype_wire, self.dtype_cpu)
 
     def changeAlignSize(self, value):
         with self.client:
