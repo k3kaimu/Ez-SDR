@@ -4,7 +4,7 @@
         "HackRF_0": {
             "type": "HackRF",
             "mode": "TX",
-            "serial": "000000000000000066a062dc2597349f",
+            "serial": "2597349f",
             "rate": 20e6,
             "bw": 20e6,
             "freq": 2.4e9,
@@ -15,7 +15,7 @@
         "HackRF_1": {
             "type": "HackRF",
             "mode": "RX",
-            "serial": "0000000000000000675c62dc334a5bcf",
+            "serial": "334a5bcf",
             "rate": 20e6,
             "bw": 20e6,
             "freq": 2.4e9,
