@@ -14,8 +14,8 @@ def readSignalFromSock(sock, size = None, dtype=np.complex64):
 
     # 受信サンプルを取得
     data = bytearray();
-    while len(data) < size * dtype.itemsize:
-        data += sock.recv(min(4096, size*dtype.itemsize - len(data)));
+    while len(data) < size * np.dtype(dtype).itemsize:
+        data += sock.recv(min(4096, size*np.dtype(dtype).itemsize - len(data)));
 
     # バイト列を複素数I+jQの配列へ変換
     data = np.frombuffer(data, dtype=dtype);
