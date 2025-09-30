@@ -149,7 +149,7 @@ def typeConvert(signals, dtype_in, dtype_out):
         dst = np.zeros(signals.shape, dtype=complex_int16)
         dst['real'] = (np.real(signals) * 32767).astype(np.int16)
         dst['imag'] = (np.imag(signals) * 32767).astype(np.int16)
-        return signals
+        return dst
     else:
         raise ValueError(f"Unsupported type conversion from {dtype_in} to {dtype_out}.")
     
@@ -175,7 +175,7 @@ class CyclicTransmitter:
             msg = sigdatafmt.valueToBytes(0b00010000, np.uint8)
             for i in range(len(signals)):
                 msg += sigdatafmt.valueToBytes(len(signals[i]), np.uint64)
-                msg += sigdatafmt.arrayToBytes(signals, self.dtype_wire)
+                msg += sigdatafmt.arrayToBytes(signals[i], self.dtype_wire)
             
             self.sendMsgWQ(msg, qs)
     
