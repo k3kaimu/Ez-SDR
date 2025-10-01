@@ -87,10 +87,13 @@ RUN cp -r --parents \
     /lib/x86_64-linux-gnu/libcap.so* \
     /bundle
 
+RUN cp /work/client/*.py /bundle
 
 FROM ubuntu:24.04
 COPY --from=0 /bundle /bundle
+COPY docker/v3_prebuild/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 # COPY --from=0 /opt/bladeRF /opt/bladeRF
 ENV LD_LIBRARY_PATH=/bundle/lib/x86_64-linux-gnu:/bundle/usr/lib/x86_64-linux-gnu:/bundle/usr/local/lib
 WORKDIR /work
-ENTRYPOINT ["/bundle/usr/bin/ezsdr"]
+ENTRYPOINT ["/entrypoint.sh"]
