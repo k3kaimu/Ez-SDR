@@ -235,6 +235,24 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
                 }, query.dup);
             break;
 
+        case 0b00010110:        // サンプルの型の取得
+            enforce(query.length == 0, "Ignore subargs");
+            static if(is(typeof(C.init.re) == float))
+                immutable elemTypeStr = "ComplexFloat32";
+            else static if(is(typeof(C.init.re) == double))
+                immutable elemTypeStr = "ComplexFloat64";
+            else static if(is(typeof(C.init.re) == short))
+                immutable elemTypeStr = "ComplexInt16";
+            else static if(is(typeof(C.init.re) == byte))
+                immutable elemTypeStr = "ComplexInt8";
+            else
+                static assert(false, "Unsupported type");
+
+            rawWriteValue!ulong(writer, elemTypeStr.length);
+            writer(cast(ubyte[]) elemTypeStr);
+            break;
+        
+        
         default:
             dbg.writefln("Unsupported msgtype %s", msgtype);
         }
@@ -244,6 +262,14 @@ class CyclicTXController(C) : ControllerImpl!(CyclicTXControllerThread!C)
   private:
     shared(ILoopTransmitter!C)[] _streamers;
     bool _singleThread = false;
+
+
+    private
+    static void rawWriteValue(T)(scope void delegate(scope const(ubyte)[]) writer, T value)
+    {
+        T[1] arr = [value];
+        writer(cast(ubyte[]) arr[]);
+    }
 }
 
 
@@ -353,4 +379,17 @@ unittest
     // ループ送信が止まっている状態でループ送信停止命令を送っても無視
     ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b0010010], (scope const(ubyte)[] buf){});
     Thread.sleep(10.msecs);
+
+    // サンプル型の取得
+    ubyte[] respbuf;
+    ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010110], (scope const(ubyte)[] buf){
+        respbuf ~= buf;
+    });
+    writefln("respbuf = %s", respbuf);
+    assert(respbuf.length == (8 + "ComplexFloat32".length));
+    assert(respbuf[0] == "ComplexFloat32".length);
+    foreach(i; 1 .. 8)
+        assert(respbuf[i] == 0);
+
+    assert(cast(char[])respbuf[8 .. $] == "ComplexFloat32");
 }

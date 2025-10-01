@@ -160,6 +160,10 @@ class CyclicTransmitter:
     def __init__(self, client, target, dtype_wire=np.complex64, dtype_cpu=np.complex64):
         self.client = client
         self.target = target
+
+        if dtype_wire is None:
+            dtype_wire = self.fetch_dtype_from_server()
+
         self.dtype_wire = dtype_wire
         self.dtype_cpu = dtype_cpu
 
@@ -194,11 +198,35 @@ class CyclicTransmitter:
             self.setTransmitSignal(signals, qs1)
             self.startTransmitLoop(qs2)
 
+    def fetch_dtype_from_server(self):
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010110, np.uint8)
+            self.sendMsgWQ(msg, b'')
+            
+            dtype_str_len = sigdatafmt.readInt64FromSock(self.client.sock)
+            dtype_str = sigdatafmt.readStringFromSock(self.client.sock, dtype_str_len)
+            if dtype_str == "ComplexFloat64":
+                return np.complex128
+            elif dtype_str == "ComplexFloat32":
+                return np.complex64
+            elif dtype_str == "ComplexInt16":
+                return complex_int16
+            elif dtype_str == "ComplexInt8":
+                return complex_int8
+            else:
+                raise ValueError(f"Unsupported dtype string from server: {dtype_str}")
+
+
+
 
 class CyclicReceiver:
     def __init__(self, client, target, dtype_wire=np.complex64, dtype_cpu=np.complex64):
         self.client = client
         self.target = target
+
+        if dtype_wire is None:
+            dtype_wire = self.fetch_dtype_from_server()
+
         self.dtype_wire = dtype_wire
         self.dtype_cpu = dtype_cpu
 
@@ -248,11 +276,30 @@ class CyclicReceiver:
             ret = np.array(ret, dtype=self.dtype_wire)
             return typeConvert(ret, self.dtype_wire, self.dtype_cpu)
 
+
     def changeAlignSize(self, value):
         with self.client:
             msg = sigdatafmt.valueToBytes(0b0010011, np.uint8)
             msg += sigdatafmt.valueToBytes(value, np.uint64)
             self.sendMsgWQ(msg, b'')
+
+    def fetch_dtype_from_server(self):
+        with self.client:
+            msg = sigdatafmt.valueToBytes(0b00010110, np.uint8)
+            self.sendMsgWQ(msg, b'')
+            
+            dtype_str_len = sigdatafmt.readInt64FromSock(self.client.sock)
+            dtype_str = sigdatafmt.readStringFromSock(self.client.sock, dtype_str_len)
+            if dtype_str == "ComplexFloat64":
+                return np.complex128
+            elif dtype_str == "ComplexFloat32":
+                return np.complex64
+            elif dtype_str == "ComplexInt16":
+                return complex_int16
+            elif dtype_str == "ComplexInt8":
+                return complex_int8
+            else:
+                raise ValueError(f"Unsupported dtype string from server: {dtype_str}")
 
 
 def syncUSRPLoopTXRX(client, devs, txlist, rxlist, loopStartTime=0.2, sleepTime=1):

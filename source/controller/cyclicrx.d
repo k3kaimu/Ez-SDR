@@ -300,7 +300,7 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
             }
             break;
 
-        case 0b0010011:         // alignSizeの変更
+        case 0b00010011:         // alignSizeの変更
             enforce(query.length == 0, "Ignore subargs");
             ulong newAlignSize = reader.tryDeserialize!ulong.enforceIsNotNull("Cannot read align size").get;
             this._alignSize = newAlignSize;
@@ -333,6 +333,23 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
             this.popReceiveResult(maxResult, minResult, writer);
             break;
         
+        case 0b00010110:        // サンプルの型の取得
+            enforce(query.length == 0, "Ignore subargs");
+            static if(is(typeof(C.init.re) == float))
+                immutable elemTypeStr = "ComplexFloat32";
+            else static if(is(typeof(C.init.re) == double))
+                immutable elemTypeStr = "ComplexFloat64";
+            else static if(is(typeof(C.init.re) == short))
+                immutable elemTypeStr = "ComplexInt16";
+            else static if(is(typeof(C.init.re) == byte))
+                immutable elemTypeStr = "ComplexInt8";
+            else
+                static assert(false, "Unsupported type");
+
+            rawWriteValue!ulong(writer, elemTypeStr.length);
+            writer(cast(ubyte[]) elemTypeStr);
+            break;
+
         default:
             dbg.writefln("Unsupported msgtype %X", msgbin[0]);
             break;
@@ -448,10 +465,10 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
 
 
     private
-    static void rawWriteValue(T)(void delegate(scope const(ubyte)[]) writer, T value)
+    static void rawWriteValue(T)(scope void delegate(scope const(ubyte)[]) writer, T value)
     {
-            T[1] arr = [value];
-            writer(cast(ubyte[]) arr[]);
+        T[1] arr = [value];
+        writer(cast(ubyte[]) arr[]);
     }
 }
 
@@ -506,11 +523,11 @@ unittest
     Thread.sleep(10.msecs);
     foreach(d; devs) assert(d.state == "start");
 
+    ubyte[8] subargsLengthBinary = [0, 0, 0, 0, 0, 0, 0, 0];
     foreach(_; 0 .. 10) {
         // ループ受信の開始
         immutable(ubyte)[] responseBinary;
         ulong[1] numRecv = [73];
-        ubyte[8] subargsLengthBinary = [0, 0, 0, 0, 0, 0, 0, 0];
 
         // 受信要求
         ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010100] ~ cast(ubyte[])numRecv[], (const(ubyte)[] buf){
@@ -555,4 +572,17 @@ unittest
 
     // ループ送信は再開されている
     foreach(d; devs) assert(d.state == "start");
+
+    // サンプル型の取得
+    ubyte[] respbuf;
+    ctrl.processMessage(subargsLengthBinary ~ [cast(ubyte)0b00010110], (scope const(ubyte)[] buf){
+        respbuf ~= buf;
+    });
+    writefln("respbuf = %s", respbuf);
+    assert(respbuf.length == (8 + "ComplexFloat32".length));
+    assert(respbuf[0] == "ComplexFloat32".length);
+    foreach(i; 1 .. 8)
+        assert(respbuf[i] == 0);
+
+    assert(cast(char[])respbuf[8 .. $] == "ComplexFloat32");
 }
