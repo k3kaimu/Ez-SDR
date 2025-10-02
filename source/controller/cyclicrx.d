@@ -433,14 +433,12 @@ class CyclicRXController(C) : ControllerImpl!(CyclicRXControllerThread!C)
                 // 各スレッドから受信結果を取り出す
                 ThreadType.ReceiveRequest req;
                 enforce(t._requestDoneQueue.pop(req));
+                scope(exit) this.disposeReceiveRequest(req);    // 受信要求を破棄する
 
                 foreach(i, C[] e; cast(C[][]) req.buffer) {
                     rawWriteValue!ulong(writer, e.length);
                     writer(cast(ubyte[])e);
                 }
-
-                // 受信要求を破棄する
-                this.disposeReceiveRequest(req);
             }
         }
     }
