@@ -42,7 +42,7 @@
         "TX1": {
             "type": "CyclicTX",
             "streamers": ["USRP_TX0:1"]
-        },
+        }
     },
     "port": 8888
 }
