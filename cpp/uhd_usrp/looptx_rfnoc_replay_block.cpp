@@ -374,7 +374,7 @@ DeviceHandler setupDevice(
                 size_t mem_size = tx_streamer->replay_ctrl[i]->get_mem_size();
                 size_t mem_stride = mem_size / numUsedChannels;
 
-                tx_streamer->replay_buff_addr[i] = replay_id_count[tx_streamer->replay_id[i]] * mem_stride;
+                tx_streamer->replay_buff_addr[i] = (replay_id_count[tx_streamer->replay_id[i]]-1) * mem_stride;
             }
         }
     }
@@ -606,7 +606,11 @@ uint64_t setTransmitSignal(TxStreamerHandler handler, void const* const* signals
     // We use a very big timeout here, any network buffering issue etc. is not
     // a problem for this application, and we want to upload all the data in one
     // send() call.
-    size_t num_tx_samps = streamer->streamer->send(signals, num_samples, tx_md, 5);
+    std::vector<void const*> buffs(streamer->num_channels);
+    for(uint32_t i = 0; i < streamer->num_channels; ++i)
+        buffs[i] = signals[i];
+
+    size_t num_tx_samps = streamer->streamer->send(buffs, num_samples, tx_md, 5);
     if (num_tx_samps != num_samples) {
         std::cout << "ERROR: Unable to send " << num_samples << " samples (sent "
             << num_tx_samps << ")" << std::endl;

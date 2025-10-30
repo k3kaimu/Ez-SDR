@@ -141,7 +141,11 @@ class UHDLoopTransmitterFromDRAM : IDevice
         {
             assert(q.length == 0, "additional arguments is not supported");
 
-            const(void*)[1] arr = [signals[0].ptr];
+            // const(void*)[1] arr = [signals[0].ptr];
+            const(void)*[32] arr;
+            foreach(i; 0 .. signals.length)
+                arr[i] = signals[i].ptr;
+
             setTransmitSignal(_streamer, arr.ptr, 4, signals[0].length);
         }
 
