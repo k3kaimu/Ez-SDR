@@ -3,18 +3,46 @@
     "devices": {
         "USRP_TX0": {
             "type": "USRP_TX_LoopDRAM",
-            "args": "addr0=192.168.44.34",
-            "rate": 200e6,
-            "freq": 2.4e9,
-            "gain": 30,
-            "ant": "TX/RX"
+            "args": "addr0=192.168.10.2",
+            "timeref": ["internal"],
+            "clockref": ["internal"],
+            "tx-streamers": [
+                {
+                    "tx_args": [""],
+                    "radio_id": [0],
+                    "radio_ch": [0],
+                    "replay_id": [0],
+                    "replay_ch": [0],
+                    "rate": [200e6],
+                    "freq": [0],
+                    "gain": [0],
+                    "ant": [""],
+                    "bw": [200e6]
+                },
+                {
+                    "tx_args": [""],
+                    "radio_id": [1],
+                    "radio_ch": [0],
+                    "replay_id": [0],
+                    "replay_ch": [1],
+                    "rate": [200e6],
+                    "freq": [0],
+                    "gain": [0],
+                    "ant": [""],
+                    "bw": [200e6]
+                }
+            ]
         }
     },
     "controllers": {
         "TX0": {
-            "type": "LoopTX",
-            "streamers": ["USRP_TX0"]
-        }
+            "type": "CyclicTX",
+            "streamers": ["USRP_TX0:0"]
+        },
+        "TX1": {
+            "type": "CyclicTX",
+            "streamers": ["USRP_TX0:1"]
+        },
     },
     "port": 8888
 }
