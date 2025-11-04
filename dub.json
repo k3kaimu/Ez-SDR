@@ -13,10 +13,12 @@
 	"preBuildCommands": [
         "clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
 		"clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/multiusrp.cpp",
+		"clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/uhd_rfnoc.cpp",
     ],
 	"sourceFiles": [
 		"looptx_rfnoc_replay_block.o",
 		"multiusrp.o",
+		"uhd_rfnoc.o"
 	],
 	"libs":[
 		"stdc++",

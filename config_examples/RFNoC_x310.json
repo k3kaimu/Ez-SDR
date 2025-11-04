@@ -1,0 +1,61 @@
+{
+    "version": 3,
+    "devices": {
+        "USRP0": {
+            "type": "UHD_RFNoC",
+            "args": "addr0=192.168.10.2",
+            "timeref": ["internal"],
+            "clockref": ["internal"],
+            "connections": [
+                "0/Replay#0:0 => 0/Radio#0:0",
+                "0/Replay#0:1 => 0/Radio#1:0"
+            ],
+            "radios": {
+                "0/Radio#0": {
+                    "tx-channels": [0],
+                    "tx-args": [""],
+                    "tx-rate": [200e6],
+                    "tx-freq": [0],
+                    "tx-gain": [0],
+                    "tx-ant": [""],
+                    "tx-bw": [200e6],
+                    "rx-args": [""],
+                    "rx-rate": [200e6],
+                    "rx-freq": [0],
+                    "rx-gain": [0],
+                    "rx-ant": [""],
+                    "rx-bw": [200e6]
+                },
+                "0/Radio#1": {
+                    "tx-channels": [0],
+                    "tx-args": [""],
+                    "tx-rate": [200e6],
+                    "tx-freq": [0],
+                    "tx-gain": [0],
+                    "tx-ant": [""],
+                    "tx-bw": [200e6],
+                    "rx-args": [""],
+                    "rx-rate": [200e6],
+                    "rx-freq": [0],
+                    "rx-gain": [0],
+                    "rx-ant": [""],
+                    "rx-bw": [200e6]
+                }
+            },
+            "tx-streamers": [
+                { "type": "replay", "connect_to": ["0/Replay#0:0", "0/Replay#0:1"] }
+            ],
+            "rx-streamers": [
+                { "type": "default", "connect_from": ["0/Radio#0:0"] },
+                { "type": "default", "connect_from": ["0/Radio#1:0"] }
+            ]
+        }
+    },
+    "controllers": {
+        "TX0": {
+            "type": "CyclicTX",
+            "streamers": ["USRP0:TX:0"]
+        }
+    },
+    "port": 8888
+}

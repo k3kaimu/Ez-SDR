@@ -146,6 +146,9 @@ IDevice newDevice(string type)
         case "HackRF":
             import device.hackrf;
             return new HackRF();
+        case "UHD_RFNoC":
+            import device.uhd_rfnoc;
+            return new UHDRFNoC();
         default:
             writefln("Cannot file device type: %s", type);
             return null;
