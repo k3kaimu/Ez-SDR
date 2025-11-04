@@ -145,6 +145,133 @@ struct TxReplayStreamer : Streamer
 
     bool has_time_spec;
     uhd::time_spec_t time_spec;
+
+
+    uint32_t getNumChannels()
+    {
+        return this->num_channels;
+    }
+
+
+    uint64_t setTransmitSignal(void const* const* signals, uint64_t sample_size, uint64_t num_samples)
+    {
+        for(uint32_t i = 0; i < this->num_channels; ++i) {
+            const size_t replay_word_size = this->replay_ctrl[i]->get_word_size(); // Size of words used by replay block
+
+            // Calculate the number of 64-bit words and samples to replay
+            size_t words_to_replay = (num_samples * sample_size) / replay_word_size;
+            size_t samples_to_replay = num_samples;
+
+            /************************************************************************
+            * Configure replay block
+            ***********************************************************************/
+            // Configure a buffer in the on-board memory at address 0 that's equal in
+            // size to the file we want to play back (rounded down to a multiple of
+            // 64-bit words). Note that it is allowed to playback a different size or
+            // location from what was recorded.
+            uint32_t replay_buff_size = samples_to_replay * sample_size;
+            this->replay_ctrl[i]->record(this->replay_buff_addr[i], replay_buff_size, this->replay_chan[i]);
+            // this->replay_buff_addr = replay_buff_addr;
+            this->replay_buff_size[i] = replay_buff_size;
+
+            // Display replay configuration
+            std::cout << "Replay file size:     " << replay_buff_size << " bytes (" << words_to_replay
+                << " qwords, " << samples_to_replay << " samples)" << std::endl;
+
+            std::cout << "Record base address:  0x" << std::hex
+                << this->replay_ctrl[i]->get_record_offset(this->replay_chan[i]) << std::dec << std::endl;
+            std::cout << "Record buffer size:   " << this->replay_ctrl[i]->get_record_size(this->replay_chan[i])
+                << " bytes" << std::endl;
+            std::cout << "Record fullness:      " << this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i])
+                << " bytes" << std::endl
+                << std::endl;
+
+            // Restart record buffer repeatedly until no new data appears on the Replay
+            // block's input. This will flush any data that was buffered on the input.
+            uint32_t fullness;
+            std::cout << "Emptying record buffer..." << std::endl;
+            do {
+                this->replay_ctrl[i]->record_restart(this->replay_chan[i]);
+
+                // Make sure the record buffer doesn't start to fill again
+                auto start_time = std::chrono::steady_clock::now();
+                do {
+                    fullness = this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i]);
+                    if (fullness != 0)
+                        break;
+                } while (start_time + 250ms > std::chrono::steady_clock::now());
+            } while (fullness);
+            std::cout << "Record fullness:      " << this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i])
+                << " bytes" << std::endl
+                << std::endl;
+        }
+
+        /************************************************************************
+        * Send data to replay (== record the data)
+        ***********************************************************************/
+        std::cout << "Sending data to be recorded..." << std::endl;
+        uhd::tx_metadata_t tx_md;
+        tx_md.start_of_burst = true;
+        tx_md.end_of_burst   = true;
+        // We use a very big timeout here, any network buffering issue etc. is not
+        // a problem for this application, and we want to upload all the data in one
+        // send() call.
+        std::vector<void const*> buffs(this->num_channels);
+        for(uint32_t i = 0; i < this->num_channels; ++i)
+            buffs[i] = signals[i];
+
+        size_t num_tx_samps = this->streamer->send(buffs, num_samples, tx_md, 5);
+        if (num_tx_samps != num_samples) {
+            std::cout << "ERROR: Unable to send " << num_samples << " samples (sent "
+                << num_tx_samps << ")" << std::endl;
+            return false;
+        }
+
+        /************************************************************************
+        * Wait for data to be stored in on-board memory
+        ***********************************************************************/
+        std::cout << "Waiting for recording to complete..." << std::endl;
+        for(uint32_t i = 0; i < this->num_channels; ++i) {
+            while (this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i]) < this->replay_buff_size[i]) {
+                std::this_thread::sleep_for(50ms);
+            }
+            size_t recorded_samples = this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i]) / sample_size;
+            std::cout << "Channel " << i << ": Recorded " << recorded_samples << " samples."
+                << std::endl;
+            
+            if(recorded_samples != num_samples) {
+                std::cout << "ERROR: Unable to record " << num_samples << " samples (recorded "
+                    << recorded_samples << ")" << std::endl;
+                return 0;
+            }
+        }
+        // return dev->replay_ctrl[i]->get_record_fullness(dev->replay_chan[i]) / sample_size;
+
+        return num_tx_samps;
+    }
+
+
+    void startTransmit()
+    {
+        const bool repeat = true;
+        uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
+        if(this->has_time_spec)
+            time_spec = this->time_spec;
+
+        for(uint32_t i = 0; i < this->num_channels; ++i) {
+            this->replay_ctrl[i]->play(this->replay_buff_addr[i], this->replay_buff_size[i], this->replay_chan[i], time_spec, repeat);
+            std::cout << "Started transmit on channel " << i << std::endl;
+        }
+
+        this->has_time_spec = false;
+    }
+
+
+    void stopTransmit()
+    {
+        for(uint32_t i = 0; i < this->num_channels; ++i)
+            this->replay_ctrl[i]->stop(this->replay_chan[i]);
+    }
 };
 
 
@@ -449,137 +576,26 @@ void getTimeLastPPS(DeviceHandler handler, int64_t& fullsecs, double& fracsecs)
 }
 
 
-uint32_t getNumChannels(TxReplayStreamerHandler handler)
-{
-    auto& streamer = *handler.streamer;
-    return streamer.num_channels;
-}
-
-
-
 uint64_t setTransmitSignal(TxReplayStreamerHandler handler, void const* const* signals, uint64_t sample_size, uint64_t num_samples)
 {
-    auto streamer = handler.streamer;
-
-    for(uint32_t i = 0; i < streamer->num_channels; ++i) {
-        const size_t replay_word_size = streamer->replay_ctrl[i]->get_word_size(); // Size of words used by replay block
-
-        // Calculate the number of 64-bit words and samples to replay
-        size_t words_to_replay = (num_samples * sample_size) / replay_word_size;
-        size_t samples_to_replay = num_samples;
-
-        /************************************************************************
-        * Configure replay block
-        ***********************************************************************/
-        // Configure a buffer in the on-board memory at address 0 that's equal in
-        // size to the file we want to play back (rounded down to a multiple of
-        // 64-bit words). Note that it is allowed to playback a different size or
-        // location from what was recorded.
-        uint32_t replay_buff_size = samples_to_replay * sample_size;
-        streamer->replay_ctrl[i]->record(streamer->replay_buff_addr[i], replay_buff_size, streamer->replay_chan[i]);
-        // streamer->replay_buff_addr = replay_buff_addr;
-        streamer->replay_buff_size[i] = replay_buff_size;
-
-        // Display replay configuration
-        std::cout << "Replay file size:     " << replay_buff_size << " bytes (" << words_to_replay
-            << " qwords, " << samples_to_replay << " samples)" << std::endl;
-
-        std::cout << "Record base address:  0x" << std::hex
-            << streamer->replay_ctrl[i]->get_record_offset(streamer->replay_chan[i]) << std::dec << std::endl;
-        std::cout << "Record buffer size:   " << streamer->replay_ctrl[i]->get_record_size(streamer->replay_chan[i])
-            << " bytes" << std::endl;
-        std::cout << "Record fullness:      " << streamer->replay_ctrl[i]->get_record_fullness(streamer->replay_chan[i])
-            << " bytes" << std::endl
-            << std::endl;
-
-        // Restart record buffer repeatedly until no new data appears on the Replay
-        // block's input. This will flush any data that was buffered on the input.
-        uint32_t fullness;
-        std::cout << "Emptying record buffer..." << std::endl;
-        do {
-            streamer->replay_ctrl[i]->record_restart(streamer->replay_chan[i]);
-
-            // Make sure the record buffer doesn't start to fill again
-            auto start_time = std::chrono::steady_clock::now();
-            do {
-                fullness = streamer->replay_ctrl[i]->get_record_fullness(streamer->replay_chan[i]);
-                if (fullness != 0)
-                    break;
-            } while (start_time + 250ms > std::chrono::steady_clock::now());
-        } while (fullness);
-        std::cout << "Record fullness:      " << streamer->replay_ctrl[i]->get_record_fullness(streamer->replay_chan[i])
-            << " bytes" << std::endl
-            << std::endl;
-    }
-
-    /************************************************************************
-    * Send data to replay (== record the data)
-    ***********************************************************************/
-    std::cout << "Sending data to be recorded..." << std::endl;
-    uhd::tx_metadata_t tx_md;
-    tx_md.start_of_burst = true;
-    tx_md.end_of_burst   = true;
-    // We use a very big timeout here, any network buffering issue etc. is not
-    // a problem for this application, and we want to upload all the data in one
-    // send() call.
-    std::vector<void const*> buffs(streamer->num_channels);
-    for(uint32_t i = 0; i < streamer->num_channels; ++i)
-        buffs[i] = signals[i];
-
-    size_t num_tx_samps = streamer->streamer->send(buffs, num_samples, tx_md, 5);
-    if (num_tx_samps != num_samples) {
-        std::cout << "ERROR: Unable to send " << num_samples << " samples (sent "
-            << num_tx_samps << ")" << std::endl;
-        return false;
-    }
-
-    /************************************************************************
-    * Wait for data to be stored in on-board memory
-    ***********************************************************************/
-    std::cout << "Waiting for recording to complete..." << std::endl;
-    for(uint32_t i = 0; i < streamer->num_channels; ++i) {
-        while (streamer->replay_ctrl[i]->get_record_fullness(streamer->replay_chan[i]) < streamer->replay_buff_size[i]) {
-            std::this_thread::sleep_for(50ms);
-        }
-        size_t recorded_samples = streamer->replay_ctrl[i]->get_record_fullness(streamer->replay_chan[i]) / sample_size;
-        std::cout << "Channel " << i << ": Recorded " << recorded_samples << " samples."
-            << std::endl;
-        
-        if(recorded_samples != num_samples) {
-            std::cout << "ERROR: Unable to record " << num_samples << " samples (recorded "
-                << recorded_samples << ")" << std::endl;
-            return 0;
-        }
-    }
-    // return dev->replay_ctrl[i]->get_record_fullness(dev->replay_chan[i]) / sample_size;
-
-    return num_tx_samps;
+    return handler.streamer->setTransmitSignal(signals, sample_size, num_samples);
 }
 
 
 void startTransmit(TxReplayStreamerHandler handler)
 {
-    auto streamer = handler.streamer;
-
-    const bool repeat = true;
-    uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
-    if(streamer->has_time_spec)
-        time_spec = streamer->time_spec;
-
-    for(uint32_t i = 0; i < streamer->num_channels; ++i) {
-        streamer->replay_ctrl[i]->play(streamer->replay_buff_addr[i], streamer->replay_buff_size[i], streamer->replay_chan[i], time_spec, repeat);
-        std::cout << "Started transmit on channel " << i << std::endl;
-    }
-
-    streamer->has_time_spec = false;
+    handler.streamer->startTransmit();
 }
-
 
 void stopTransmit(TxReplayStreamerHandler handler)
 {
-    auto streamer = handler.streamer;
-    for(uint32_t i = 0; i < streamer->num_channels; ++i)
-        streamer->replay_ctrl[i]->stop(streamer->replay_chan[i]);
+    handler.streamer->stopTransmit();
+}
+
+
+uint getNumChannels(TxReplayStreamerHandler handler)
+{
+    return handler.streamer->getNumChannels();
 }
 
 

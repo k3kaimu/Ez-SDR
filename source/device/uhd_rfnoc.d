@@ -33,8 +33,8 @@ extern(C++, "uhd_rfnoc") nothrow @nogc
 
     TxReplayStreamerHandler getTxReplayStreamer(const(char)* name, DeviceHandler handler, uint index);
     ulong setTransmitSignal(TxReplayStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
-    ulong startTransmit(TxReplayStreamerHandler handler);
-    ulong stopTransmit(TxReplayStreamerHandler handler);
+    void startTransmit(TxReplayStreamerHandler handler);
+    void stopTransmit(TxReplayStreamerHandler handler);
     uint getNumChannels(TxReplayStreamerHandler handler);
 }
 
