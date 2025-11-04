@@ -19,23 +19,22 @@ extern(C++, "uhd_rfnoc") nothrow @nogc
 {
     struct DeviceHandler { void* _payload; }
     struct TxReplayStreamerHandler { void* _payload; }
-
-
     struct TxDefaultStreamerHandler { void* _payload; }
     struct RxDefaultStreamerHandler { void* _payload; }
 
     DeviceHandler setupDevice(const(char)* name, const(char)* json);
-    TxReplayStreamerHandler getTxReplayStreamer(const(char)* name, DeviceHandler handler, uint index);
-    // void destroyTxReplayStreamer(ref TxReplayStreamerHandler handler);
     // TxDefaultStreamerHandler getTxDefaultStreamer(const(char)* name, DeviceHandler handler, uint index);
     // RxDefaultStreamerHandler getRxDefaultStreamer(const(char)* name, DeviceHandler handler, uint index);
+    
     void destroyDevice(ref DeviceHandler handler);
-    ulong setTransmitSignal(TxReplayStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
-    ulong startTransmit(TxReplayStreamerHandler handler);
-    ulong stopTransmit(TxReplayStreamerHandler handler);
     void setParam(DeviceHandler handler, const(char)* key, const(char)* value);
     void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
     void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
+
+    TxReplayStreamerHandler getTxReplayStreamer(const(char)* name, DeviceHandler handler, uint index);
+    ulong setTransmitSignal(TxReplayStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
+    ulong startTransmit(TxReplayStreamerHandler handler);
+    ulong stopTransmit(TxReplayStreamerHandler handler);
     uint getNumChannels(TxReplayStreamerHandler handler);
 }
 
