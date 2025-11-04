@@ -141,6 +141,7 @@ struct Streamer
 struct TxReplayStreamer : Streamer
 {
     int num_channels;
+    ezsdr::StreamerElementType elementType;
     uhd::tx_streamer::sptr streamer;
     std::vector<uhd::rfnoc::replay_block_control::sptr> replay_ctrl;
     std::vector<uint32_t> replay_chan;
@@ -326,10 +327,17 @@ struct Device
                 baps.push_back(parseBlockAndPort(bap_str));
             }
 
-            auto cpu_format = "fc32";
-            auto wire_format = "sc16";
+            auto srvfmt = e.value<std::string_view>("srvfmt", ezsdr::StreamerElementTypeString::ComplexFloat32);
+            auto devfmt = e.value<std::string_view>("devfmt", ezsdr::StreamerElementTypeString::ComplexInt16);
+
+            std::string srvfmt_uhd = ezsdr::convertTypeStringToUHD(srvfmt);
+            std::string devfmt_uhd = ezsdr::convertTypeStringToUHD(devfmt);
+
+            if(srvfmt_uhd == "") throw std::runtime_error(std::format("srvfmt = '{}' is invalid.", srvfmt));
+            if(devfmt_uhd == "") throw std::runtime_error(std::format("devfmt = '{}' is invalid.", devfmt));
+
             uhd::device_addr_t streamer_args;
-            uhd::stream_args_t stream_args(cpu_format, wire_format);
+            uhd::stream_args_t stream_args(srvfmt_uhd, devfmt_uhd);
 
             stream_args.args = streamer_args;
             auto tx_streamer = graph->create_tx_streamer(baps.size(), stream_args);
@@ -337,6 +345,7 @@ struct Device
             auto tx_replay_streamer = new TxReplayStreamer{};
             tx_replay_streamer->num_channels = baps.size();
             tx_replay_streamer->streamer = tx_streamer;
+            tx_replay_streamer->elementType = ezsdr::convertStreamerElementType(srvfmt);
             for(size_t i = 0; i < baps.size(); ++i) {
                 graph->connect(tx_streamer, i, baps[i].id, baps[i].port);
                 std::cout << "Connected TX streamer to " << baps[i].id << ":" << baps[i].port << std::endl;
