@@ -145,126 +145,6 @@ struct TxReplayStreamer : Streamer
 
     bool has_time_spec;
     uhd::time_spec_t time_spec;
-
-
-    // uint64_t setTransmitSignal(void const* const* signals, uint64_t sample_size, uint64_t num_samples)
-    // {
-    //     for(uint32_t i = 0; i < this->num_channels; ++i) {
-    //         const size_t replay_word_size = this->replay_ctrl[i]->get_word_size(); // Size of words used by replay block
-
-    //         // Calculate the number of 64-bit words and samples to replay
-    //         size_t words_to_replay = (num_samples * sample_size) / replay_word_size;
-    //         size_t samples_to_replay = num_samples;
-
-    //         /************************************************************************
-    //         * Configure replay block
-    //         ***********************************************************************/
-    //         // Configure a buffer in the on-board memory at address 0 that's equal in
-    //         // size to the file we want to play back (rounded down to a multiple of
-    //         // 64-bit words). Note that it is allowed to playback a different size or
-    //         // location from what was recorded.
-    //         uint32_t replay_buff_size = samples_to_replay * sample_size;
-    //         this->replay_ctrl[i]->record(this->replay_buff_addr[i], replay_buff_size, this->replay_chan[i]);
-    //         // this->replay_buff_addr = replay_buff_addr;
-    //         this->replay_buff_size[i] = replay_buff_size;
-
-    //         // Display replay configuration
-    //         std::cout << "Replay file size:     " << replay_buff_size << " bytes (" << words_to_replay
-    //             << " qwords, " << samples_to_replay << " samples)" << std::endl;
-
-    //         std::cout << "Record base address:  0x" << std::hex
-    //             << this->replay_ctrl[i]->get_record_offset(this->replay_chan[i]) << std::dec << std::endl;
-    //         std::cout << "Record buffer size:   " << this->replay_ctrl[i]->get_record_size(this->replay_chan[i])
-    //             << " bytes" << std::endl;
-    //         std::cout << "Record fullness:      " << this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i])
-    //             << " bytes" << std::endl
-    //             << std::endl;
-
-    //         // Restart record buffer repeatedly until no new data appears on the Replay
-    //         // block's input. This will flush any data that was buffered on the input.
-    //         uint32_t fullness;
-    //         std::cout << "Emptying record buffer..." << std::endl;
-    //         do {
-    //             this->replay_ctrl[i]->record_restart(this->replay_chan[i]);
-
-    //             // Make sure the record buffer doesn't start to fill again
-    //             auto start_time = std::chrono::steady_clock::now();
-    //             do {
-    //                 fullness = this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i]);
-    //                 if (fullness != 0)
-    //                     break;
-    //             } while (start_time + 250ms > std::chrono::steady_clock::now());
-    //         } while (fullness);
-    //         std::cout << "Record fullness:      " << this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i])
-    //             << " bytes" << std::endl
-    //             << std::endl;
-    //     }
-
-    //     /************************************************************************
-    //     * Send data to replay (== record the data)
-    //     ***********************************************************************/
-    //     std::cout << "Sending data to be recorded..." << std::endl;
-    //     uhd::tx_metadata_t tx_md;
-    //     tx_md.start_of_burst = true;
-    //     tx_md.end_of_burst   = true;
-    //     // We use a very big timeout here, any network buffering issue etc. is not
-    //     // a problem for this application, and we want to upload all the data in one
-    //     // send() call.
-    //     std::vector<void const*> buffs(this->num_channels);
-    //     for(uint32_t i = 0; i < this->num_channels; ++i)
-    //         buffs[i] = signals[i];
-
-    //     size_t num_tx_samps = this->streamer->send(buffs, num_samples, tx_md, 5);
-    //     if (num_tx_samps != num_samples) {
-    //         std::cout << "ERROR: Unable to send " << num_samples << " samples (sent "
-    //             << num_tx_samps << ")" << std::endl;
-    //         return false;
-    //     }
-
-    //     /************************************************************************
-    //     * Wait for data to be stored in on-board memory
-    //     ***********************************************************************/
-    //     std::cout << "Waiting for recording to complete..." << std::endl;
-    //     for(uint32_t i = 0; i < this->num_channels; ++i) {
-    //         while (this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i]) < this->replay_buff_size[i]) {
-    //             std::this_thread::sleep_for(50ms);
-    //         }
-    //         size_t recorded_samples = this->replay_ctrl[i]->get_record_fullness(this->replay_chan[i]) / sample_size;
-    //         std::cout << "Channel " << i << ": Recorded " << recorded_samples << " samples."
-    //             << std::endl;
-            
-    //         if(recorded_samples != num_samples) {
-    //             std::cout << "ERROR: Unable to record " << num_samples << " samples (recorded "
-    //                 << recorded_samples << ")" << std::endl;
-    //             return 0;
-    //         }
-    //     }
-    //     // return dev->replay_ctrl[i]->get_record_fullness(dev->replay_chan[i]) / sample_size;
-
-    //     return num_tx_samps;
-    // }
-
-
-    // void startTransmit()
-    // {
-    //     const bool repeat = true;
-    //     uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
-    //     if(this->has_time_spec)
-    //         time_spec = this->time_spec;
-
-    //     for(uint32_t i = 0; i < this->num_channels; ++i) {
-    //         this->replay_ctrl[i]->play(this->replay_buff_addr[i], this->replay_buff_size[i], this->replay_chan[i], time_spec, repeat);
-    //     }
-
-    //     this->has_time_spec = false;
-    // }
-
-
-    // void stopTransmit()
-    // {
-    //     for(uint32_t i = 0; i < this->num_channels; ++i)
-    //         this->replay_ctrl[i]->stop(this->replay_chan[i]);
-    // }
 };
 
 
@@ -490,19 +370,6 @@ DeviceHandler setupDevice(
     std::string args = config.value("args", "");
     std::vector<std::string> clockref = config.value("clockref", std::vector<std::string>{});
     std::vector<std::string> timeref = config.value("timeref", std::vector<std::string>{});
-    // uint32_t radio_id = config.value("radio_id", 0);
-    // uint32_t radio_chan = config.value("radio_chan", 0);
-    // uint32_t replay_id = config.value("replay_id", 0);
-    // uint32_t replay_chan = config.value("replay_chan", 0);
-    // double freq = config.value("freq", -1.0);
-    // double rate = config.value("rate", -1.0);
-    // double gain = config.value("gain", -1.0);
-    // std::string ant = config.value("ant", "");
-    // double bw = config.value("bw", -1.0);
-    // std::string clockref = config.value("clockref", "");
-    // std::string timeref = config.value("timeref", "");
-    // auto cpu_format = "fc32";
-    // auto wire_format = "sc16";
 
     Device* dev = new Device;
     dev->name = name;
@@ -510,47 +377,12 @@ DeviceHandler setupDevice(
     dev->args = args;
     dev->clockref = clockref;
     dev->timeref = timeref;
-    // dev->tx_args = tx_args;
-    // dev->radio_id = radio_id;
-    // dev->radio_chan = radio_chan;
-    // dev->replay_id = replay_id;
-    // dev->replay_chan = replay_chan;
-    // dev->freq = freq;
-    // dev->rate = rate;
-    // dev->gain = gain;
-    // dev->ant = ant;
-    // dev->bw = bw;
-    // dev->clockref = clockref;
-    // dev->timeref = timeref;
 
     std::cout << "Creating the RFNoC graph with args: " << args << "..." << std::endl;
     auto graph = uhd::rfnoc::rfnoc_graph::make(args);
     dev->graph = graph;
     dev->setupGraph(config);
     dev->graph->commit();
-
-    // // キャプチャ開始アドレスの計算
-    // std::map<uint32_t, uint32_t> replay_id_count;
-    // for(auto& tx_streamer: dev->tx_streamers) {
-    //     if (tx_streamer) {
-    //         tx_streamer->replay_buff_addr.resize(tx_streamer->num_channels);
-    //         tx_streamer->replay_buff_size.resize(tx_streamer->num_channels);
-
-    //         for(size_t i = 0; i < tx_streamer->num_channels; ++i) {
-    //             uint32_t numUsedChannels = getNumUsedChannelsForReplay(config, tx_streamer->replay_id[i]);
-
-    //             if(replay_id_count.find(tx_streamer->replay_id[i]) == replay_id_count.end())
-    //                 replay_id_count[tx_streamer->replay_id[i]] = 0;
-    //             replay_id_count[tx_streamer->replay_id[i]] = replay_id_count[tx_streamer->replay_id[i]] + 1;
-
-    //             // Calculate the number of 64-bit words and samples to replay
-    //             size_t mem_size = tx_streamer->replay_ctrl[i]->get_mem_size();
-    //             size_t mem_stride = mem_size / numUsedChannels;
-
-    //             tx_streamer->replay_buff_addr[i] = (replay_id_count[tx_streamer->replay_id[i]]-1) * mem_stride;
-    //         }
-    //     }
-    // }
 
     /************************************************************************
      * Set up radio
@@ -565,131 +397,6 @@ DeviceHandler setupDevice(
     }
 
     dev->setupRadios(config);
-
-    // for(auto& tx_streamer: dev->tx_streamers) {
-    //     setupTxReplayStreamerRadio(*dev, tx_streamer);
-    // }
-
-    // // Create handle for radio object
-    // uhd::rfnoc::block_id_t radio_ctrl_id(0, "Radio", radio_id);
-    // auto radio_ctrl = graph->get_block<uhd::rfnoc::radio_control>(radio_ctrl_id);
-    // dev->radio_ctrl = radio_ctrl;
-
-    // // Check if the replay block exists on this device
-    // uhd::rfnoc::block_id_t replay_ctrl_id(0, "Replay", replay_id);
-    // if (!graph->has_block(replay_ctrl_id)) {
-    //     std::cout << "Unable to find block \"" << replay_ctrl_id << "\"" << std::endl;
-    //     return DeviceHandler{nullptr};
-    // }
-    // auto replay_ctrl = graph->get_block<uhd::rfnoc::replay_block_control>(replay_ctrl_id);
-    // dev->replay_ctrl = replay_ctrl;
-
-    // // Connect replay to radio
-    // auto edges = uhd::rfnoc::connect_through_blocks(graph, replay_ctrl_id, replay_chan, radio_ctrl_id, radio_chan);
-
-    // // Check for a DUC connected to the radio
-    // uhd::rfnoc::duc_block_control::sptr duc_ctrl;
-    // size_t duc_chan = 0;
-    // for (auto& edge : edges) {
-    //     auto blockid = uhd::rfnoc::block_id_t(edge.dst_blockid);
-    //     if (blockid.match("DUC")) {
-    //         duc_ctrl = graph->get_block<uhd::rfnoc::duc_block_control>(blockid);
-    //         duc_chan = edge.dst_port;
-    //         break;
-    //     }
-    // }
-
-    // // Report blocks
-    // std::cout << "Using Radio Block:  " << radio_ctrl_id << ", channel " << radio_chan
-    //           << std::endl;
-    // std::cout << "Using Replay Block: " << replay_ctrl_id << ", channel " << replay_chan
-    //           << std::endl;
-    // if (duc_ctrl) {
-    //     std::cout << "Using DUC Block:    " << duc_ctrl->get_block_id() << ", channel "
-    //               << duc_chan << std::endl;
-    // }
-
-
-    // /************************************************************************
-    //  * Set up streamer to Replay block and commit graph
-    //  ***********************************************************************/
-    // uhd::device_addr_t streamer_args;
-    // uhd::stream_args_t stream_args(cpu_format, wire_format);
-    // uhd::tx_streamer::sptr tx_stream;
-    // uhd::tx_metadata_t tx_md;
-
-    // stream_args.args = streamer_args;
-    // tx_stream        = graph->create_tx_streamer(1, stream_args);
-    // graph->connect(tx_stream, 0, replay_ctrl->get_block_id(), replay_chan);
-    // graph->commit();
-    // dev->streamer = tx_stream;
-
-
-
-    // // Apply any radio arguments provided
-    // if (tx_args.size() > 0) {
-    //     radio_ctrl->set_tx_tune_args(tx_args, radio_chan);
-    // }
-
-    // // Set the center frequency
-    // if (freq < 0) {
-    //     std::cerr << "Please specify the center frequency with 'freq'" << std::endl;
-    //     return DeviceHandler{nullptr};
-    // }
-
-    // std::cout << std::fixed;
-    // std::cout << "Requesting TX Freq: " << (freq / 1e6) << " MHz..." << std::endl;
-    // radio_ctrl->set_tx_frequency(freq, radio_chan);
-    // std::cout << "Actual TX Freq: " << (radio_ctrl->get_tx_frequency(radio_chan) / 1e6)
-    //           << " MHz..." << std::endl
-    //           << std::endl;
-    // std::cout << std::resetiosflags(std::ios::fixed);
-
-    // // Set the sample rate
-    // if (rate >= 0) {
-    //     std::cout << std::fixed;
-    //     std::cout << "Requesting TX Rate: " << (rate / 1e6) << " Msps..." << std::endl;
-    //     if (duc_ctrl) {
-    //         std::cout << "DUC block found." << std::endl;
-    //         duc_ctrl->set_input_rate(rate, duc_chan);
-    //         std::cout << "  Interpolation value is "
-    //                   << duc_ctrl->get_property<int>("interp", duc_chan) << std::endl;
-    //         rate = duc_ctrl->get_input_rate(duc_chan);
-    //     } else {
-    //         rate = radio_ctrl->set_rate(rate);
-    //     }
-    //     std::cout << "Actual TX Rate: " << (rate / 1e6) << " Msps..." << std::endl
-    //               << std::endl;
-    //     std::cout << std::resetiosflags(std::ios::fixed);
-    // }
-
-    // // Set the RF gain
-    // if (gain >= 0) {
-    //     std::cout << std::fixed;
-    //     std::cout << "Requesting TX Gain: " << gain << " dB..." << std::endl;
-    //     radio_ctrl->set_tx_gain(gain, radio_chan);
-    //     std::cout << "Actual TX Gain: " << radio_ctrl->get_tx_gain(radio_chan) << " dB..."
-    //               << std::endl
-    //               << std::endl;
-    //     std::cout << std::resetiosflags(std::ios::fixed);
-    // }
-
-    // // Set the analog front-end filter bandwidth
-    // if (bw >= 0) {
-    //     std::cout << std::fixed;
-    //     std::cout << "Requesting TX Bandwidth: " << (bw / 1e6) << " MHz..." << std::endl;
-    //     radio_ctrl->set_tx_bandwidth(bw, radio_chan);
-    //     std::cout << "Actual TX Bandwidth: "
-    //               << (radio_ctrl->get_tx_bandwidth(radio_chan) / 1e6) << " MHz..."
-    //               << std::endl
-    //               << std::endl;
-    //     std::cout << std::resetiosflags(std::ios::fixed);
-    // }
-
-    // // Set the antenna
-    // if (ant.size() > 0) {
-    //     radio_ctrl->set_tx_antenna(ant, radio_chan);
-    // }
 
     DeviceHandler handler = {dev};
     return handler;
@@ -747,46 +454,6 @@ uint32_t getNumChannels(TxReplayStreamerHandler handler)
     auto& streamer = *handler.streamer;
     return streamer.num_channels;
 }
-
-
-// void setNextCommandTime(DeviceHandler handler, int64_t fullsecs, double fracsecs)
-// {
-//     Device* dev = handler.dev;
-//     dev->has_time_spec = true;
-//     dev->time_spec = uhd::time_spec_t(fullsecs, fracsecs);
-// }
-
-
-
-// # include <bits/stdc++.h>
-
-// int main()
-// {
-//     auto device = looptx_rfnoc_replay_block::setupDevice("{\"args\": \"addr=192.168.41.31\", \"freq\": 2.45e9, \"gain\":10, \"rate\": 200e6 }");
-
-
-        
-//     double SAMPLE_RATE = 200.0e6;
-//     double FREQUENCY   = 500.0e3;
-//     double NUM_SAMPLES = 16000;
-//     double AMPLITUDE   = 0.5;
-
-//     std::vector<std::complex<short>> signal(NUM_SAMPLES);
-//     for(size_t i = 0; i < NUM_SAMPLES; ++i) {
-//         short I = (short)(( (1<<15) -1) * AMPLITUDE * std::cos(i / (SAMPLE_RATE / FREQUENCY) * 2 * M_PI));
-//         short Q = (short)(( (1<<15) -1) * AMPLITUDE * std::sin(i / (SAMPLE_RATE / FREQUENCY) * 2 * M_PI));
-//         signal[i] = std::complex<short>(I, Q);
-//     }
-
-
-//     void* buf_ptr = &(signal[0]);
-//     setTransmitSignal(device, &buf_ptr, 4, NUM_SAMPLES);
-//     startTransmit(device);
-//     std::this_thread::sleep_for(std::chrono::minutes(5));
-//     stopTransmit(device);
-//     looptx_rfnoc_replay_block::destroyDevice(device);
-//     return 0;
-// }
 
 
 

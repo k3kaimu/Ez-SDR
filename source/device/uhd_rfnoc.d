@@ -18,14 +18,7 @@ import types;
 extern(C++, "uhd_rfnoc") nothrow @nogc
 {
     struct DeviceHandler { void* _payload; }
-    struct TxReplayStreamerHandler
-    {
-        void* _payload;
-
-        // ulong setTransmitSignal(const(void**) signals, ulong sample_size, ulong num_samples) nothrow @nogc;
-        // void startTransmit() nothrow @nogc;
-        // void stopTransmit() nothrow @nogc;
-    }
+    struct TxReplayStreamerHandler { void* _payload; }
 
 
     struct TxDefaultStreamerHandler { void* _payload; }
@@ -196,39 +189,6 @@ class UHDRFNoC : IDevice
         }
 
 
-        // void beginBurstTransmit(scope const(ubyte)[] q)
-        // {
-        //     // .waitDoneSyncPPS(cast() _dev.handler);
-        //     .beginBurstTransmitImpl(_handler, q.ptr, q.length);
-        // }
-
-
-        // void endBurstTransmit(scope const(ubyte)[] q)
-        // {
-        //     assert(q.length == 0, "additional arguments is not supported");
-        //     .endBurstTransmitImpl(_handler);
-        // }
-
-
-        // void burstTransmit(scope const C[][] signals, scope const(ubyte)[] q, scope size_t[] txsamples)
-        // in(signals.length > 0 && signals[0].length > 0)
-        // in(signals.length == txsamples.length)
-        // in(signals.length <= 128)
-        // do {
-        //     assert(q.length == 0, "additional arguments is not supported");
-        //     const(C)*[128] _tmp;
-
-        //     size_t remain = size_t.max;
-        //     foreach(i; 0 .. signals.length) {
-        //         _tmp[i] = signals[i].ptr;
-        //         remain = min(remain, signals[i].length);
-        //     }
-
-        //     size_t num = .burstTransmitImpl(_handler, cast(const(void**))_tmp.ptr, C.sizeof, remain);
-        //     txsamples[] = num;
-        // }
-
-
         void setLoopTransmitSignal(scope const Complex!float[][] signals, scope const(ubyte)[] q)
         {
             assert(q.length == 0, "additional arguments is not supported");
@@ -265,8 +225,6 @@ class UHDRFNoC : IDevice
             Thread.sleep(10.msecs);
         }
 
-
-        // mixin LoopByBurst!C;
 
       private:
         string _name;
