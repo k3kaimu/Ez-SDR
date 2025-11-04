@@ -384,22 +384,6 @@ DeviceHandler setupDevice(char const* name, char const* configJSON)
 }
 
 
-std::string _convertTypeStringToUHD(std::string_view const& type)
-{
-    if(type == ezsdr::StreamerElementTypeString::ComplexFloat32) {
-        return "fc32";
-    } else if(type == ezsdr::StreamerElementTypeString::ComplexFloat64) {
-        return "fc64";
-    } else if(type == ezsdr::StreamerElementTypeString::ComplexInt16) {
-        return "sc16";
-    } else if(type == ezsdr::StreamerElementTypeString::ComplexInt8) {
-        return "sc8";
-    } else {
-        return "";
-    }
-}
-
-
 TxStreamerHandler getTxStreamer(char const* name, DeviceHandler handler, uint index)
 {
     auto dev = handler.dev;
@@ -417,8 +401,8 @@ TxStreamerHandler getTxStreamer(char const* name, DeviceHandler handler, uint in
     auto cpufmt = streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32);
     auto otwfmt = streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16);
 
-    std::string cpufmt_uhd = _convertTypeStringToUHD(cpufmt);
-    std::string otwfmt_uhd = _convertTypeStringToUHD(otwfmt);
+    std::string cpufmt_uhd = ezsdr::convertTypeStringToUHD(cpufmt);
+    std::string otwfmt_uhd = ezsdr::convertTypeStringToUHD(otwfmt);
 
     if(cpufmt_uhd == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
     if(otwfmt_uhd == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));
@@ -453,8 +437,8 @@ RxStreamerHandler getRxStreamer(char const* name, DeviceHandler handler, uint in
     auto cpufmt = streamer_settings.value<std::string_view>("cpufmt", ezsdr::StreamerElementTypeString::ComplexFloat32);
     auto otwfmt = streamer_settings.value<std::string_view>("otwfmt", ezsdr::StreamerElementTypeString::ComplexInt16);
 
-    std::string cpufmt_uhd = _convertTypeStringToUHD(cpufmt);
-    std::string otwfmt_uhd = _convertTypeStringToUHD(otwfmt);
+    std::string cpufmt_uhd = ezsdr::convertTypeStringToUHD(cpufmt);
+    std::string otwfmt_uhd = ezsdr::convertTypeStringToUHD(otwfmt);
 
     if(cpufmt_uhd == "") throw std::runtime_error(std::format("cpufmt = '{}' is invalid.", cpufmt));
     if(otwfmt_uhd == "") throw std::runtime_error(std::format("otwfmt = '{}' is invalid.", otwfmt));

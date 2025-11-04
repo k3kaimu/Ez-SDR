@@ -14,6 +14,11 @@
 #include <chrono>
 #include <algorithm>
 
+#include "../string.hpp"
+#include "../asynctaskpool.hpp"
+#include "../spinlock.hpp"
+#include "../ezsdr_enums.hpp"
+
 using namespace std::chrono_literals;
 
 namespace uhd_rfnoc

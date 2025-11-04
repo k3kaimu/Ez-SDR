@@ -46,5 +46,21 @@ StreamerElementType convertStreamerElementType(std::string_view const& type)
 }
 
 
+std::string convertTypeStringToUHD(std::string_view const& type)
+{
+    if(type == ezsdr::StreamerElementTypeString::ComplexFloat32) {
+        return "fc32";
+    } else if(type == ezsdr::StreamerElementTypeString::ComplexFloat64) {
+        return "fc64";
+    } else if(type == ezsdr::StreamerElementTypeString::ComplexInt16) {
+        return "sc16";
+    } else if(type == ezsdr::StreamerElementTypeString::ComplexInt8) {
+        return "sc8";
+    } else {
+        return "";
+    }
+}
+
+
 }
 

@@ -11,14 +11,10 @@
 		"libhackrf-d": "~>0.0.3",
 	},
 	"preBuildCommands": [
-        "clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/looptx_rfnoc_replay_block.cpp",
-		"clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/multiusrp.cpp",
-		"clang++ -std=c++20 -O2 -Icpp -c cpp/uhd_usrp/uhd_rfnoc.cpp",
+        "clang++ -std=c++20 -O2 -Icpp -c cpp/sources.cpp",
     ],
 	"sourceFiles": [
-		"looptx_rfnoc_replay_block.o",
-		"multiusrp.o",
-		"uhd_rfnoc.o"
+		"sources.o"
 	],
 	"libs":[
 		"stdc++",
