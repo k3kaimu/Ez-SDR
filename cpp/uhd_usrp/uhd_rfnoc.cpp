@@ -2,6 +2,7 @@
 
 #include <uhd/rfnoc/block_id.hpp>
 #include <uhd/rfnoc/duc_block_control.hpp>
+#include <uhd/rfnoc/ddc_block_control.hpp>
 #include <uhd/rfnoc/mb_controller.hpp>
 #include <uhd/rfnoc/radio_control.hpp>
 #include <uhd/rfnoc/replay_block_control.hpp>
@@ -281,6 +282,141 @@ struct TxReplayStreamer : Streamer
 };
 
 
+struct TxDefaultStreamer : Streamer
+{
+    std::string name;
+    uhd::tx_streamer::sptr streamer;
+    std::vector<std::complex<float> const*> buffptrs;
+    int numChannel;
+    ezsdr::StreamerElementType elementType;
+
+    bool has_time_spec;
+    uhd::time_spec_t time_spec;
+    uhd::tx_metadata_t md;
+
+
+    void beginBurstTransmit(uint8_t const* optArgs, uint64_t optArgsLength)
+    {
+        this->md.start_of_burst = true;
+        this->md.end_of_burst = false;
+
+        forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
+            std::cout << "tagid = " << tag << std::endl;
+            if(tag == CommandTimeInfo::tag) {
+                assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
+                CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
+                this->md.has_time_spec = true;
+                this->md.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+                std::cout << "[uhd_rfnoc.cpp] Transmit streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
+            }
+        });
+    }
+
+
+    void endBurstTransmit()
+    {
+        this->md.has_time_spec = false;
+        this->md.start_of_burst = false;
+        this->md.end_of_burst = true;
+        this->streamer->send(this->buffptrs, 0, this->md);
+        this->md.end_of_burst = false;
+    }
+
+
+    uint64_t burstTransmit(void const* const* signals, uint64_t sample_size, uint64_t num_samples)
+    {
+        for(size_t i = 0; i < this->buffptrs.size(); ++i)
+            this->buffptrs[i] = reinterpret_cast<std::complex<float> const*>(signals[i]);
+
+        uint64_t num;
+        if(this->md.has_time_spec) {
+            // std::shared_lock<std::shared_mutex> lock(streamer->dev->timemtx);
+            num = this->streamer->send(this->buffptrs, num_samples, this->md, 10.0);
+        } else {
+            num = this->streamer->send(this->buffptrs, num_samples, this->md, 10.0);
+        }
+
+        if(num > 0) {
+            this->md.has_time_spec = false;
+            this->md.start_of_burst = false;
+        } else {
+            std::cout << "[uhd_rfnoc.cpp] Cannot transmit from USRP" << std::endl;
+        }
+        return num;
+    }
+};
+
+
+struct RxDefaultStreamer : Streamer
+{
+    std::string name;
+    // Device* dev;
+    uhd::rx_streamer::sptr streamer;
+    std::vector<std::complex<float> const*> buffptrs;
+    int numChannel;
+    ezsdr::StreamerElementType elementType;
+
+    bool has_time_spec;
+    uhd::time_spec_t time_spec;
+    uhd::rx_metadata_t md;
+
+
+    void startContinuousReceive(uint8_t const* optArgs, uint64_t optArgsLength)
+    {
+        // setup streaming
+        uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+        stream_cmd.num_samps  = 0;
+        stream_cmd.stream_now = true;
+
+        // std::cout << "optArgsLength = " << optArgsLength << std::endl;
+
+        forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
+            if(tag == CommandTimeInfo::tag) {
+                assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
+                CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
+                stream_cmd.stream_now = false;
+                stream_cmd.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+                std::cout << "[multiusrp.cpp] Receive streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
+            }
+        });
+
+        if(stream_cmd.stream_now) {
+            this->streamer->issue_stream_cmd(stream_cmd);
+        } else {
+            // std::shared_lock<std::shared_mutex> lock(this->streamer->dev->timemtx);
+            this->streamer->issue_stream_cmd(stream_cmd);
+        }
+    }
+
+
+    void stopContinuousReceive()
+    {
+        uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+        this->streamer->issue_stream_cmd(stream_cmd);
+
+        // バッファーに溜まっている受信データを破棄する
+        size_t numSamples = 128;
+        std::vector<std::vector<std::complex<float>>> rembuf(this->numChannel);
+        for(size_t i = 0; i < this->numChannel; ++i) {
+            std::vector<std::complex<float>> v(numSamples);
+            rembuf[i] = v;
+        }
+
+        size_t num = 0;
+        do {
+            num = this->streamer->recv(rembuf, numSamples, this->md, 0.1);
+        } while(num != 0);
+    }
+
+
+    uint64_t continuousReceive(void** buffptr, uint64_t sizeofElement, uint64_t numSamples)
+    {
+        uhd::ref_vector<void*> buf(buffptr, this->numChannel);
+        return this->streamer->recv(buf, numSamples, this->md, 10.0);
+    }
+};
+
+
 struct Device
 {
     std::string name;
@@ -310,17 +446,18 @@ struct Device
 
     void setupGraph(nlohmann::json& config)
     {
-        std::cout << "Setting up RFNoC graph for Device: " << this->name << std::endl;
+        // std::cout << "Setting up RFNoC graph for Device: " << this->name << std::endl;
 
         auto graph = this->graph;
         auto conns = config.value("connections", std::vector<std::string>{});
         for(auto& conn_str: conns) {
             auto bap = parseConnection(conn_str);
             uhd::rfnoc::connect_through_blocks(graph, bap[0].id, bap[0].port, bap[1].id, bap[1].port);
-            std::cout << "\tConnected " << bap[0].id << ":" << bap[0].port << " => " << bap[1].id << ":" << bap[1].port << std::endl;
+            // std::cout << "\tConnected " << bap[0].id << ":" << bap[0].port << " => " << bap[1].id << ":" << bap[1].port << std::endl;
         }
 
         for(auto& e: config["tx-streamers"]) {
+            std::string type = e.value("type", "default");
             auto bap_strs = e.value("connect_to", std::vector<std::string>{});
             std::vector<BlockAndPort> baps = {};
             for(auto& bap_str: bap_strs) {
@@ -340,137 +477,340 @@ struct Device
             uhd::stream_args_t stream_args(srvfmt_uhd, devfmt_uhd);
 
             stream_args.args = streamer_args;
-            auto tx_streamer = graph->create_tx_streamer(baps.size(), stream_args);
 
-            auto tx_replay_streamer = new TxReplayStreamer{};
-            tx_replay_streamer->num_channels = baps.size();
-            tx_replay_streamer->streamer = tx_streamer;
-            tx_replay_streamer->elementType = ezsdr::convertStreamerElementType(srvfmt);
-            for(size_t i = 0; i < baps.size(); ++i) {
-                graph->connect(tx_streamer, i, baps[i].id, baps[i].port);
-                std::cout << "Connected TX streamer to " << baps[i].id << ":" << baps[i].port << std::endl;
+            if(type == "default")
+            {
+                auto tx_streamer = graph->create_tx_streamer(baps.size(), stream_args);
 
-                auto reply_ctrl = graph->get_block<uhd::rfnoc::replay_block_control>(baps[i].id);
-                tx_replay_streamer->replay_ctrl.push_back(reply_ctrl);
-                tx_replay_streamer->replay_chan.push_back(baps[i].port);
+                auto tx_default_streamer = new TxDefaultStreamer{};
+                tx_default_streamer->numChannel = baps.size();
+                tx_default_streamer->streamer = tx_streamer;
+                tx_default_streamer->elementType = ezsdr::convertStreamerElementType(srvfmt);
+                tx_default_streamer->buffptrs.resize(baps.size());
 
-                auto port_to_index = getUsedPortToIndex(graph, baps[i].id);
-                size_t mem_stride = reply_ctrl->get_mem_size() / port_to_index.size();
-                tx_replay_streamer->replay_buff_addr.push_back(mem_stride * port_to_index[baps[i].port]);
-                tx_replay_streamer->replay_buff_size.push_back(0);
+                for(size_t i = 0; i < baps.size(); ++i) {
+                    // 指定ブロックから伸びているstatic connectionをすべて接続する
+                    auto edges = uhd::rfnoc::get_block_chain(graph, baps[i].id, baps[i].port, false);
+                    for(auto& edge: edges) {
+                        // SEPブロックはスキップする
+                        if(uhd::rfnoc::block_id_t(edge.src_blockid).match("SEP") || uhd::rfnoc::block_id_t(edge.dst_blockid).match("SEP"))
+                            continue;
 
-                std::cout << "Using Replay Block: " << baps[i].id << ", channel " << baps[i].port
-                << ", Memory Address: " << tx_replay_streamer->replay_buff_addr.back()
-                << " to " << tx_replay_streamer->replay_buff_addr.back() + mem_stride << std::endl;
+                        graph->connect(edge.src_blockid, edge.src_port, edge.dst_blockid, edge.dst_port);
+                    }
+
+                    // 末尾に接続する．ただし，末尾がSEPなら，SEPの手前に接続する
+                    auto last_edge = edges.back();
+                    auto last_blockid = uhd::rfnoc::block_id_t(last_edge.dst_blockid);
+                    auto last_port = last_edge.dst_port;
+                    if(last_blockid.match("SEP")) {
+                        last_blockid = uhd::rfnoc::block_id_t(last_edge.src_blockid);
+                        last_port = last_edge.src_port;
+                    }
+
+                    graph->connect(tx_streamer, i, last_blockid, last_port);
+                }
+
+                this->tx_streamer_objects.push_back(tx_default_streamer);
+            }
+            else if(type == "replay")
+            {
+                auto tx_streamer = graph->create_tx_streamer(baps.size(), stream_args);
+
+                auto tx_replay_streamer = new TxReplayStreamer{};
+                tx_replay_streamer->num_channels = baps.size();
+                tx_replay_streamer->streamer = tx_streamer;
+                tx_replay_streamer->elementType = ezsdr::convertStreamerElementType(srvfmt);
+                for(size_t i = 0; i < baps.size(); ++i) {
+                    graph->connect(tx_streamer, i, baps[i].id, baps[i].port);
+                    std::cout << "Connected TX streamer to " << baps[i].id << ":" << baps[i].port << std::endl;
+
+                    auto reply_ctrl = graph->get_block<uhd::rfnoc::replay_block_control>(baps[i].id);
+                    tx_replay_streamer->replay_ctrl.push_back(reply_ctrl);
+                    tx_replay_streamer->replay_chan.push_back(baps[i].port);
+
+                    auto port_to_index = getUsedPortToIndex(graph, baps[i].id);
+                    size_t mem_stride = reply_ctrl->get_mem_size() / port_to_index.size();
+                    tx_replay_streamer->replay_buff_addr.push_back(mem_stride * port_to_index[baps[i].port]);
+                    tx_replay_streamer->replay_buff_size.push_back(0);
+
+                    std::cout << "Using Replay Block: " << baps[i].id << ", channel " << baps[i].port
+                    << ", Memory Address: " << tx_replay_streamer->replay_buff_addr.back()
+                    << " to " << tx_replay_streamer->replay_buff_addr.back() + mem_stride << std::endl;
+                }
+
+                this->tx_streamer_objects.push_back(tx_replay_streamer);
+            }
+            else
+            {
+                throw std::runtime_error(std::format("TX Streamer type '{}' is not supported for UHD_RFNoC.", type));
+            }
+        }
+
+        for(auto& e: config["rx-streamers"]) {
+            std::string type = e.value("type", "default");
+            auto bap_strs = e.value("connect_from", std::vector<std::string>{});
+            std::vector<BlockAndPort> baps = {};
+            for(auto& bap_str: bap_strs) {
+                baps.push_back(parseBlockAndPort(bap_str));
             }
 
-            this->tx_streamer_objects.push_back(tx_replay_streamer);
+            auto srvfmt = e.value<std::string_view>("srvfmt", ezsdr::StreamerElementTypeString::ComplexFloat32);
+            auto devfmt = e.value<std::string_view>("devfmt", ezsdr::StreamerElementTypeString::ComplexInt16);
+
+            std::string srvfmt_uhd = ezsdr::convertTypeStringToUHD(srvfmt);
+            std::string devfmt_uhd = ezsdr::convertTypeStringToUHD(devfmt);
+
+            if(srvfmt_uhd == "") throw std::runtime_error(std::format("srvfmt = '{}' is invalid.", srvfmt));
+            if(devfmt_uhd == "") throw std::runtime_error(std::format("devfmt = '{}' is invalid.", devfmt));
+
+            uhd::device_addr_t streamer_args;
+            uhd::stream_args_t stream_args(srvfmt_uhd, devfmt_uhd);
+
+            stream_args.args = streamer_args;
+
+            if(type == "default")
+            {
+                auto rx_streamer = graph->create_rx_streamer(baps.size(), stream_args);
+
+                auto rx_default_streamer = new RxDefaultStreamer{};
+                rx_default_streamer->numChannel = baps.size();
+                rx_default_streamer->streamer = rx_streamer;
+                rx_default_streamer->elementType = ezsdr::convertStreamerElementType(srvfmt);
+                rx_default_streamer->buffptrs.resize(baps.size());
+
+                for(size_t i = 0; i < baps.size(); ++i) {
+                    // 指定ブロックから伸びているstatic connectionをすべて接続する
+                    auto edges = uhd::rfnoc::get_block_chain(graph, baps[i].id, baps[i].port, true);
+                    for(auto& edge: edges) {
+                        // SEPブロックはスキップする
+                        if(uhd::rfnoc::block_id_t(edge.src_blockid).match("SEP") || uhd::rfnoc::block_id_t(edge.dst_blockid).match("SEP"))
+                            continue;
+
+                        graph->connect(edge.src_blockid, edge.src_port, edge.dst_blockid, edge.dst_port);
+                    }
+
+                    // 末尾に接続する．ただし，末尾がSEPなら，SEPの手前に接続する
+                    auto last_edge = edges.back();
+                    auto last_blockid = uhd::rfnoc::block_id_t(last_edge.dst_blockid);
+                    auto last_port = last_edge.dst_port;
+                    if(last_blockid.match("SEP")) {
+                        last_blockid = uhd::rfnoc::block_id_t(last_edge.src_blockid);
+                        last_port = last_edge.src_port;
+                    }
+
+                    graph->connect(last_blockid, last_port, rx_streamer, i);
+                }
+
+                this->rx_streamer_objects.push_back(rx_default_streamer);
+            }
+            else
+            {
+                throw std::runtime_error(std::format("RX Streamer type '{}' is not supported for UHD_RFNoC.", type));
+            }
         }
+
+
+        std::cout << "RFNoC graph setup completed for '" << this->name << "' (args=" << config["args"] << ")" << " as follows." << std::endl;
+        auto edges = graph->enumerate_active_connections();
+        for (auto& edge : edges) {
+            std::cout << "\t* " << edge.src_blockid << ":" << edge.src_port << " => "
+                      << edge.dst_blockid << ":" << edge.dst_port << std::endl;
+        }
+        std::cout << std::endl;
     }
 
 
     void setupRadios(nlohmann::json& config)
     {
         // Apply any radio arguments provided
-        for(auto& e: config["radios"].items()) {
-            std::string radio_block_id = e.key();
-            nlohmann::json radio_config = e.value();
+        for(auto& radio_config: config["radios"]) {
+            auto radio_block_id_port_list = radio_config.value("for", std::vector<std::string>{});
+            auto tx_args = radio_config.value("tx-args", std::string{""});
+            auto tx_freq = radio_config.value("tx-freq", double{-1});
+            auto tx_rate = radio_config.value("tx-rate", double{-1});
+            auto tx_gain = radio_config.value("tx-gain", double{-1});
+            auto tx_ant = radio_config.value("tx-ant", std::string{""});
+            auto tx_bw = radio_config.value("tx-bw", double{-1});
+            auto rx_args = radio_config.value("rx-args", std::string{""});
+            auto rx_freq = radio_config.value("rx-freq", double{-1});
+            auto rx_rate = radio_config.value("rx-rate", double{-1});
+            auto rx_gain = radio_config.value("rx-gain", double{-1});
+            auto rx_ant = radio_config.value("rx-ant", std::string{""});
+            auto rx_bw = radio_config.value("rx-bw", double{-1});
 
-            auto tx_used_channels = radio_config.value("tx-channels", std::vector<uint32_t>{});
-            auto tx_args = radio_config.value("tx-args", std::vector<std::string>{});
-            auto tx_freq = radio_config.value("tx-freq", std::vector<double>{});
-            auto tx_rate = radio_config.value("tx-rate", std::vector<double>{});
-            auto tx_gain = radio_config.value("tx-gain", std::vector<double>{});
-            auto tx_ant = radio_config.value("tx-ant", std::vector<std::string>{});
-            auto tx_bw = radio_config.value("tx-bw", std::vector<double>{});
-            auto rx_used_channels = radio_config.value("rx-channels", std::vector<uint32_t>{});
-            auto rx_args = radio_config.value("rx-args", std::vector<std::string>{});
-            auto rx_freq = radio_config.value("rx-freq", std::vector<double>{});
-            auto rx_rate = radio_config.value("rx-rate", std::vector<double>{});
-            auto rx_gain = radio_config.value("rx-gain", std::vector<double>{});
-            auto rx_ant = radio_config.value("rx-ant", std::vector<std::string>{});
-            auto rx_bw = radio_config.value("rx-bw", std::vector<double>{});
+            std::cout << rx_rate << std::endl;
 
-            auto radio_ctrl = this->graph->get_block<uhd::rfnoc::radio_control>(radio_block_id);
+            // auto radio_ctrl = this->graph->get_block<uhd::rfnoc::radio_control>(radio_block_id);
 
-            for(size_t i = 0; i < tx_used_channels.size(); ++i) {
-                uint32_t radio_chan = tx_used_channels[i];
-                std::string arg = (i < tx_args.size()) ? tx_args[i] : "";
-                double freq = (i < tx_freq.size()) ? tx_freq[i] : -1;
-                double rate = (i < tx_rate.size()) ? tx_rate[i] : -1;
-                double gain = (i < tx_gain.size()) ? tx_gain[i] : -1;
-                std::string ant = (i < tx_ant.size()) ? tx_ant[i] : "";
-                double bw = (i < tx_bw.size()) ? tx_bw[i] : -1;
-
-                if(freq < 0) {
-                    std::cerr << "Please specify the center frequency for TX channel " << radio_chan << " on " << radio_block_id << std::endl;
+            for(auto& radio_block_id_port: radio_block_id_port_list) {
+                std::cout << "Configuring " << radio_block_id_port << " of '" << this->name << "' (args=" << config["args"] << ")" << std::endl;
+                auto bap = parseBlockAndPort(radio_block_id_port);
+                auto radio_ctrl = this->graph->get_block<uhd::rfnoc::radio_control>(bap.id);
+                if (!radio_ctrl) {
+                    std::cerr << "Radio block " << bap.id << " not found in the RFNoC graph." << std::endl;
                     return;
                 }
 
-                std::cout << "Setting up TX Radio Block: " << radio_block_id << ", channel: " << radio_chan << std::endl;
+                if(tx_freq < 0 && rx_freq < 0) {
+                    std::cerr << "Please specify the center frequency for " << bap.id << ":" << bap.port << std::endl;
+                    return;
+                }
 
-                if(arg.size() > 0)
-                    radio_ctrl->set_tx_tune_args(arg, radio_chan);
-
-                // 中心周波数の設定
-                std::cout << std::fixed;
-                std::cout << "Requesting TX Freq: " << (freq / 1e6) << " MHz..." << std::endl;
-                radio_ctrl->set_tx_frequency(freq, radio_chan);
-                std::cout << "Actual TX Freq: " << (radio_ctrl->get_tx_frequency(radio_chan) / 1e6)
-                        << " MHz..." << std::endl
-                        << std::endl;
-                std::cout << std::resetiosflags(std::ios::fixed);
-
-                // サンプルレートの設定
-                if(rate >= 0) {
-                    std::cout << std::fixed;
-                    std::cout << "Requesting TX Rate: " << (rate / 1e6) << " Msps..." << std::endl;
-
-                    auto duc_id = find_block(this->graph, radio_block_id, radio_chan, "DUC");
-                    if(duc_id) {
-                        auto duc_ctrl = this->graph->get_block<uhd::rfnoc::duc_block_control>(*duc_id);
-                        std::cout << "DUC block found: " << *duc_id << std::endl;
-                        duc_ctrl->set_input_rate(rate, radio_chan);
-                        std::cout << "  Interpolation value is "
-                                << duc_ctrl->get_property<int>("interp", radio_chan) << std::endl;
-                        rate = duc_ctrl->get_input_rate(radio_chan);
-                    } else {
-                        rate = radio_ctrl->set_rate(rate);
+                if(tx_freq >= 0) {
+                    if(tx_args.size() > 0){
+                        radio_ctrl->set_tx_tune_args(tx_args, bap.port);
+                        std::cout << "\t* TX Tune Args: " << tx_args << std::endl;
                     }
 
-                    std::cout << "Actual TX Rate: " << (rate / 1e6) << " Msps..." << std::endl
+                    // 中心周波数の設定
+                    std::cout << std::fixed;
+                    radio_ctrl->set_tx_frequency(tx_freq, bap.port);
+                    std::cout << "\t* TX Freq: " << (radio_ctrl->get_tx_frequency(bap.port) / 1e6) << " MHz"
+                            << " (Requested: " << (tx_freq / 1e6) << " MHz)"
+                            << std::endl;
+                    std::cout << std::resetiosflags(std::ios::fixed);
+
+                    // サンプルレートの設定
+                    if(tx_rate >= 0) {
+                        auto duc_id = find_block(this->graph, bap.id, bap.port, "DUC");
+                        uhd::rfnoc::duc_block_control::sptr duc_ctrl;
+                        double actual_rate;
+
+                        if(duc_id) {
+                            duc_ctrl = this->graph->get_block<uhd::rfnoc::duc_block_control>(*duc_id);
+                            duc_ctrl->set_input_rate(tx_rate, bap.port);
+                            actual_rate = duc_ctrl->get_input_rate(bap.port);
+                        } else {
+                            actual_rate = radio_ctrl->set_rate(tx_rate);
+                        }
+
+                        std::cout << std::fixed;
+                        std::cout << "\t* TX Rate: ";
+                        std::cout << (actual_rate / 1e6) << " Msps"
+                                << " (Requested: " << (tx_rate / 1e6) << " Msps)"
                                 << std::endl;
-                    std::cout << std::resetiosflags(std::ios::fixed);
+
+                        if(duc_id) {
+                            std::cout << "\t* DUC Interp: " << duc_ctrl->get_property<int>("interp", bap.port) << std::endl;
+                        }
+
+                        std::cout << std::resetiosflags(std::ios::fixed);
+                    }
+
+                    // Set the RF gain
+                    if (tx_gain >= 0) {
+                        radio_ctrl->set_tx_gain(tx_gain, bap.port);
+
+                        std::cout << std::fixed;
+                        std::cout << "\t* TX Gain: "
+                                << radio_ctrl->get_tx_gain(bap.port) << " dB"
+                                << " (Requested: " << tx_gain << " dB)"
+                                << std::endl;
+                        std::cout << std::resetiosflags(std::ios::fixed);
+                    }
+
+                    // Set the analog front-end filter bandwidth
+                    if (tx_bw >= 0) {
+                        radio_ctrl->set_tx_bandwidth(tx_bw, bap.port);
+
+                        std::cout << std::fixed;
+                        std::cout << "\t* TX Bandwidth: "
+                                    << (radio_ctrl->get_tx_bandwidth(bap.port) / 1e6) << " MHz"
+                                    << " (Requested: " << (tx_bw / 1e6) << " MHz)"
+                                    << std::endl;
+                        std::cout << std::resetiosflags(std::ios::fixed);
+                    }
+
+                    // Set the antenna
+                    if (tx_ant.size() > 0) {
+                        radio_ctrl->set_tx_antenna(tx_ant, bap.port);
+
+                        std::cout << "\t* TX Antenna: "
+                                << radio_ctrl->get_tx_antenna(bap.port)
+                                << " (Requested: " << tx_ant << ")"
+                                << std::endl;
+                    }
                 }
 
-                // Set the RF gain
-                if (gain >= 0) {
+
+                if(rx_freq >= 0) {
+                    if(rx_args.size() > 0){
+                        radio_ctrl->set_rx_tune_args(rx_args, bap.port);
+                        std::cout << "\t* RX Tune Args: " << rx_args << std::endl;
+                    }
+
+                    // 中心周波数の設定
                     std::cout << std::fixed;
-                    std::cout << "Requesting TX Gain: " << gain << " dB..." << std::endl;
-                    radio_ctrl->set_tx_gain(gain, radio_chan);
-                    std::cout << "Actual TX Gain: " << radio_ctrl->get_tx_gain(radio_chan) << " dB..."
-                            << std::endl
+                    radio_ctrl->set_rx_frequency(rx_freq, bap.port);
+                    std::cout << "\t* RX Freq: " << (radio_ctrl->get_rx_frequency(bap.port) / 1e6) << " MHz"
+                            << " (Requested: " << (rx_freq / 1e6) << " MHz)"
                             << std::endl;
                     std::cout << std::resetiosflags(std::ios::fixed);
+
+                    // サンプルレートの設定
+                    if(rx_rate >= 0) {
+                        auto ddc_id = find_block(this->graph, bap.id, bap.port, "DDC");
+                        uhd::rfnoc::ddc_block_control::sptr ddc_ctrl;
+                        double actual_rate;
+
+                        if(ddc_id) {
+                            ddc_ctrl = this->graph->get_block<uhd::rfnoc::ddc_block_control>(*ddc_id);
+                            ddc_ctrl->set_output_rate(rx_rate, bap.port);
+                            actual_rate = ddc_ctrl->get_output_rate(bap.port);
+                        } else {
+                            actual_rate = radio_ctrl->set_rate(rx_rate);
+                        }
+
+                        std::cout << std::fixed;
+                        std::cout << "\t* RX Rate: ";
+                        std::cout << (actual_rate / 1e6) << " Msps"
+                                << " (Requested: " << (rx_rate / 1e6) << " Msps)"
+                                << std::endl;
+
+                        if(ddc_id) {
+                            std::cout << "\t* DDC Decim: " << ddc_ctrl->get_property<int>("decim", bap.port) << std::endl;
+                        }
+
+                        std::cout << std::resetiosflags(std::ios::fixed);
+                    }
+
+                    // Set the RF gain
+                    if (rx_gain >= 0) {
+                        radio_ctrl->set_rx_gain(rx_gain, bap.port);
+
+                        std::cout << std::fixed;
+                        std::cout << "\t* RX Gain: "
+                                << radio_ctrl->get_rx_gain(bap.port) << " dB"
+                                << " (Requested: " << rx_gain << " dB)"
+                                << std::endl;
+                        std::cout << std::resetiosflags(std::ios::fixed);
+                    }
+
+                    // Set the analog front-end filter bandwidth
+                    if (rx_bw >= 0) {
+                        radio_ctrl->set_rx_bandwidth(rx_bw, bap.port);
+
+                        std::cout << std::fixed;
+                        std::cout << "\t* RX Bandwidth: "
+                                    << (radio_ctrl->get_rx_bandwidth(bap.port) / 1e6) << " MHz"
+                                    << " (Requested: " << (rx_bw / 1e6) << " MHz)"
+                                    << std::endl;
+                        std::cout << std::resetiosflags(std::ios::fixed);
+                    }
+
+                    // Set the antenna
+                    if (rx_ant.size() > 0) {
+                        radio_ctrl->set_rx_antenna(rx_ant, bap.port);
+
+                        std::cout << "\t* RX Antenna: "
+                                << radio_ctrl->get_rx_antenna(bap.port)
+                                << " (Requested: " << rx_ant << ")"
+                                << std::endl;
+                    }
                 }
 
-                // Set the analog front-end filter bandwidth
-                if (bw >= 0) {
-                    std::cout << std::fixed;
-                    std::cout << "Requesting TX Bandwidth: " << (bw / 1e6) << " MHz..." << std::endl;
-                    radio_ctrl->set_tx_bandwidth(bw, radio_chan);
-                    std::cout << "Actual TX Bandwidth: "
-                            << (radio_ctrl->get_tx_bandwidth(radio_chan) / 1e6) << " MHz..."
-                            << std::endl
-                            << std::endl;
-                    std::cout << std::resetiosflags(std::ios::fixed);
-                }
-
-                // Set the antenna
-                if (ant.size() > 0) {
-                    radio_ctrl->set_tx_antenna(ant, radio_chan);
-                }
-
+                std::cout << std::endl;
             }
         }
     }
@@ -489,16 +829,16 @@ struct TxReplayStreamerHandler
 };
 
 
-// struct TxDefaultStreamerHandler
-// {
-//     std::shared_ptr<TxDefaultStreamer>* streamer;
-// };
+struct TxDefaultStreamerHandler
+{
+    TxDefaultStreamer* streamer;
+};
 
 
-// struct RxDefaultStreamerHandler
-// {
-//     std::shared_ptr<RxDefaultStreamer>* streamer;
-// };
+struct RxDefaultStreamerHandler
+{
+    RxDefaultStreamer* streamer;
+};
 
 
 DeviceHandler setupDevice(
@@ -556,6 +896,28 @@ TxReplayStreamerHandler getTxReplayStreamer(char const* name, DeviceHandler hand
 }
 
 
+TxDefaultStreamerHandler getTxDefaultStreamer(char const* name, DeviceHandler handler, uint32_t index)
+{
+    Device* dev = handler.dev;
+
+    TxDefaultStreamerHandler tx_handler;
+    tx_handler.streamer = dynamic_cast<TxDefaultStreamer*>(dev->tx_streamer_objects[index]);
+
+    return tx_handler;
+}
+
+
+RxDefaultStreamerHandler getRxDefaultStreamer(char const* name, DeviceHandler handler, uint32_t index)
+{
+    Device* dev = handler.dev;
+
+    RxDefaultStreamerHandler rx_handler;
+    rx_handler.streamer = dynamic_cast<RxDefaultStreamer*>(dev->rx_streamer_objects[index]);
+
+    return rx_handler;
+}
+
+
 void destroyDevice(DeviceHandler& handler)
 {
     Device* dev = handler.dev;
@@ -610,6 +972,42 @@ void stopTransmit(TxReplayStreamerHandler handler)
 uint getNumChannels(TxReplayStreamerHandler handler)
 {
     return handler.streamer->getNumChannels();
+}
+
+
+void beginBurstTransmit(TxDefaultStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
+{
+    handler.streamer->beginBurstTransmit(optArgs, optArgsLength);
+}
+
+
+void endBurstTransmit(TxDefaultStreamerHandler handler)
+{
+    handler.streamer->endBurstTransmit();
+}
+
+
+uint64_t burstTransmit(TxDefaultStreamerHandler handler, void const* const* signals, uint64_t sample_size, uint64_t num_samples)
+{
+    return handler.streamer->burstTransmit(signals, sample_size, num_samples);
+}
+
+
+void startContinuousReceive(RxDefaultStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
+{
+    handler.streamer->startContinuousReceive(optArgs, optArgsLength);
+}
+
+
+void stopContinuousReceive(RxDefaultStreamerHandler handler)
+{
+    handler.streamer->stopContinuousReceive();
+}
+
+
+uint64_t continuousReceive(RxDefaultStreamerHandler handler, void** buffptr, uint64_t sizeofElement, uint64_t numSamples)
+{
+    return handler.streamer->continuousReceive(buffptr, sizeofElement, numSamples);
 }
 
 

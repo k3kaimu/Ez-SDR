@@ -7,43 +7,28 @@
             "timeref": ["internal"],
             "clockref": ["internal"],
             "connections": [
-                "0/Replay#0:0 => 0/Radio#0:0",
-                "0/Replay#0:1 => 0/Radio#1:0"
+                "0/Replay#0:0 => 0/Radio#0:0"
             ],
-            "radios": {
-                "0/Radio#0": {
-                    "tx-channels": [0],
-                    "tx-args": [""],
-                    "tx-rate": [200e6],
-                    "tx-freq": [0],
-                    "tx-gain": [0],
-                    "tx-ant": [""],
-                    "tx-bw": [200e6],
-                    "rx-args": [""],
-                    "rx-rate": [200e6],
-                    "rx-freq": [0],
-                    "rx-gain": [0],
-                    "rx-ant": [""],
-                    "rx-bw": [200e6]
-                },
-                "0/Radio#1": {
-                    "tx-channels": [0],
-                    "tx-args": [""],
-                    "tx-rate": [200e6],
-                    "tx-freq": [0],
-                    "tx-gain": [0],
-                    "tx-ant": [""],
-                    "tx-bw": [200e6],
-                    "rx-args": [""],
-                    "rx-rate": [200e6],
-                    "rx-freq": [0],
-                    "rx-gain": [0],
-                    "rx-ant": [""],
-                    "rx-bw": [200e6]
+            "radios": [
+                {
+                    "for": ["0/Radio#0:0", "0/Radio#1:0"],
+                    "tx-args": "",
+                    "tx-rate": 10e6,
+                    "tx-freq": 2.4e9,
+                    "tx-gain": 10,
+                    "tx-ant": "TX/RX",
+                    "tx-bw": 10e6,
+                    "rx-args": "",
+                    "rx-rate": 10e6,
+                    "rx-freq": 2.4e9,
+                    "rx-gain": 10,
+                    "rx-ant": "RX2",
+                    "rx-bw": 10e6
                 }
-            },
+            ],
             "tx-streamers": [
-                { "type": "replay", "connect_to": ["0/Replay#0:0", "0/Replay#0:1"] }
+                { "type": "replay", "connect_to": ["0/Replay#0:0"] },
+                { "type": "default", "connect_to": ["0/Radio#1:0"] }
             ],
             "rx-streamers": [
                 { "type": "default", "connect_from": ["0/Radio#0:0"] },
