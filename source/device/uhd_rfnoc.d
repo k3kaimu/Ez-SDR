@@ -36,6 +36,18 @@ extern(C++, "uhd_rfnoc") nothrow @nogc
     void startTransmit(TxReplayStreamerHandler handler);
     void stopTransmit(TxReplayStreamerHandler handler);
     uint getNumChannels(TxReplayStreamerHandler handler);
+
+    TxDefaultStreamerHandler getTxDefaultStreamer(const(char)* name, DeviceHandler handler, uint index);
+    void beginBurstTransmit(TxDefaultStreamerHandler handler, const(ubyte)* optArgs, ulong optArgsLength);
+    void endBurstTransmit(TxDefaultStreamerHandler handler);
+    ulong burstTransmit(TxDefaultStreamerHandler handler, const(void** ) signals, ulong sample_size, ulong num_samples);
+    uint getNumChannels(TxDefaultStreamerHandler handler);
+
+    RxDefaultStreamerHandler getRxDefaultStreamer(const(char)* name, DeviceHandler handler, uint index);
+    void startContinuousReceive(RxDefaultStreamerHandler handler, const(ubyte)* optArgs, ulong optArgsLength);
+    void stopContinuousReceive(RxDefaultStreamerHandler handler);
+    ulong continuousReceive(RxDefaultStreamerHandler handler, void** signals, ulong sample_size, ulong num_samples);
+    uint getNumChannels(RxDefaultStreamerHandler handler);
 }
 
 
@@ -108,11 +120,9 @@ class UHDRFNoC : IDevice
             if(streamerConfig["type"].str == "replay") {
                 auto shndlr = getTxReplayStreamer(streamerName.toStringz(), cast() handler, index);
                 return new TxReplayStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
-            // } else if(streamerConfig["type"].str == "default") {
-            //     // assert(0, "Unsupported TX streamer type: " ~ streamerConfig["type"].str);
-            //     // return null;
-            //     auto shndlr = getTxDefaultStreamer(streamerName.toStringz(), cast() handler, index);
-            //     return new TxDefaultStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
+            } else if(streamerConfig["type"].str == "default") {
+                auto shndlr = getTxDefaultStreamer(streamerName.toStringz(), cast() handler, index);
+                return new TxDefaultStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
             } else {
                 enforce(0, "Unsupported TX streamer type: '" ~ streamerConfig["type"].str ~ "' for streamer " ~ streamerName ~ ". Acceptable types are ['replay', 'default'].");
                 return null;
@@ -131,8 +141,15 @@ class UHDRFNoC : IDevice
             //     assert(0, "Unsupported type");
             // }
         } else {
-            assert(0, "RX streamer is not implemented yet.");
-            return null;
+            if(streamerConfig["type"].str == "default") {
+                auto shndlr = getRxDefaultStreamer(streamerName.toStringz(), cast() handler, index);
+                return new RxDefaultStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
+            } else {
+                enforce(0, "Unsupported RX streamer type: '" ~ streamerConfig["type"].str ~ "' for streamer " ~ streamerName ~ ". Acceptable type is ['default'].");
+                return null;
+            }
+            // assert(0, "RX streamer is not implemented yet.");
+            // return null;
             // auto shndlr = getRxStreamer(streamerName.toStringz(), cast() handler, index);
             // if(getRxStreamerElementType(shndlr) == StreamerElementType.ComplexFloat32)
             //     return new RxStreamerImpl!(Complex!float)(streamerName, cast(shared) this, shndlr);
@@ -229,6 +246,157 @@ class UHDRFNoC : IDevice
         string _name;
         shared(UHDRFNoC) _dev;
         TxReplayStreamerHandler _handler;
+        size_t _numCh;
+    }
+
+
+    static class TxDefaultStreamerImpl(C) : IStreamer, IBurstTransmitter!C, ILoopTransmitter!C
+    {
+        this(string name, shared(UHDRFNoC) dev, TxDefaultStreamerHandler handler)
+        {
+            _name = name;
+            _dev = dev;
+            _handler = handler;
+            _numCh = getNumChannels(_handler);
+        }
+
+
+        string nameImpl() shared @nogc const { return _name; }
+        shared(IDevice) device() shared @nogc { return _dev; }
+        size_t numChannelImpl() shared @nogc const { return _numCh; }
+
+
+        StreamerElementType elementTypeImpl() shared @nogc const
+        {
+            static if(is(typeof(C.init.re) == float))
+                return StreamerElementType.ComplexFloat32;
+            else static if(is(typeof(C.init.re) == double))
+                return StreamerElementType.ComplexFloat64;
+            else static if(is(typeof(C.init.re) == short))
+                return StreamerElementType.ComplexInt16;
+            else static if(is(typeof(C.init.re) == byte))
+                return StreamerElementType.ComplexInt8;
+            else
+                static assert(0, "Unsupported type");
+        }
+
+
+        void beginBurstTransmit(scope const(ubyte)[] q)
+        {
+            // .waitDoneSyncPPS(cast() _dev.handler);
+            .beginBurstTransmit(_handler, q.ptr, q.length);
+        }
+
+
+        void endBurstTransmit(scope const(ubyte)[] q)
+        {
+            assert(q.length == 0, "additional arguments is not supported");
+            .endBurstTransmit(_handler);
+        }
+
+
+        void burstTransmit(scope const C[][] signals, scope const(ubyte)[] q, scope size_t[] txsamples)
+        in(signals.length > 0 && signals[0].length > 0)
+        in(signals.length == txsamples.length)
+        in(signals.length <= 128)
+        do {
+            assert(q.length == 0, "additional arguments is not supported");
+            const(C)*[128] _tmp;
+
+            size_t remain = size_t.max;
+            foreach(i; 0 .. signals.length) {
+                _tmp[i] = signals[i].ptr;
+                remain = min(remain, signals[i].length);
+            }
+
+            size_t num = .burstTransmit(_handler, cast(const(void**))_tmp.ptr, C.sizeof, remain);
+            txsamples[] = num;
+        }
+
+
+        mixin LoopByBurst!C;
+
+      private:
+        string _name;
+        shared(UHDRFNoC) _dev;
+        TxDefaultStreamerHandler _handler;
+        size_t _numCh;
+    }
+
+
+    static class RxDefaultStreamerImpl(C) : IStreamer, IContinuousReceiver!C
+    {
+        this(string name, shared(UHDRFNoC) dev, RxDefaultStreamerHandler handler)
+        {
+            _name = name;
+            _dev = dev;
+            _handler = handler;
+            _numCh = getNumChannels(_handler);
+        }
+
+        string nameImpl() shared @nogc const { return _name; }
+        shared(IDevice) device() shared @nogc { return _dev; }
+        size_t numChannelImpl() shared @nogc const { return _numCh; }
+
+
+        StreamerElementType elementTypeImpl() shared @nogc const
+        {
+            static if(is(typeof(C.init.re) == float))
+                return StreamerElementType.ComplexFloat32;
+            else static if(is(typeof(C.init.re) == double))
+                return StreamerElementType.ComplexFloat64;
+            else static if(is(typeof(C.init.re) == short))
+                return StreamerElementType.ComplexInt16;
+            else static if(is(typeof(C.init.re) == byte))
+                return StreamerElementType.ComplexInt8;
+            else
+                static assert(0, "Unsupported type");
+        }
+
+
+        void startContinuousReceive(scope const(ubyte)[] optArgs) @nogc
+        {
+            // .waitDoneSyncPPS(cast() _dev.handler);
+            .startContinuousReceive(_handler, optArgs.ptr, optArgs.length);
+        }
+
+        void stopContinuousReceive(scope const(ubyte)[] optArgs) @nogc
+        {
+            assert(optArgs.length == 0, "additional arguments is not supported");
+            .stopContinuousReceive(_handler);
+        }
+
+        void singleReceive(scope C[][] buffers, scope const(ubyte)[] optArgs, scope size_t[] rxsamples) @nogc
+        in(buffers.length > 0)
+        in{
+            foreach(e; buffers)
+                assert(e.length > 0, "each buffer must have at least one sample");
+        }
+        in(buffers.length == rxsamples.length)
+        in(buffers.length <= 128)
+        do {
+            assert(optArgs.length == 0, "additional arguments is not supported");
+            const(C)*[128] _tmp;
+
+            size_t remain = size_t.max;
+            foreach(i; 0 .. buffers.length) {
+                _tmp[i] = buffers[i].ptr;
+                remain = min(remain, buffers[i].length);
+            }
+
+            if(remain == 0) {
+                import core.stdc.stdio : printf;
+                printf("Warning: No samples to receive. Some buffers are empty.\n");
+            }
+
+            size_t num = .continuousReceive(_handler, cast(void**)_tmp.ptr, C.sizeof, remain);
+            rxsamples[] = num;
+        }
+
+      private:
+        string _name;
+        shared(UHDRFNoC) _dev;
+        RxDefaultStreamerHandler _handler;
         size_t _numCh;
     }
 }

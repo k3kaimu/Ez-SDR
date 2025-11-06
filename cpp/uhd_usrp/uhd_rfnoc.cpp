@@ -154,12 +154,6 @@ struct TxReplayStreamer : Streamer
     uhd::time_spec_t time_spec;
 
 
-    uint32_t getNumChannels()
-    {
-        return this->num_channels;
-    }
-
-
     uint64_t setTransmitSignal(void const* const* signals, uint64_t sample_size, uint64_t num_samples)
     {
         for(uint32_t i = 0; i < this->num_channels; ++i) {
@@ -971,7 +965,7 @@ void stopTransmit(TxReplayStreamerHandler handler)
 
 uint getNumChannels(TxReplayStreamerHandler handler)
 {
-    return handler.streamer->getNumChannels();
+    return handler.streamer->num_channels;
 }
 
 
@@ -993,6 +987,12 @@ uint64_t burstTransmit(TxDefaultStreamerHandler handler, void const* const* sign
 }
 
 
+uint getNumChannels(TxDefaultStreamerHandler handler)
+{
+    return handler.streamer->numChannel;
+}
+
+
 void startContinuousReceive(RxDefaultStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
 {
     handler.streamer->startContinuousReceive(optArgs, optArgsLength);
@@ -1008,6 +1008,12 @@ void stopContinuousReceive(RxDefaultStreamerHandler handler)
 uint64_t continuousReceive(RxDefaultStreamerHandler handler, void** buffptr, uint64_t sizeofElement, uint64_t numSamples)
 {
     return handler.streamer->continuousReceive(buffptr, sizeofElement, numSamples);
+}
+
+
+uint getNumChannels(RxDefaultStreamerHandler handler)
+{
+    return handler.streamer->numChannel;
 }
 
 

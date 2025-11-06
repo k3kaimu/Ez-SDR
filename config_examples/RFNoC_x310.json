@@ -40,6 +40,18 @@
         "TX0": {
             "type": "CyclicTX",
             "streamers": ["USRP0:TX:0"]
+        },
+        "TX1": {
+            "type": "CyclicTX",
+            "streamers": ["USRP0:TX:1"]
+        },
+        "RX0": {
+            "type": "CyclicRX",
+            "streamers": ["USRP0:RX:0"]
+        },
+        "RX1": {
+            "type": "CyclicRX",
+            "streamers": ["USRP0:RX:1"]
         }
     },
     "port": 8888
