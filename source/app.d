@@ -46,6 +46,7 @@ import controller;
 import device;
 import dispatcher;
 import multithread;
+import scope_guard;
 
 import std.experimental.allocator;
 
@@ -110,7 +111,7 @@ void mainImpl(C)(JSONValue[string] settings)
 {
     LocalRef!(shared(IDevice))[string] devs;
     IController[string] ctrls;
-    scope(exit) {
+    auto dev_ctrl_exit = ScopeGuard.scope_exit(() {
         foreach(tag, ctrl; ctrls)
             ctrl.killDeviceThreads();
 
@@ -120,7 +121,7 @@ void mainImpl(C)(JSONValue[string] settings)
             (cast()dev.get).destruct();
 
         devs = null;
-    }
+    });
 
     // Deviceの構築
     foreach(string tag, JSONValue deviceSettings; settings["devices"].object) {
