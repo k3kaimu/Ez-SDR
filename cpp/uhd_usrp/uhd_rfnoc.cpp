@@ -150,7 +150,6 @@ struct TxReplayStreamer : Streamer
     std::vector<uint32_t> replay_buff_addr;
     std::vector<uint32_t> replay_buff_size;
 
-    bool has_time_spec;
     uhd::time_spec_t time_spec;
 
 
@@ -252,19 +251,25 @@ struct TxReplayStreamer : Streamer
     }
 
 
-    void startTransmit()
+    void startTransmit(uint8_t const* optArgs, uint64_t optArgsLength)
     {
         const bool repeat = true;
-        uhd::time_spec_t time_spec = uhd::time_spec_t(0.0);
-        if(this->has_time_spec)
-            time_spec = this->time_spec;
+        this->time_spec = uhd::time_spec_t(0.0);    // play()はtime_specが0なら無視するので，デフォルト値を0にしておく
+
+        forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
+            std::cout << "tagid = " << tag << std::endl;
+            if(tag == CommandTimeInfo::tag) {
+                assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
+                CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
+                this->time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
+                std::cout << "[uhd_rfnoc.cpp] Transmit streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
+            }
+        });
 
         for(uint32_t i = 0; i < this->num_channels; ++i) {
             this->replay_ctrl[i]->play(this->replay_buff_addr[i], this->replay_buff_size[i], this->replay_chan[i], time_spec, repeat);
             std::cout << "Started transmit on channel " << i << std::endl;
         }
-
-        this->has_time_spec = false;
     }
 
 
@@ -272,6 +277,18 @@ struct TxReplayStreamer : Streamer
     {
         for(uint32_t i = 0; i < this->num_channels; ++i)
             this->replay_ctrl[i]->stop(this->replay_chan[i]);
+    }
+
+
+    void checkError()
+    {
+        for(uint32_t i = 0; i < this->num_channels; ++i){
+            uhd::async_metadata_t async_md;
+            bool has_md = this->replay_ctrl[i]->get_play_async_metadata(async_md, 0);
+
+            if(has_md)
+                std::cout << "[uhd_rfnoc.cpp] Transmit error. uhd::async_metadata_t.event_code = " << async_md.event_code << std::endl;
+        }
     }
 };
 
@@ -350,10 +367,7 @@ struct RxDefaultStreamer : Streamer
     int numChannel;
     ezsdr::StreamerElementType elementType;
 
-    bool has_time_spec;
-    uhd::time_spec_t time_spec;
     uhd::rx_metadata_t md;
-
 
     void startContinuousReceive(uint8_t const* optArgs, uint64_t optArgsLength)
     {
@@ -362,24 +376,17 @@ struct RxDefaultStreamer : Streamer
         stream_cmd.num_samps  = 0;
         stream_cmd.stream_now = true;
 
-        // std::cout << "optArgsLength = " << optArgsLength << std::endl;
-
         forEachOptArg(optArgs, optArgsLength, [&](uint32_t tag, uint8_t const* p, uint64_t plen){
             if(tag == CommandTimeInfo::tag) {
                 assert(plen == 8 && sizeof(CommandTimeInfo) == 8);
                 CommandTimeInfo info = *reinterpret_cast<CommandTimeInfo const*>(p);
                 stream_cmd.stream_now = false;
                 stream_cmd.time_spec = uhd::time_spec_t(info.nsecs / 1000000000LL, (info.nsecs % 1000000000LL)/1e9);
-                std::cout << "[multiusrp.cpp] Receive streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
+                std::cout << "[uhd_rfnoc.cpp] Receive streaming will be start at " << info.nsecs << "[nsecs]." << std::endl;
             }
         });
 
-        if(stream_cmd.stream_now) {
-            this->streamer->issue_stream_cmd(stream_cmd);
-        } else {
-            // std::shared_lock<std::shared_mutex> lock(this->streamer->dev->timemtx);
-            this->streamer->issue_stream_cmd(stream_cmd);
-        }
+        this->streamer->issue_stream_cmd(stream_cmd);
     }
 
 
@@ -406,7 +413,21 @@ struct RxDefaultStreamer : Streamer
     uint64_t continuousReceive(void** buffptr, uint64_t sizeofElement, uint64_t numSamples)
     {
         uhd::ref_vector<void*> buf(buffptr, this->numChannel);
-        return this->streamer->recv(buf, numSamples, this->md, 10.0);
+        uint64_t num = this->streamer->recv(buf, numSamples, this->md, 0.1);
+
+        if(this->md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE) {
+            std::cout << "[uhd_rfnoc.cpp] Receive error: " << this->md.to_pp_string() << std::endl;
+        }
+
+        if(this->md.error_code == uhd::rx_metadata_t::ERROR_CODE_LATE_COMMAND) {
+            std::cout << "[uhd_rfnoc.cpp] Restarting continuous receive due to late command..." << std::endl;
+            uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+            stream_cmd.num_samps  = 0;
+            stream_cmd.stream_now = true;
+            this->streamer->issue_stream_cmd(stream_cmd);
+        }
+
+        return num;
     }
 };
 
@@ -422,6 +443,9 @@ struct Device
     uhd::rfnoc::rfnoc_graph::sptr graph;
     std::vector<Streamer*> tx_streamer_objects;
     std::vector<Streamer*> rx_streamer_objects;
+
+    AsyncTaskPool asyncTaskPool;
+    std::shared_mutex timemtx;      // set_time_unknown_pps実行中に他の動作を抑制するためのmutex
 
 
     ~Device()
@@ -915,14 +939,66 @@ RxDefaultStreamerHandler getRxDefaultStreamer(char const* name, DeviceHandler ha
 void destroyDevice(DeviceHandler& handler)
 {
     Device* dev = handler.dev;
+
+    for(auto& streamer: dev->tx_streamer_objects) {
+        // TxReplayStreamerだったらstopTransmitを呼ぶ
+        auto tx_replay_streamer = dynamic_cast<TxReplayStreamer*>(streamer);
+        if(tx_replay_streamer) {
+            tx_replay_streamer->stopTransmit();
+        }
+    }
+
     delete dev;
     handler.dev = nullptr;
 }
 
 
-void setParam(DeviceHandler handler, char const* key, char const* jsonvalue)
+void setParam(DeviceHandler handler, char const* key_, uint64_t keylen, char const* value, uint64_t valuelen, uint8_t const* info, uint64_t infolen)
 {
-    assert(0);
+    Device* dev = handler.dev;
+    std::string_view key(key_, keylen);
+    std::string_view jsonstr(value, valuelen);
+    nlohmann::json val = nlohmann::json::parse(jsonstr);
+
+    if(key == "set_time_unknown_pps_to_zero") {
+        std::cout << "[uhd_rfnoc.cpp] set_time_unknown_pps_to_zero" << std::endl;
+        dev->asyncTaskPool.removeDone();
+        dev->asyncTaskPool.enqueue([dev](){
+            std::cout << "[uhd_rfnoc.cpp] start set_time_unknown_pps_to_zero" << std::endl;
+            std::lock_guard<std::shared_mutex> lock(dev->timemtx);
+            // setTimeNextPPS(handler, 0, 0.0);
+
+            for (size_t i = 0; i < dev->graph->get_num_mboards(); ++i) {
+                dev->graph->get_mb_controller(i)->get_timekeeper(0)->set_time_next_pps(uhd::time_spec_t(0, 0.0));
+            }
+
+            std::cout << "[uhd_rfnoc.cpp] end set_time_unknown_pps_to_zero" << std::endl;
+        });
+    }
+
+    if(key == "wait_set_time_unknown_pps") {
+        std::cout << "[uhd_rfnoc.cpp] wait_set_time_unknown_pps" << std::endl;
+        std::shared_lock<std::shared_mutex> lock(dev->timemtx);
+        dev->asyncTaskPool.removeDone();
+        std::cout << "[uhd_rfnoc.cpp] end wait_set_time_unknown_pps" << std::endl;
+    }
+}
+
+
+ezsdr::String getParam(DeviceHandler handler, char const* key_, ulong keylen, uint8_t const* info, ulong infolen)
+{
+    Device* dev = handler.dev;
+    std::string_view key(key_, keylen);
+    nlohmann::json value;
+
+    if(key == "wait_set_time_unknown_pps") {
+        std::cout << "[uhd_rfnoc.cpp] wait_set_time_unknown_pps" << std::endl;
+        std::shared_lock<std::shared_mutex> lock(dev->timemtx);
+        dev->asyncTaskPool.removeDone();
+        std::cout << "[uhd_rfnoc.cpp] end wait_set_time_unknown_pps" << std::endl;
+    }
+
+    return ezsdr::createString(value.dump());
 }
 
 
@@ -952,14 +1028,20 @@ uint64_t setTransmitSignal(TxReplayStreamerHandler handler, void const* const* s
 }
 
 
-void startTransmit(TxReplayStreamerHandler handler)
+void startTransmit(TxReplayStreamerHandler handler, uint8_t const* optArgs, uint64_t optArgsLength)
 {
-    handler.streamer->startTransmit();
+    handler.streamer->startTransmit(optArgs, optArgsLength);
 }
 
 void stopTransmit(TxReplayStreamerHandler handler)
 {
     handler.streamer->stopTransmit();
+}
+
+
+void checkTransmitError(TxReplayStreamerHandler handler)
+{
+    handler.streamer->checkError();
 }
 
 

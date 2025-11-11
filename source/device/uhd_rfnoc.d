@@ -27,15 +27,17 @@ extern(C++, "uhd_rfnoc") nothrow @nogc
     // RxDefaultStreamerHandler getRxDefaultStreamer(const(char)* name, DeviceHandler handler, uint index);
     
     void destroyDevice(ref DeviceHandler handler);
-    void setParam(DeviceHandler handler, const(char)* key, const(char)* value);
+    void setParam(DeviceHandler handler, const(char)* key, ulong keyLength, const(char)* value, ulong valueLength, const(ubyte)* q, ulong qLength);
+    String getParam(DeviceHandler handler, const(char)* key, ulong keyLength, const(ubyte)* info, ulong infolen);
     void setTimeNextPPS(DeviceHandler handler, long fullsecs, double fracsecs);
     void getTimeLastPPS(DeviceHandler handler, ref long fullsecs, ref double fracsecs);
 
     TxReplayStreamerHandler getTxReplayStreamer(const(char)* name, DeviceHandler handler, uint index);
     ulong setTransmitSignal(TxReplayStreamerHandler handler, const(void**) signals, ulong sample_size, ulong num_samples);
-    void startTransmit(TxReplayStreamerHandler handler);
+    void startTransmit(TxReplayStreamerHandler handler, const(ubyte)* optArgs, ulong optArgsLength);
     void stopTransmit(TxReplayStreamerHandler handler);
     uint getNumChannels(TxReplayStreamerHandler handler);
+    void checkTransmitError(TxReplayStreamerHandler handler);
 
     TxDefaultStreamerHandler getTxDefaultStreamer(const(char)* name, DeviceHandler handler, uint index);
     void beginBurstTransmit(TxDefaultStreamerHandler handler, const(ubyte)* optArgs, ulong optArgsLength);
@@ -79,14 +81,17 @@ class UHDRFNoC : IDevice
 
     void setParam(const(char)[] key, const(char)[] value, scope const(ubyte)[] q) shared
     {
-        assert(0, "this is not implemented.");
+        .setParam(cast()this.handler, key.ptr, key.length, value.ptr, value.length, q.ptr, q.length);
     }
 
 
     UniqueArray!char getParam(const(char)[] key, scope const(ubyte)[] q) shared
     {
-        assert(0, "this is not implemented.");
-        return typeof(return).init;
+        String dst;
+        scope(exit) destroyString(dst);
+
+        dst = .getParam(cast()this.handler, key.ptr, key.length, q.ptr, q.length);
+        return typeof(return)(dst.toSlice());
     }
 
 
@@ -220,9 +225,7 @@ class UHDRFNoC : IDevice
 
         void startLoopTransmit(scope const(ubyte)[] q)
         {
-            assert(q.length == 0, "additional arguments is not supported");
-
-            this._handler.startTransmit();
+            this._handler.startTransmit(q.ptr, q.length);
         }
 
 
@@ -237,7 +240,7 @@ class UHDRFNoC : IDevice
         void performLoopTransmit(scope const(ubyte)[] q)
         {
             assert(q.length == 0, "additional arguments is not supported");
-
+            .checkTransmitError(_handler);
             Thread.sleep(10.msecs);
         }
 
