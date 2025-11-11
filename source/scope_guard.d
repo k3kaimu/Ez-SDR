@@ -17,7 +17,8 @@ shared static this()
 extern(C) void handleSigint(int signum)
 {
     if(signum == SIGINT) {
-        print("Received SIGINT, executing shutdown handlers...\n");
+        printf("Received SIGINT, executing shutdown handlers...\n");
+        fflush(stdout);
 
         // まずは各種終了処理を呼び出す
         foreach(_, handler; shutdownHandlerList) {
