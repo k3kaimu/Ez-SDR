@@ -71,12 +71,12 @@ void main(string[] args)
 
     JSONValue[string] settings;
     if(config_json) {
-        writeln("[multiusrp] Read config json from file: ", config_json);
+        writeln("[EzSDR] Read config json from file: ", config_json);
 
         import std.file : read;
         settings = parseJSON(cast(const(char)[])read(config_json)).object;
     } else {
-        writeln("[multiusrp] Read config json from stdin as follows:");
+        writeln("[EzSDR] Read config json from stdin as follows:");
         settings = parseJSON(stdin.byLine.join()).object;
         writeln(settings);
     }
