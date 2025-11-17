@@ -657,8 +657,6 @@ struct Device
             auto rx_ant = radio_config.value("rx-ant", std::string{""});
             auto rx_bw = radio_config.value("rx-bw", double{-1});
 
-            std::cout << rx_rate << std::endl;
-
             // auto radio_ctrl = this->graph->get_block<uhd::rfnoc::radio_control>(radio_block_id);
 
             for(auto& radio_block_id_port: radio_block_id_port_list) {
