@@ -3,7 +3,9 @@ module controller;
 import core.thread;
 import core.lifetime;
 
+import std.stdio;
 import std.complex;
+import std.datetime.systime;
 import std.exception;
 import std.socket;
 import std.json;
@@ -40,7 +42,7 @@ interface IController
 
     string name() const pure nothrow @safe @nogc;
     void spawnDeviceThreads();
-    void killDeviceThreads();
+    void killDeviceThreads(Duration wait = 0.msecs);
 
     void pauseDeviceThreads();
     void resumeDeviceThreads();
@@ -296,9 +298,25 @@ class ControllerImpl(CtrlThread : IControllerThread) : IController
     void spawnDeviceThreads();
 
 
-    void killDeviceThreads()
+    void killDeviceThreads(Duration wait = 0.msecs)
     {
         foreach(t; _threads) t.kill();
+        if(wait != 0.msecs) {
+            foreach(i, t; _threads) {
+                auto startTime = Clock.currTime;
+                writef("[%s] Waiting for device thread %s to finish...", _name, i);
+
+                size_t cnt = 0;
+                while(t.state != IControllerThread.State.FINISH && Clock.currTime < startTime + wait) {
+                    Thread.sleep(10.msecs);
+                    ++cnt;
+                    if(cnt % 100 == 0)
+                        writef(".");
+                }
+
+                writefln(" done.");
+            }
+        }
     }
 
 

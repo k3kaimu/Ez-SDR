@@ -113,7 +113,7 @@ void mainImpl(C)(JSONValue[string] settings)
     IController[string] ctrls;
     auto dev_ctrl_exit = ScopeGuard.scope_exit(() {
         foreach(tag, ctrl; ctrls)
-            ctrl.killDeviceThreads();
+            ctrl.killDeviceThreads(10.seconds);
 
         ctrls = null;
 
