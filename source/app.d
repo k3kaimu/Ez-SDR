@@ -123,11 +123,6 @@ void mainImpl(C)(JSONValue[string] settings)
         devs = null;
     });
 
-    // auto deviceKeys = settings["devices"].object.keys;
-    // auto controllerKeys = settings["controllers"].object.keys;
-
-    // deviceKeys.sort();
-    // controllerKeys.sort();
 
     JSONValue[] deviceList = getListOrAAFromJSON(settings["devices"]);
     JSONValue[] controllerList = getListOrAAFromJSON(settings["controllers"]);
