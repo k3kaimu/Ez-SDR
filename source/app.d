@@ -123,20 +123,31 @@ void mainImpl(C)(JSONValue[string] settings)
         devs = null;
     });
 
+    // auto deviceKeys = settings["devices"].object.keys;
+    // auto controllerKeys = settings["controllers"].object.keys;
+
+    // deviceKeys.sort();
+    // controllerKeys.sort();
+
+    JSONValue[] deviceList = getListOrAAFromJSON(settings["devices"]);
+    JSONValue[] controllerList = getListOrAAFromJSON(settings["controllers"]);
+
     // Deviceの構築
-    foreach(string tag, JSONValue deviceSettings; settings["devices"].object) {
-        import std.stdio;
+    foreach(JSONValue deviceSettings; deviceList) {
+        auto tag = deviceSettings["name"].str;
         writefln("Create and setup the device '%s' with %s", tag, deviceSettings);
 
         auto newdev = newDevice(deviceSettings["type"].str);
         newdev.construct();
+
         newdev.setup(tag, deviceSettings.object);
         devs[tag] = cast(shared)newdev;
         std.stdio.stdout.flush();
     }
 
     // Controllerの構築
-    foreach(string tag, ctrlSettings; settings["controllers"].object) {
+    foreach(JSONValue ctrlSettings; controllerList) {
+        auto tag = ctrlSettings["name"].str;
         writefln("Create and setup the controller '%s'...", tag);
 
         auto newctrl = newController(ctrlSettings["type"].str);
@@ -308,4 +319,36 @@ JSONValue[string] normalizeSettingJSONForV2(JSONValue[string] settings)
     }
 
     return settings;
+}
+
+
+JSONValue[] getListOrAAFromJSON(JSONValue json, string nameKey = "name")
+{
+    JSONValue[] dst;
+
+    if(json.type == JSONType.array) {
+        foreach(e; json.array) {
+            enforce(nameKey in e.object, format("Each element must have the key '%s'.", nameKey));
+            enforce(e.type == JSONType.object, "Each element must be an object.");
+
+            dst ~= e;
+        }
+
+        return dst;
+    } else {
+        // 連想配列形式なら，キーでソートして配列に変換する
+        auto keys = json.object.keys;
+        keys.sort();
+
+        foreach(string key; keys) {
+            auto e = json.object[key];
+            enforce(e.type == JSONType.object, "Each element must be an object.");
+            enforce(!(nameKey in e.object), format("Each element must not have the key '%s' when using associative array format.", nameKey));
+
+            e[nameKey] = key;
+            dst ~= e;
+        }
+    }
+
+    return dst;
 }
