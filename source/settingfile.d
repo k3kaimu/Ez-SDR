@@ -91,12 +91,18 @@ unittest
         "A": JSONValue(10),
         "B": JSONValue(5),
         "C": JSONValue("!COMPUTE(A * B)"),
+        "D": JSONValue(["a", "b", "c"]),
     ]);
 
     json["value1"] = JSONValue("!A");
     json["value2"] = JSONValue("!COMPUTE(A + B * 2)");
     json["nested"] = JSONValue([
         "value3": JSONValue("!COMPUTE((C - B) / 5)")
+    ]);
+    json["array"] = JSONValue([
+        JSONValue("!B"),
+        JSONValue("!COMPUTE(C / A)"),
+        JSONValue("!D"),
     ]);
 
     auto parsed = parseSettingFile(json);
@@ -107,6 +113,12 @@ unittest
     assert(parsed["value2"].get!double == 20);
     assert(parsed["nested"]["value3"].get!double == 9);
     assert(parsed["CONSTANTS"]["C"].get!double == 50);
+    assert(parsed["array"][0].get!double == 5);
+    assert(parsed["array"][1].get!double == 5);
+    assert(parsed["array"][2].type == JSONType.array);
+    assert(parsed["array"][2][0].get!string == "a");
+    assert(parsed["array"][2][1].get!string == "b");
+    assert(parsed["array"][2][2].get!string == "c");
 }
 
 private
