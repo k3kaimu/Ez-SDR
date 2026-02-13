@@ -70,12 +70,14 @@ JSONValue[string] parseSettingFile(JSONValue[string] json)
 
     // 再帰的に展開を繰り返す．また，定数展開や計算式展開が行われなくなるまで繰り返す
     while(1) {
+        // もちろん"CONSTANTS"自体も展開されるので，ループの度に更新された定数を取得し直す
         JSONValue[string] consts;
         if("CONSTANTS" in json) {
             enforce(json["CONSTANTS"].type == JSONType.object, "In the setting file, 'CONSTANTS' must be an object");
             consts = json["CONSTANTS"].object;
         }
 
+        // 更新があったかどうかを記録して，もし更新がなければループを抜ける
         bool updated = false;
         json = recursiveParse(JSONValue(json), consts, updated).object;
         if(!updated) break;
