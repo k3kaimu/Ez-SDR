@@ -47,6 +47,7 @@ import device;
 import dispatcher;
 import multithread;
 import scope_guard;
+import settingfile;
 
 import std.experimental.allocator;
 
@@ -78,8 +79,11 @@ void main(string[] args)
     } else {
         writeln("[EzSDR] Read config json from stdin as follows:");
         settings = parseJSON(stdin.byLine.join()).object;
-        writeln(settings);
     }
+
+    settings = parseSettingFile(settings);
+    writeln(settings);
+    stdout.flush();
 
     bool hasUHDException = false;
     bool isUpdatedConfig = false;
