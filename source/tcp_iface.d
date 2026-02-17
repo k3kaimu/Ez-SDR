@@ -215,6 +215,7 @@ void eventIOLoop(C, Alloc)(
                     writeln("Waiting for client connection...");
 
                     auto client = socket.accept();
+                    scope(exit) client.close();
                     writeln("Checking client...");
 
                     // クライアントのバージョンチェック
@@ -224,7 +225,6 @@ void eventIOLoop(C, Alloc)(
                         if(clientVersion != ifaceVersion) {
                             writeln("Client interface version mismatch: expected ", ifaceVersion, ", got ", clientVersion);
                             writeln("Disconnecting client...");
-                            client.close();
                             continue Lconnect;
                         } else {
                             dbg.writefln("Client interface version: %s", clientVersion);
