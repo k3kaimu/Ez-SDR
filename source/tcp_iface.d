@@ -196,7 +196,7 @@ void eventIOLoop(C, Alloc)(
     alias dbg = debugMsg!"eventIOLoop";
 
     size_t tryCount = 0;
-    while(!stop_signal_called && tryCount < 10)
+    while(!atomicLoad(stop_signal_called) && tryCount < 10)
     {
         scope(exit)
             ++tryCount;
@@ -217,22 +217,30 @@ void eventIOLoop(C, Alloc)(
             socket.bind(new InternetAddress("127.0.0.1", port));
             socket.listen(10);
             dbg.writefln("START EVENT LOOP");
-            writeln("Waiting for client connection...");
 
             alias C = Complex!float;
 
             auto readSet = new SocketSet(1);
 
-            Lconnect: while(!stop_signal_called) {
+            write("Waiting for client connection...");
+            Lconnect: while(!atomicLoad(stop_signal_called)) {
                 try {
                     Disposer.instance.tryDisposeAll();
 
                     readSet.reset();
                     readSet.add(socket);
 
-                    auto ready = Socket.select(readSet, null, null, 1.seconds);
-                    if(ready == 0)
+                    int ready = Socket.select(readSet, null, null, 1.seconds);
+                    if(ready == 0 || ready == -1) {
+                        write(".");
+                        stdout.flush();
+
+                        if(ready == -1)
+                            dbg.writeln("\nInterrupted");
+
                         continue Lconnect;
+                    }
+                    writeln();
 
                     auto client = socket.accept();
                     scope(exit) client.close();
@@ -253,10 +261,11 @@ void eventIOLoop(C, Alloc)(
 
                         writeln("Client connected. Waiting for message...");
 
-                        while(!stop_signal_called && client.isAlive) {
+                        while(!atomicLoad(stop_signal_called) && client.isAlive) {
                             auto taglen = client.rawReadValue!ushort();
                             if(taglen.isNull) {
                                 write(".");
+                                stdout.flush();
                                 continue;
                             }
 
@@ -288,6 +297,8 @@ void eventIOLoop(C, Alloc)(
                     writeln(ex);
                 }
             }
+
+            stdout.flush();
         
         } catch(Throwable ex) {
             writeln(ex);
@@ -298,7 +309,7 @@ void eventIOLoop(C, Alloc)(
 unittest
 {
     shared bool stop_signal_called = false;
-    scope(exit) stop_signal_called = true;
+    scope(exit) atomicStore(stop_signal_called, true);
 
     class TestController : ControllerImpl!IControllerThread
     {
@@ -339,8 +350,8 @@ unittest
     Thread.sleep(200.msecs);
     assert(controller.copiedMessage == testMsg);
 
-    Thread.sleep(10.seconds);
-    stop_signal_called = true;
+    Thread.sleep(1.seconds);
+    atomicStore(stop_signal_called, true);
     t.join();
 }
 

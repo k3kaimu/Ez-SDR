@@ -54,6 +54,17 @@ import std.experimental.allocator;
 import lock_free.rwqueue;
 
 
+shared bool stop_signal_called = false;
+
+extern(C) void handleSigint(int sig) nothrow @nogc {
+    import core.stdc.signal : signal, SIGINT;
+    import core.stdc.stdio : printf, fflush, stdout;
+    printf("\nSIGINT received. Stopping the server...\n");
+    fflush(stdout);
+    atomicStore(stop_signal_called, true);
+}
+
+
 void main(string[] args)
 {
     string config_json = null;
@@ -115,18 +126,6 @@ void mainImpl(C)(JSONValue[string] settings)
 {
     LocalRef!(shared(IDevice))[string] devs;
     IController[string] ctrls;
-    auto dev_ctrl_exit = ScopeGuard.scope_exit(() {
-        foreach(tag, ctrl; ctrls)
-            ctrl.killDeviceThreads(10.seconds);
-
-        ctrls = null;
-
-        foreach(tag, dev; devs)
-            (cast()dev.get).destruct();
-
-        devs = null;
-    });
-
 
     JSONValue[] deviceList = getListOrAAFromJSON(settings["devices"]);
     JSONValue[] controllerList = getListOrAAFromJSON(settings["controllers"]);
@@ -142,6 +141,12 @@ void mainImpl(C)(JSONValue[string] settings)
         newdev.setup(tag, deviceSettings.object);
         devs[tag] = cast(shared)newdev;
         std.stdio.stdout.flush();
+    }
+    scope(exit) {
+        foreach(tag, dev; devs)
+            (cast()dev.get).destruct();
+
+        devs = null;
     }
 
     // Controllerの構築
@@ -166,13 +171,13 @@ void mainImpl(C)(JSONValue[string] settings)
     }
 
     {
-        writeln("Press Ctrl + C to stop streaming...");
+        import core.stdc.signal;
+
+        // SIGINTハンドラを登録
+        signal(SIGINT, &handleSigint);
+        writeln("Press Ctrl + C to stop the Ez-SDR server...");
     }
 
-    // kill switch for transmit and receive threads
-    shared bool stop_signal_called = false;
-    scope(exit)
-        atomicStore(stop_signal_called, true);
 
     writeln("START");
 
@@ -198,9 +203,18 @@ void mainImpl(C)(JSONValue[string] settings)
     };
 
     foreach(tag, ctrl; ctrls) ctrl.spawnDeviceThreads();
+    scope(exit){
+        foreach(tag, ctrl; ctrls)
+            ctrl.killDeviceThreads(10.seconds);
+
+        ctrls = null;
+    }
 
     // run TCP/IP loop
     event_dg();
+    writefln("TCP/IP loop has ended.");
+    writefln("Waiting for all threads to finish...");
+    atomicStore(stop_signal_called, true);
 }
 
 

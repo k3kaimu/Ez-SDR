@@ -1,5 +1,7 @@
 module scope_guard;
 
+__EOF__
+
 import core.stdc.signal;
 import core.atomic;
 import core.stdc.stdio;
