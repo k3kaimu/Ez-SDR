@@ -103,7 +103,7 @@ interface IControllerThread
     State state() shared;
 
     /// このスレッドがデバイスを操作しているかどうかを返します
-    bool hasDevice(IDevice d) shared;
+    bool hasDevice(shared(IDevice) d) shared;
 
     /// このスレッドを破棄する
     void kill() shared;

@@ -34,6 +34,15 @@ class RestartWithConfigData : Exception
 }
 
 
+class ProtocolError : Exception
+{
+    this(string msg, string file = __FILE__, ulong line = cast(ulong)__LINE__, Throwable nextInChain = null) pure nothrow @nogc @safe
+    {
+        super(msg, file, line, nextInChain);
+    }
+}
+
+
 struct MessageBuilder
 {
     enum ASYNC_ID = 0xFFFF_FFFF_FFFF_FFFF;
@@ -189,13 +198,15 @@ void eventIOLoop(C, Alloc)(
     size_t tryCount = 0;
     while(!stop_signal_called && tryCount < 10)
     {
-        scope(exit) {
+        scope(exit)
             ++tryCount;
-            dbg.writefln!"retry... (%s)"(tryCount);
+
+        if(tryCount > 0) {
+            dbg.writefln("Retrying to start eventIOLoop... (attempt %s)", tryCount);
             Thread.sleep(10.seconds);
         }
-        try {
 
+        try {
             auto socket = new TcpSocket(AddressFamily.INET);
             scope(exit) {
                 // socket.shutdown();
@@ -206,52 +217,72 @@ void eventIOLoop(C, Alloc)(
             socket.bind(new InternetAddress("127.0.0.1", port));
             socket.listen(10);
             dbg.writefln("START EVENT LOOP");
+            writeln("Waiting for client connection...");
 
             alias C = Complex!float;
+
+            auto readSet = new SocketSet(1);
 
             Lconnect: while(!stop_signal_called) {
                 try {
                     Disposer.instance.tryDisposeAll();
-                    writeln("Waiting for client connection...");
+
+                    readSet.reset();
+                    readSet.add(socket);
+
+                    auto ready = Socket.select(readSet, null, null, 1.seconds);
+                    if(ready == 0)
+                        continue Lconnect;
 
                     auto client = socket.accept();
                     scope(exit) client.close();
+                    client.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, 1.seconds);
                     writeln("Checking client...");
 
                     // クライアントのバージョンチェック
-                    {
-                        size_t len = rawReadValue!ushort(client).enforceNotNull;
-                        string clientVersion = rawReadString(client, len).enforceNotNull;
-                        if(clientVersion != ifaceVersion) {
-                            writeln("Client interface version mismatch: expected ", ifaceVersion, ", got ", clientVersion);
-                            writeln("Disconnecting client...");
-                            continue Lconnect;
-                        } else {
-                            dbg.writefln("Client interface version: %s", clientVersion);
+                    LnextMsg: try{
+                        {
+                            size_t len = rawReadValue!ushort(client).enforceProtocol!"!a.isNull && a.get > 0"( "Failed to read client version length").get;
+                            string clientVersion = rawReadString(client, len).enforceProtocol!"!a.isNull"("Failed to read client version").get;
+                            if(clientVersion != ifaceVersion) {
+                                throw new ProtocolError("Client interface version mismatch: expected " ~ ifaceVersion ~ ", got " ~ clientVersion);
+                            } else {
+                                dbg.writefln("Client interface version: %s", clientVersion);
+                            }
                         }
-                    }
 
-                    writeln("Client connected");
+                        writeln("Client connected. Waiting for message...");
 
-                    while(!stop_signal_called && client.isAlive) {
-                        auto taglen = client.rawReadValue!ushort();
-                        if(taglen.isNull || taglen == 0) continue Lconnect;
-                        dbg.writefln("taglen = %s", taglen.get);
+                        while(!stop_signal_called && client.isAlive) {
+                            auto taglen = client.rawReadValue!ushort();
+                            if(taglen.isNull) {
+                                write(".");
+                                continue;
+                            }
 
-                        char[] tag = cast(char[]) alloc.allocate(taglen.get);
-                        scope(exit) alloc.deallocate(tag);
-                        if(client.rawReadBuffer(tag) != taglen) continue Lconnect;
-                        dbg.writefln("tag = %s", tag);
+                            dbg.writefln("taglen = %s", taglen.get);
+                            enforceProtocol!"a > 0"(taglen.get, "Failed to read tag length");
 
-                        auto msglen = client.rawReadValue!ulong();
-                        if(msglen.isNull) continue Lconnect;
-                        dbg.writefln("msglen = %s", msglen.get);
+                            char[] tag = cast(char[]) alloc.allocate(taglen.get);
+                            scope(exit) alloc.deallocate(tag);
+                            if(client.rawReadBuffer(tag) != taglen.get) throw new ProtocolError("Failed to read tag buffer");
+                            dbg.writefln("tag = %s", tag);
 
-                        ubyte[] msgbuf = cast(ubyte[])alloc.allocate(msglen.get);
-                        scope(exit) alloc.deallocate(msgbuf);
-                        if(client.rawReadBuffer(msgbuf) != msglen) continue Lconnect;
+                            ulong msglen = client.rawReadValue!ulong().enforceProtocol!"!a.isNull"("Failed to read message length").get;
+                            dbg.writefln("msglen = %s", msglen);
 
-                        dispatcher.dispatch(tag, msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
+                            ubyte[] msgbuf = cast(ubyte[])alloc.allocate(msglen);
+                            scope(exit) alloc.deallocate(msgbuf);
+                            if(client.rawReadBuffer(msgbuf) != msglen) throw new ProtocolError("Failed to read message buffer");
+
+                            dispatcher.dispatch(tag, msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
+
+                            writefln("Message dispatched: tag = %s, msglen = %s", tag, msglen);
+                            writefln("waiting for next message...");
+                        }
+                    } catch(ProtocolError ex) {
+                        writeln("Protocol error: ", ex.msg);
+                        writeln("Disconnecting client...");
                     }
                 } catch(Exception ex) {
                     writeln(ex);
@@ -264,12 +295,65 @@ void eventIOLoop(C, Alloc)(
     }
 }
 
+unittest
+{
+    shared bool stop_signal_called = false;
+    scope(exit) stop_signal_called = true;
+
+    class TestController : ControllerImpl!IControllerThread
+    {
+        override
+        void processMessage(scope const(ubyte)[] msgbuf, void delegate(scope const(ubyte)[]) writer) 
+        {
+            copiedMessage = msgbuf.dup;
+        }
+
+
+        override
+        void spawnDeviceThreads() {}
+
+        ubyte[] copiedMessage;
+    }
+
+    immutable string testTag = "TEST";
+    auto controller = new TestController();
+    auto t = new Thread({
+        auto dispatcher = new MessageDispatcher(null, [testTag: controller]);
+        eventIOLoop!(Complex!float)(stop_signal_called, 8080, theAllocator, dispatcher);
+    }).start();
+
+    // 別スレッドでTCPクライアントを作って接続テスト
+    Thread.sleep(1.seconds);
+    auto client = new TcpSocket(AddressFamily.INET);
+    client.connect(new InternetAddress("127.0.0.1", 8080));
+    scope(exit) client.close();
+
+    // クライアントのバージョンチェック
+    client.rawWriteValue!ushort(ifaceVersion.length);
+    client.rawWriteBuffer(cast(ubyte[])ifaceVersion);
+    client.rawWriteValue!ushort(testTag.length);
+    client.rawWriteBuffer(cast(ubyte[])testTag);
+    ubyte[] testMsg = [1, 2, 3, 4, 5];
+    client.rawWriteValue!ulong(testMsg.length);
+    client.rawWriteBuffer(testMsg);
+    Thread.sleep(200.msecs);
+    assert(controller.copiedMessage == testMsg);
+
+    Thread.sleep(10.seconds);
+    stop_signal_called = true;
+    t.join();
+}
+
 
 private
-T enforceNotNull(T)(Nullable!T value)
+T enforceProtocol(alias pred, T)(T value, string msg, string file = __FILE__, ulong line = cast(ulong)__LINE__)
 {
-    enforce(!value.isNull, "value is null");
-    return value.get;
+    import std.functional : unaryFun;
+
+    if(!unaryFun!pred(value))
+        throw new ProtocolError(msg, file, line);
+
+    return value;
 }
 
 
@@ -279,12 +363,11 @@ size_t rawReadBuffer(Socket sock, scope void[] buffer)
 
     size_t tot = 0;
     while(buffer.length != 0) {
-        immutable size = sock.receive(buffer);
-        tot += size;
-
-        if(size == 0)
+        immutable long size = sock.receive(buffer);
+        if(size == Socket.ERROR || size <= 0)
             return tot;
 
+        tot += size;
         buffer = buffer[size .. $];
     }
 
