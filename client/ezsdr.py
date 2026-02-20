@@ -195,6 +195,7 @@ class CyclicTransmitter:
     
     def transmit(self, signals, qs1=b'', qs2=b''):
         with self.client:
+            self.stopTransmitLoop()
             self.setTransmitSignal(signals, qs1)
             self.startTransmitLoop(qs2)
 
