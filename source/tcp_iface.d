@@ -227,18 +227,22 @@ void eventIOLoop(C, Alloc)(
                 try {
                     Disposer.instance.tryDisposeAll();
 
-                    readSet.reset();
-                    readSet.add(socket);
+                    {
+                        readSet.reset();
+                        readSet.add(socket);
 
-                    int ready = Socket.select(readSet, null, null, 1.seconds);
-                    if(ready == 0 || ready == -1) {
-                        write(".");
-                        stdout.flush();
+                        // ready == 0: timeout, ready == -1: error or interrupted
+                        // ready > 0: number of ready sockets (should be 1 in this case)
+                        int ready = Socket.select(readSet, null, null, 1.seconds);
+                        if(ready == 0 || ready == -1) {
+                            write(".");
+                            stdout.flush();
 
-                        if(ready == -1)
-                            dbg.writeln("\nInterrupted");
+                            if(ready == -1)
+                                dbg.writeln("\nInterrupted");
 
-                        continue Lconnect;
+                            continue Lconnect;
+                        }
                     }
                     writeln();
 
@@ -248,7 +252,7 @@ void eventIOLoop(C, Alloc)(
                     writeln("Checking client...");
 
                     // クライアントのバージョンチェック
-                    LnextMsg: try{
+                    try {
                         {
                             size_t len = rawReadValue!ushort(client).enforceProtocol!"!a.isNull && a.get > 0"( "Failed to read client version length").get;
                             string clientVersion = rawReadString(client, len).enforceProtocol!"!a.isNull"("Failed to read client version").get;
@@ -261,12 +265,29 @@ void eventIOLoop(C, Alloc)(
 
                         writeln("Client connected. Waiting for message...");
 
-                        while(!atomicLoad(stop_signal_called) && client.isAlive) {
+                        LnextMsg: while(!atomicLoad(stop_signal_called) && client.isAlive) {
+                            {
+                                readSet.reset();
+                                readSet.add(client);
+                                int ready = Socket.select(readSet, null, null, 1.seconds);
+                                if(ready == 0) {
+                                    // timeout
+                                    write(".");
+                                    stdout.flush();
+                                    continue LnextMsg;
+                                } else if(ready == -1) {
+                                    // error or interrupted
+                                    writeln("\nClient socket error or interrupted");
+                                    continue Lconnect;
+                                    break;
+                                }
+                            }
+
                             auto taglen = client.rawReadValue!ushort();
                             if(taglen.isNull) {
-                                write(".");
-                                stdout.flush();
-                                continue;
+                                // 接続が切れた可能性がある
+                                writeln("Failed to read tag length. Client may have disconnected.");
+                                continue Lconnect;
                             }
 
                             dbg.writefln("taglen = %s", taglen.get);
@@ -292,6 +313,7 @@ void eventIOLoop(C, Alloc)(
                     } catch(ProtocolError ex) {
                         writeln("Protocol error: ", ex.msg);
                         writeln("Disconnecting client...");
+                        continue Lconnect;
                     }
                 } catch(Exception ex) {
                     writeln(ex);
