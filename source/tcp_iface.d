@@ -194,6 +194,7 @@ void eventIOLoop(C, Alloc)(
 )
 {
     alias dbg = debugMsg!"eventIOLoop";
+    alias console = consoleMsg!"eventIOLoop";
 
     size_t tryCount = 0;
     while(!atomicLoad(stop_signal_called) && tryCount < 10)
@@ -222,7 +223,7 @@ void eventIOLoop(C, Alloc)(
 
             auto readSet = new SocketSet(1);
 
-            write("Waiting for client connection...");
+            console.write("Waiting for client connection...");
             Lconnect: while(!atomicLoad(stop_signal_called)) {
                 try {
                     Disposer.instance.tryDisposeAll();
@@ -235,21 +236,18 @@ void eventIOLoop(C, Alloc)(
                         // ready > 0: number of ready sockets (should be 1 in this case)
                         int ready = Socket.select(readSet, null, null, 1.seconds);
                         if(ready == 0 || ready == -1) {
-                            write(".");
-                            stdout.flush();
-
                             if(ready == -1)
                                 dbg.writeln("\nInterrupted");
 
                             continue Lconnect;
                         }
                     }
-                    writeln();
+                    console.writeln();
 
                     auto client = socket.accept();
                     scope(exit) client.close();
                     client.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, 1.seconds);
-                    writeln("Checking client...");
+                    console.writeln("Checking client...");
 
                     // クライアントのバージョンチェック
                     try {
@@ -263,7 +261,7 @@ void eventIOLoop(C, Alloc)(
                             }
                         }
 
-                        writeln("Client connected. Waiting for message...");
+                        console.writeln("Client connected. Waiting for message...");
 
                         LnextMsg: while(!atomicLoad(stop_signal_called) && client.isAlive) {
                             {
@@ -272,12 +270,10 @@ void eventIOLoop(C, Alloc)(
                                 int ready = Socket.select(readSet, null, null, 1.seconds);
                                 if(ready == 0) {
                                     // timeout
-                                    write(".");
-                                    stdout.flush();
                                     continue LnextMsg;
                                 } else if(ready == -1) {
                                     // error or interrupted
-                                    writeln("\nClient socket error or interrupted");
+                                    console.writeln("\nClient socket error or interrupted");
                                     continue Lconnect;
                                     break;
                                 }
@@ -286,7 +282,7 @@ void eventIOLoop(C, Alloc)(
                             auto taglen = client.rawReadValue!ushort();
                             if(taglen.isNull) {
                                 // 接続が切れた可能性がある
-                                writeln("Failed to read tag length. Client may have disconnected.");
+                                console.writeln("Failed to read tag length. Client may have disconnected.");
                                 continue Lconnect;
                             }
 
@@ -307,23 +303,23 @@ void eventIOLoop(C, Alloc)(
 
                             dispatcher.dispatch(tag, msgbuf, (scope const(ubyte)[] buf){ client.rawWriteBuffer(buf); });
 
-                            writefln("Message dispatched: tag = %s, msglen = %s", tag, msglen);
-                            writefln("waiting for next message...");
+                            dbg.writefln("Message dispatched: tag = %s, msglen = %s", tag, msglen);
+                            console.writefln("waiting for next message...");
                         }
                     } catch(ProtocolError ex) {
-                        writeln("Protocol error: ", ex.msg);
-                        writeln("Disconnecting client...");
+                        console.writeln("Protocol error: ", ex.msg);
+                        console.writeln("Disconnecting client...");
                         continue Lconnect;
                     }
                 } catch(Exception ex) {
-                    writeln(ex);
+                    console.writeln(ex);
                 }
             }
 
-            stdout.flush();
+            console.flush();
         
         } catch(Throwable ex) {
-            writeln(ex);
+            console.writeln(ex);
         }
     }
 }

@@ -58,6 +58,60 @@ template debugMsg(string tag)
 }
 
 
+template consoleMsg(string tag)
+{
+    string makeTag()
+    {
+        import std.datetime : Clock;
+
+        auto currTime = Clock.currTime();
+        string timeStr = std.format.format("%04d/%02d/%02d %02d:%02d:%02d.%06d", currTime.year, currTime.month, currTime.day, currTime.hour, currTime.minute, currTime.second, currTime.fracSecs.total!"usecs");
+        return timeStr ~ " [" ~ tag ~ "] ";
+    }
+
+    void writef(string fmt, T...)(T args)
+    {
+        std.stdio.write(makeTag());
+        std.stdio.writef!fmt(args);
+    }
+
+    void writef(T...)(string fmt, T args)
+    {
+        std.stdio.write(makeTag());
+        std.stdio.writef(fmt, args);
+    }
+
+    void writefln(string fmt, T...)(T args)
+    {
+        std.stdio.write(makeTag());
+        std.stdio.writefln!fmt(args);
+    }
+
+    void writefln(T...)(string fmt, T args)
+    {
+        std.stdio.write(makeTag());
+        std.stdio.writefln(fmt, args);
+    }
+
+    void write(T...)(T args)
+    {
+        std.stdio.write(makeTag());
+        std.stdio.write(args);
+    }
+
+    void writeln(T...)(T args)
+    {
+        std.stdio.write(makeTag());
+        std.stdio.writeln(args);
+    }
+
+    void flush()
+    {
+        std.stdio.stdout.flush();
+    }
+}
+
+
 bool notifyAndWait(shared(bool)[] flags, size_t myIndex, Fiber ctxSwitch, ref shared(bool) killswitch)
 {
     import core.atomic;
