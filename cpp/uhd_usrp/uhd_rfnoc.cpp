@@ -321,6 +321,8 @@ struct TxReplayStreamer : Streamer
                     }
                     std::cout << ") ";
                 }
+
+                std::cout << std::endl;
             }
         }
     }
