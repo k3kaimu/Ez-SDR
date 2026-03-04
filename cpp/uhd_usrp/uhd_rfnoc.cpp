@@ -8,6 +8,7 @@
 #include <uhd/rfnoc/replay_block_control.hpp>
 #include <uhd/rfnoc_graph.hpp>
 #include <uhd/types/tune_request.hpp>
+#include <uhd/types/metadata.hpp>
 #include <uhd/utils/graph_utils.hpp>
 #include <uhd/utils/math.hpp>
 #include <string>
@@ -286,8 +287,41 @@ struct TxReplayStreamer : Streamer
             uhd::async_metadata_t async_md;
             bool has_md = this->replay_ctrl[i]->get_play_async_metadata(async_md, 0);
 
-            if(has_md)
-                std::cout << "[uhd_rfnoc.cpp] Transmit error. uhd::async_metadata_t.event_code = " << async_md.event_code << std::endl;
+            // EVENT_CODE_OKとEVENT_CODE_BURST_ACK以外はエラーとみなす
+            // EVENT_CODE_OKは4.7では未実装のため、とりあえずEVENT_CODE_BURST_ACKのみを成功とみなす
+            if(has_md && !(/*async_md.event_code == uhd::async_metadata_t::event_code_t::EVENT_CODE_OK*/ false || async_md.event_code == uhd::async_metadata_t::event_code_t::EVENT_CODE_BURST_ACK)) {
+                std::cout << "[uhd_rfnoc.cpp] Transmit error. uhd::async_metadata_t.event_code = " << async_md.event_code
+                << ", description = ";
+                // << async_md.to_pp_string()
+                // << std::endl;
+
+                // // to_pp_stringは4.7で未実装のため，自分でエラーコードを解釈して表示する
+                // if(async_md.event_code & uhd::async_metadata_t::EVENT_CODE_BURST_ACK) {
+                //     std::cout << "BURST_ACK(A burst was successfully transmitted.) ";
+                // }
+                if(async_md.event_code & uhd::async_metadata_t::EVENT_CODE_UNDERFLOW) {
+                    std::cout << "UNDERFLOW(An internal send buffer has emptied.) ";
+                }
+                if(async_md.event_code & uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR) {
+                    std::cout << "SEQ_ERROR(Packet loss between host and device.) ";
+                }
+                if(async_md.event_code & uhd::async_metadata_t:: EVENT_CODE_TIME_ERROR) {
+                    std::cout << "TIMEOUT(Packet had time that was late.) ";
+                }
+                if(async_md.event_code & uhd::async_metadata_t::EVENT_CODE_UNDERFLOW_IN_PACKET) {
+                    std::cout << "UNDERFLOW_IN_PACKET(Underflow occurred inside a packet.) ";
+                }
+                if(async_md.event_code & uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR_IN_BURST) {
+                    std::cout << "SEQ_ERROR_IN_BURST(Packet loss within a burst.) ";
+                }
+                if(async_md.event_code & uhd::async_metadata_t::EVENT_CODE_USER_PAYLOAD) {
+                    std::cout << "EVENT_CODE_USER_PAYLOAD(Some kind of custom user payload: ";
+                    for (size_t i = 0; i < 4; ++i) {
+                        std::cout << std::hex << static_cast<int>(async_md.user_payload[i]) << std::dec << ", ";
+                    }
+                    std::cout << ") ";
+                }
+            }
         }
     }
 };
